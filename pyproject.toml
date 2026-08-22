@@ -20,6 +20,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+gui = [
+    "PySide6>=6.6",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlcookbook"]

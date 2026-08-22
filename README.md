@@ -79,6 +79,25 @@ Copy the shape of an existing one:
 - A statistical test → `statistics/association.py`: validate types from the schema, compute with scipy, return a frozen result dataclass with warnings.
 - A supervised model → `regression/linear.py`: validate target/features, build a `Pipeline` with `build_preprocessor`, train/test split, evaluate both splits via `evaluation`, return a result dataclass.
 
+## Desktop app
+
+A PySide6 desktop shell, launched with a single entry point:
+
+```bash
+pip install -e ".[gui]"
+python -m mlcookbook
+```
+
+Three layers, one seam:
+
+- `gui/` — dumb presentation: widgets render data and emit signals (`FrontPage.recipe_selected`, screens' `back_requested`). Never imports the core. Visual constants live in `gui/theme.py`; the card grid is data-driven from `gui/recipes.py`.
+- `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
+- `app.py` (repo root) — **the only module that knows both sides.** Owns the window and navigation (delete-and-redraw screen swapping) and maps a ready recipe's `key` to a screen factory in `SCREEN_FACTORIES`, where core entry points get bound to screens.
+
+To bring a recipe alive: set its `variant="ready"` and `key` in `gui/recipes.py`, build its screen in `gui/screens/`, and register a factory in `app.py`.
+
+A standalone Windows build (PyInstaller) is produced into `dist/MLcookbook/MLcookbook.exe` — see `packaging/` notes in ADAM.md.
+
 ## Web portability
 
 The core has no UI or web dependency. A future service is just:

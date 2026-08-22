@@ -9,7 +9,8 @@ This repo is a **learning environment owned by Adam, the author**. Agents assist
 ## Project shape
 
 - `src/` layout, package `mlcookbook`, Python 3.12+, hatchling build.
-- Install: `pip install -e ".[dev]"` · Test: `pytest` · Demo: `python examples/basic_usage.py`
+- Install: `pip install -e ".[dev]"` · Test: `pytest` · Demo: `python examples/basic_usage.py` · App: `python -m mlcookbook`
+- Desktop app architecture: `gui/` is dumb presentation (signals out, data in; never imports the core), `src/mlcookbook` is the UI-free core, and repo-root `app.py` is the ONLY module that may import both. Keep it that way. Navigation is delete-and-redraw via `MainWindow.show_screen`; recipes route through `SCREEN_FACTORIES` in `app.py`. There is exactly one entry point (`python -m mlcookbook`); do not add others.
 - Dependencies: pandas, numpy, scipy, scikit-learn, pytest. Do not add dependencies (statsmodels, matplotlib, etc.) without asking.
 - `classification/`, `clustering/`, `dimensionality/`, `visualization/` are intentionally skeletal. Leave them that way unless told otherwise.
 

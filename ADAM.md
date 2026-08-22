@@ -6,11 +6,16 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 ```powershell
 .venv\Scripts\activate            # if using a venv (recommended)
-pip install -e ".[dev]"           # once, or after changing pyproject.toml
+pip install -e ".[dev,gui]"       # once, or after changing pyproject.toml
 pytest                            # run everything (~5s)
 pytest tests/test_dataset.py -k schema   # run one thing while iterating
 python examples/basic_usage.py    # smoke-test the public API end to end
+python -m mlcookbook              # launch the desktop app
 ```
+
+App architecture: `gui/` is dumb (widgets + signals), `src/mlcookbook` is UI-free, and root `app.py` is the single seam that knows both — it owns the window, delete-and-redraw navigation, and the `SCREEN_FACTORIES` routing table. To wire a new recipe: flip it to `variant="ready"` with a `key` in `gui/recipes.py`, build a screen in `gui/screens/`, register a factory in `app.py`.
+
+Packaging: `python -m PyInstaller --noconfirm --windowed --name MLcookbook --icon gui\assets\mlcookbook.ico --add-data "gui/assets;gui/assets" --paths . --paths src app.py` → `dist/MLcookbook/MLcookbook.exe`. Rebuild after significant changes; the desktop/Start Menu shortcuts point at that exe, so keep the path stable.
 
 Work in small loops: write the test first (or alongside), run it red, make it green, run the full suite, commit.
 
