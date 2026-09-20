@@ -1,6 +1,9 @@
-"""Classification workflows (not yet implemented).
+"""Classification workflows.
 
-Follow the pattern in mlcookbook.regression.linear: validate against the
-schema, build a leakage-safe Pipeline via preprocessing.build_preprocessor,
-hold out a test split, and return a frozen result dataclass. See ROADMAP.md.
+Implemented: binary logistic regression (logistic_regression).
+Planned (see ROADMAP.md): tree models, cross-validation.
 """
+
+from mlcookbook.classification.logistic import LogisticRegressionResult, logistic_regression
+
+__all__ = ["LogisticRegressionResult", "logistic_regression"]

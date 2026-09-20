@@ -2,12 +2,13 @@
 
 Public API:
 
-    from mlcookbook import Dataset, VarType, correlation, linear_regression
+    from mlcookbook import Dataset, VarType, correlation, linear_regression, logistic_regression
 
 Everything else lives in submodules (mlcookbook.preprocessing,
 mlcookbook.evaluation, ...) and is imported explicitly.
 """
 
+from mlcookbook.classification.logistic import LogisticRegressionResult, logistic_regression
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.schema import VarType
 from mlcookbook.regression.linear import LinearRegressionResult, linear_regression
@@ -19,7 +20,9 @@ __all__ = [
     "CorrelationResult",
     "Dataset",
     "LinearRegressionResult",
+    "LogisticRegressionResult",
     "VarType",
     "correlation",
     "linear_regression",
+    "logistic_regression",
 ]

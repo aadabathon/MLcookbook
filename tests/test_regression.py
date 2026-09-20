@@ -52,3 +52,4 @@ def test_result_is_json_serializable(linear_df):
     json.dumps(payload)
     assert payload["train_metrics"]["n_obs"] == payload["n_train"]
     assert isinstance(payload["coefficients"], dict)
+    assert len(payload["test_actual"]) == len(payload["test_predicted"]) == payload["n_test"]

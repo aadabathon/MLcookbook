@@ -20,6 +20,7 @@ ACCENT_DIM = "#6d55b0"
 TEXT = "#e8e4f2"
 TEXT_MUTED = "#8f8a9e"
 TEXT_FAINT = "#6b6678"
+PLOT_ALT = "#2dd4bf"  # second data color for plots
 
 # --- Typography ---------------------------------------------------------------
 SERIF = '"Palatino Linotype", "Book Antiqua", Georgia, serif'
@@ -216,6 +217,61 @@ def stylesheet() -> str:
         font-size: 15px;
         color: {TEXT_FAINT};
         background: transparent;
+    }}
+
+    QLabel#DatasetBadge {{
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: {ACCENT_SOFT};
+        border: 1px solid {BORDER_ACCENT};
+        border-radius: 8px;
+        padding: 8px 12px;
+        background-color: rgba(139, 92, 246, 14);
+    }}
+    QFrame#MetricTile {{
+        background-color: {CARD};
+        border: 1px solid {BORDER};
+        border-radius: 10px;
+    }}
+    QFrame#MetricTile QLabel {{
+        background: transparent;
+    }}
+    QLabel#MetricValue {{
+        font-family: {SERIF};
+        font-size: 22px;
+        color: {TEXT};
+    }}
+    QLabel#MetricLabel {{
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: {TEXT_FAINT};
+    }}
+    QLabel#WarningNote {{
+        font-size: 12px;
+        color: {ACCENT_SOFT};
+        border-left: 2px solid {ACCENT};
+        padding: 4px 10px;
+    }}
+    QTableWidget {{
+        background-color: {CARD};
+        border: 1px solid {BORDER};
+        border-radius: 8px;
+        color: {TEXT};
+        font-size: 12px;
+        gridline-color: {BORDER};
+    }}
+    QTableWidget::item {{
+        padding: 2px 10px;
+        border-bottom: 1px solid {BORDER};
+    }}
+    QHeaderView::section {{
+        background-color: {SURFACE};
+        color: {TEXT_FAINT};
+        border: none;
+        border-bottom: 1px solid {BORDER};
+        padding: 6px 10px;
+        font-size: 10px;
+        letter-spacing: 2px;
     }}
 
     /* --- Scroll area / scrollbar ------------------------------------------ */

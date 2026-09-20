@@ -22,7 +22,7 @@ Python / Notebook / future REST API / future Web UI
 
 ```python
 import pandas as pd
-from mlcookbook import Dataset, correlation, linear_regression
+from mlcookbook import Dataset, correlation, linear_regression, logistic_regression
 
 data = Dataset(df)                      # infers a VarType for every column
 data.schema()                           # numeric / categorical / boolean / datetime / text / unsupported
@@ -35,6 +35,9 @@ corr.statistic, corr.p_value, corr.warnings
 result = linear_regression(data, target="price")
 result.test_metrics.r2
 result.to_dict()                        # plain dict, ready for json.dumps / FastAPI
+
+clf = logistic_regression(data, target="churned", positive_class=True)
+clf.test_metrics.roc_auc, clf.odds_ratios
 ```
 
 Run `python examples/basic_usage.py` for a complete tour.
@@ -60,8 +63,9 @@ pytest
 | `preprocessing` | ✅ minimal | `build_preprocessor(dataset, columns)` → unfitted sklearn `ColumnTransformer` |
 | `statistics` | ✅ one workflow | `correlation` (Pearson/Spearman) — the template for future association tests |
 | `regression` | ✅ one workflow | `linear_regression` — the template for future supervised workflows |
-| `evaluation` | ✅ minimal | `regression_metrics` → `RegressionMetrics` |
-| `classification`, `clustering`, `dimensionality`, `visualization` | 🚧 skeletal | Documented as future work; see `ROADMAP.md` |
+| `classification` | ✅ one workflow | `logistic_regression` (binary, stratified split) |
+| `evaluation` | ✅ minimal | `regression_metrics` → `RegressionMetrics`, `classification_metrics` → `ClassificationMetrics` |
+| `clustering`, `dimensionality`, `visualization` | 🚧 skeletal | Documented as future work; see `ROADMAP.md` |
 
 ### Design rules
 
@@ -70,14 +74,14 @@ pytest
 3. **Warnings are part of the result.** Dropped rows, skipped columns, constant variables, and assumption issues are surfaced in `result.warnings`, not swallowed.
 4. **No leakage.** Preprocessors are returned unfitted and are fitted inside a `Pipeline` on training data only (`regression/linear.py` shows the pattern).
 5. **sklearn/scipy do the math.** This library orchestrates and validates; it does not reimplement numerical algorithms.
-6. **Small public API.** Only `Dataset`, `VarType`, `correlation`, `linear_regression` (and their result types) are exported at the top level.
+6. **Small public API.** Only `Dataset`, `VarType`, `correlation`, `linear_regression`, `logistic_regression` (and their result types) are exported at the top level.
 
 ### Adding a new workflow
 
 Copy the shape of an existing one:
 
 - A statistical test → `statistics/association.py`: validate types from the schema, compute with scipy, return a frozen result dataclass with warnings.
-- A supervised model → `regression/linear.py`: validate target/features, build a `Pipeline` with `build_preprocessor`, train/test split, evaluate both splits via `evaluation`, return a result dataclass.
+- A supervised model → `regression/linear.py` (or `classification/logistic.py`): validate target/features, build a `Pipeline` with `build_preprocessor`, train/test split, evaluate both splits via `evaluation`, return a result dataclass.
 
 ## Desktop app
 
@@ -93,6 +97,8 @@ Three layers, one seam:
 - `gui/` — dumb presentation: widgets render data and emit signals (`FrontPage.recipe_selected`, screens' `back_requested`). Never imports the core. Visual constants live in `gui/theme.py`; the card grid is data-driven from `gui/recipes.py`.
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window and navigation (delete-and-redraw screen swapping) and maps a ready recipe's `key` to a screen factory in `SCREEN_FACTORIES`, where core entry points get bound to screens.
+
+Ready recipes open by running their core function on a small built-in scikit-learn dataset (diabetes for linear, breast cancer for logistic) and render the result through the shared `gui/screens/report_screen.py` layout (a `QPainter` plot from `gui/plot.py` leads the report: actual-vs-predicted for linear, the fitted sigmoid for logistic); `app.py` formats the result into plain strings first, so screens stay core-free. Custom-data input isn't wired up yet.
 
 To bring a recipe alive: set its `variant="ready"` and `key` in `gui/recipes.py`, build its screen in `gui/screens/`, and register a factory in `app.py`.
 

@@ -37,6 +37,8 @@ class LinearRegressionResult(Result):
     coefficients: dict[str, float]  # keyed by post-preprocessing feature name
     train_metrics: RegressionMetrics
     test_metrics: RegressionMetrics
+    test_actual: list[float]  # held-out targets, for plotting actual vs predicted
+    test_predicted: list[float]
     warnings: list[str] = field(default_factory=list)
 
 
@@ -103,6 +105,7 @@ def linear_regression(
 
     feature_names = model.named_steps["preprocess"].get_feature_names_out()
     coefs = model.named_steps["regress"].coef_
+    test_predicted = model.predict(X_test)
     return LinearRegressionResult(
         method="linear_regression",
         target=target,
@@ -112,6 +115,8 @@ def linear_regression(
         intercept=float(model.named_steps["regress"].intercept_),
         coefficients={str(name): float(c) for name, c in zip(feature_names, coefs)},
         train_metrics=regression_metrics(y_train, model.predict(X_train)),
-        test_metrics=regression_metrics(y_test, model.predict(X_test)),
+        test_metrics=regression_metrics(y_test, test_predicted),
+        test_actual=[float(v) for v in y_test],
+        test_predicted=[float(v) for v in test_predicted],
         warnings=warnings,
     )

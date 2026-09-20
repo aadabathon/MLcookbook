@@ -33,3 +33,16 @@ def linear_df() -> pd.DataFrame:
     group = rng.choice(["a", "b"], n)
     y = 3 * x1 - 2 * x2 + rng.normal(0, 0.1, n)
     return pd.DataFrame({"x1": x1, "x2": x2, "group": group, "y": y})
+
+
+@pytest.fixture
+def logistic_df() -> pd.DataFrame:
+    """Frame with a known logistic relationship: P(y=yes) = sigmoid(2*x1 - 1*x2)."""
+    rng = np.random.default_rng(1)
+    n = 400
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(0, 1, n)
+    group = rng.choice(["a", "b"], n)
+    p = 1 / (1 + np.exp(-(2 * x1 - x2)))
+    y = np.where(rng.random(n) < p, "yes", "no")
+    return pd.DataFrame({"x1": x1, "x2": x2, "group": group, "y": y})

@@ -13,7 +13,7 @@ Features intentionally left for hands-on implementation, roughly in suggested or
 
 ## Machine learning
 
-- [ ] **Logistic regression classification workflow** (`classification/`) mirroring `regression/linear.py`, with `classification_metrics` (accuracy, precision/recall/F1, ROC AUC, confusion matrix) in `evaluation/`.
+- [x] **Logistic regression classification workflow** (`classification/`) mirroring `regression/linear.py`, with `classification_metrics` (accuracy, precision/recall/F1, ROC AUC, confusion matrix) in `evaluation/`.
 - [ ] **Cross-validation** utility (`evaluation/`) wrapping `sklearn.model_selection.cross_validate` and returning a structured result (per-fold + aggregate metrics).
 - [ ] **Regularized regression** (Ridge/Lasso) — mostly a parameter to the existing workflow; a good exercise in extending without duplicating.
 - [ ] **Tree-based models** (RandomForest for regression and classification) with feature importances in the result.

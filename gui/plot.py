@@ -1,0 +1,160 @@
+"""A small 2-D plot widget drawn with QPainter (no plotting dependency).
+
+Purely presentational: it renders a plain ``spec`` dict handed in by app.py.
+
+    {
+        "title": "Actual vs predicted",
+        "x_label": "predicted", "y_label": "actual",
+        "series": [
+            {"kind": "points", "color": "accent", "label": "test rows", "points": [(x, y), ...]},
+            {"kind": "line",   "color": "muted",  "label": "perfect fit", "points": [(x, y), ...]},
+        ],
+    }
+
+``color`` is one of "accent", "alt", "muted". Axis ranges are fitted to the data.
+"""
+
+from __future__ import annotations
+
+import math
+
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QWidget
+
+from gui import theme
+
+_COLORS = {
+    "accent": theme.ACCENT,
+    "alt": theme.PLOT_ALT,
+    "muted": theme.TEXT_FAINT,
+}
+_MARGIN_LEFT, _MARGIN_RIGHT, _MARGIN_TOP, _MARGIN_BOTTOM = 62, 20, 44, 46
+
+
+def _nice_ticks(lo: float, hi: float, target: int = 6) -> list[float]:
+    """Round-numbered tick positions covering [lo, hi]."""
+    span = hi - lo
+    if span <= 0:
+        return [lo]
+    raw = span / target
+    magnitude = 10 ** math.floor(math.log10(raw))
+    step = min((m * magnitude for m in (1, 2, 5, 10) if m * magnitude >= raw), default=raw)
+    first = math.ceil(lo / step) * step
+    ticks, value = [], first
+    while value <= hi + step * 1e-9:
+        ticks.append(round(value, 10))
+        value += step
+    return ticks
+
+
+def _fmt(value: float) -> str:
+    return f"{value:.0f}" if abs(value) >= 100 or value == int(value) else f"{value:g}"
+
+
+class PlotWidget(QWidget):
+    def __init__(self, spec: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._spec = spec
+        self.setMinimumHeight(340)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(360)
+
+        xs = [p[0] for s in spec["series"] for p in s["points"]]
+        ys = [p[1] for s in spec["series"] for p in s["points"]]
+        self._x_range = self._padded(min(xs), max(xs)) if xs else (0.0, 1.0)
+        self._y_range = self._padded(min(ys), max(ys)) if ys else (0.0, 1.0)
+
+    @staticmethod
+    def _padded(lo: float, hi: float) -> tuple[float, float]:
+        pad = (hi - lo) * 0.05 or 1.0
+        return lo - pad, hi + pad
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        plot = QRectF(_MARGIN_LEFT, _MARGIN_TOP, w - _MARGIN_LEFT - _MARGIN_RIGHT, h - _MARGIN_TOP - _MARGIN_BOTTOM)
+        (x0, x1), (y0, y1) = self._x_range, self._y_range
+
+        def to_px(x: float, y: float) -> QPointF:
+            return QPointF(
+                plot.left() + (x - x0) / (x1 - x0) * plot.width(),
+                plot.bottom() - (y - y0) / (y1 - y0) * plot.height(),
+            )
+
+        p.fillRect(self.rect(), QColor(theme.SURFACE))
+        small = QFont("Segoe UI", 8)
+        p.setFont(small)
+
+        # Grid + tick labels
+        for tx in _nice_ticks(x0, x1):
+            px = to_px(tx, y0).x()
+            p.setPen(QPen(QColor(theme.BORDER), 1))
+            p.drawLine(QPointF(px, plot.top()), QPointF(px, plot.bottom()))
+            p.setPen(QColor(theme.TEXT_MUTED))
+            p.drawText(QRectF(px - 30, plot.bottom() + 4, 60, 16), Qt.AlignmentFlag.AlignCenter, _fmt(tx))
+        for ty in _nice_ticks(y0, y1):
+            py = to_px(x0, ty).y()
+            p.setPen(QPen(QColor(theme.BORDER), 1))
+            p.drawLine(QPointF(plot.left(), py), QPointF(plot.right(), py))
+            p.setPen(QColor(theme.TEXT_MUTED))
+            p.drawText(
+                QRectF(0, py - 8, _MARGIN_LEFT - 8, 16),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                _fmt(ty),
+            )
+        p.setPen(QPen(QColor(theme.BORDER_ACCENT), 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(plot)
+
+        # Data (clipped to the plot area)
+        p.save()
+        p.setClipRect(plot)
+        for series in self._spec["series"]:
+            color = QColor(_COLORS.get(series.get("color", "accent"), theme.ACCENT))
+            pts = [to_px(x, y) for x, y in series["points"]]
+            if series["kind"] == "line":
+                pen = QPen(color, 2)
+                pen.setStyle(Qt.PenStyle.DashLine if series.get("color") == "muted" else Qt.PenStyle.SolidLine)
+                p.setPen(pen)
+                for a, b in zip(pts, pts[1:]):
+                    p.drawLine(a, b)
+            else:
+                fill = QColor(color)
+                fill.setAlpha(150)
+                p.setPen(QPen(color, 1))
+                p.setBrush(fill)
+                for pt in pts:
+                    p.drawEllipse(pt, 3.5, 3.5)
+        p.restore()
+
+        # Title, axis labels, legend
+        p.setPen(QColor(theme.TEXT))
+        p.setFont(QFont("Segoe UI", 10))
+        p.drawText(QRectF(_MARGIN_LEFT, 8, w / 2, 24), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   self._spec.get("title", ""))
+        p.setFont(small)
+        p.setPen(QColor(theme.TEXT_FAINT))
+        p.drawText(QRectF(plot.left(), h - 22, plot.width(), 18), Qt.AlignmentFlag.AlignCenter,
+                   self._spec.get("x_label", ""))
+        p.save()
+        p.translate(14, plot.center().y())
+        p.rotate(-90)
+        p.drawText(QRectF(-plot.height() / 2, -10, plot.height(), 20), Qt.AlignmentFlag.AlignCenter,
+                   self._spec.get("y_label", ""))
+        p.restore()
+
+        x = plot.right()
+        for series in reversed(self._spec["series"]):
+            label = series.get("label")
+            if not label:
+                continue
+            width = p.fontMetrics().horizontalAdvance(label)
+            x -= width
+            p.setPen(QColor(theme.TEXT_MUTED))
+            p.drawText(QRectF(x, 12, width + 2, 18), Qt.AlignmentFlag.AlignVCenter, label)
+            p.setBrush(QColor(_COLORS.get(series.get("color", "accent"), theme.ACCENT)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QPointF(x - 9, 21), 4, 4)
+            x -= 26

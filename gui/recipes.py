@@ -37,6 +37,9 @@ RECIPES: list[Recipe] = [
         title="Logistic Regression",
         description="Binary classification via the sigmoid, with probability-aware metrics.",
         icon="σ",  # σ
+        status="Ready",
+        variant="ready",
+        key="logistic-regression",
     ),
     Recipe(
         title="Decision Trees",
