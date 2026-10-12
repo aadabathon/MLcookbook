@@ -14,6 +14,9 @@ Purely presentational: renders a plain ``spec`` dict handed in by app.py.
     }
 
 Colors: teal = negative class, violet = positive class (ReportScreen draws the legend).
+A node may instead carry ``"color"`` (a theme palette name such as "c2"): its bar
+and leaf outline then use that color, e.g. the predicted class of a multiclass
+tree or a single accent for regression trees, whose bar shows the predicted value.
 
 Layout: leaves are spaced evenly left to right, each parent centers over its
 children, depth runs top to bottom. Boxes show the split rule, sample count,
@@ -90,7 +93,8 @@ class TreeWidget(QWidget):
         for i, node in enumerate(self._nodes):
             box = self._box(i)
             leaf = node["left"] is None
-            outline = pos if node["positive"] else neg
+            color = QColor(theme.palette(node["color"])) if "color" in node else None
+            outline = color if color is not None else (pos if node["positive"] else neg)
             p.setBrush(QColor(theme.CARD))
             p.setPen(QPen(outline if leaf else QColor(theme.BORDER_ACCENT), 2 if leaf else 1))
             p.drawRoundedRect(box, 8, 8)
@@ -108,9 +112,9 @@ class TreeWidget(QWidget):
             # Class-mix bar: negative color, then the positive share in violet.
             bar = QRectF(box.left() + 8, box.bottom() - 13, text_w, 6)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(neg)
+            p.setBrush(QColor(theme.BORDER) if color is not None else neg)
             p.drawRoundedRect(bar, 3, 3)
             share = max(0.0, min(1.0, node["fraction"]))
             if share > 0:
-                p.setBrush(pos)
+                p.setBrush(color if color is not None else pos)
                 p.drawRoundedRect(QRectF(bar.left(), bar.top(), bar.width() * share, bar.height()), 3, 3)

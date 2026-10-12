@@ -10,7 +10,20 @@ import json
 import numpy as np
 import pandas as pd
 
-from mlcookbook import Dataset, correlation, decision_tree, linear_regression, logistic_regression, random_forest
+from mlcookbook import (
+    Dataset,
+    PreprocessingConfig,
+    anova,
+    association_scan,
+    correlation,
+    decision_tree,
+    decision_tree_regression,
+    kmeans,
+    linear_regression,
+    logistic_regression,
+    pca,
+    random_forest,
+)
 
 # --- Build a small synthetic dataset -----------------------------------------
 rng = np.random.default_rng(7)
@@ -56,7 +69,7 @@ print(f"  test RMSE:    {result.test_metrics.rmse:,.0f}")
 print(f"  coefficients: {json.dumps({k: round(v) for k, v in result.coefficients.items()})}")
 print(f"  warnings:     {result.warnings}")
 
-# --- 4. Binary classifiers ---------------------------------------------------
+# --- 4. Classifiers (binary here; 3+ classes work the same way) ---------------------------------------------------
 df["expensive"] = df["price"] > df["price"].median()
 clf_data = Dataset(df.drop(columns=["price"]))
 
@@ -78,7 +91,36 @@ print(f"  trees: {forest.n_estimators}   depth range: {min(forest.tree_depths)}-
 print(f"  importances: {json.dumps({k: round(v, 3) for k, v in forest.feature_importances.items()})}")
 print(f"  warnings: {forest.warnings}")
 
+# --- 5. Preprocessing choices and cross-validation ---------------------------
+config = PreprocessingConfig(scaling="robust", missing_indicators=True)
+ridge = linear_regression(data, target="price", penalty="ridge", alpha=1.0, preprocessing=config)
+cv = ridge.cross_validation
+print("\n=== Ridge regression, robust scaling, missing-value flags ===")
+print(f"  CV R^2: {cv.mean['r2']:.3f} +/- {cv.std['r2']:.3f} over {cv.n_folds} folds of the training rows")
+for column in ridge.preprocessing.columns:
+    print(f"  {column.column}: {' -> '.join(column.steps)}")
+
+regression_tree = decision_tree_regression(data, target="price", max_depth=2)
+print(f"\n=== Regression tree (depth 2): test R^2 {regression_tree.test_metrics.r2:.3f} ===")
+for rule in regression_tree.rules:
+    print(f"  IF {' AND '.join(rule.conditions)} THEN {rule.prediction:,.0f}")
+
+# --- 6. Statistics and unsupervised learning ---------------------------------
+groups = anova(data, "price", "city")
+print(f"\n=== ANOVA price ~ city: eta^2 {groups.eta_squared:.3f}, p {groups.p_value:.3g}, "
+      f"trust {groups.recommended_test} ===")
+scan = association_scan(data)
+print("=== Strongest associations ===")
+for pair in scan.pairs[:3]:
+    print(f"  {pair.x} ~ {pair.y}: {pair.test}, {pair.effect_measure} {pair.effect_size:.2f}")
+
+clusters = kmeans(data, features=["sqm", "rooms", "price"], n_clusters=3)
+print(f"\n=== K-means (k=3): silhouette {clusters.silhouette:.2f}, best k by silhouette "
+      f"{clusters.best_k_by_silhouette} ===")
+components = pca(data, features=["sqm", "rooms", "price"])
+print(f"=== PCA: PC1 explains {components.components[0].explained_variance_ratio:.0%} of the variance ===")
+
 # Every result serializes to JSON — this is what a future FastAPI layer returns.
-for r in (result, logit, tree, forest):
+for r in (result, logit, tree, forest, ridge, regression_tree, groups, scan, clusters, components):
     json.dumps(r.to_dict())
 print("\nAll results are JSON-serializable. Done.")

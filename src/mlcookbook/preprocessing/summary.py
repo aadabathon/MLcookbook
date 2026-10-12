@@ -17,7 +17,7 @@ from sklearn.impute import MissingIndicator
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.results import Result
 from mlcookbook.core.schema import VarType
-from mlcookbook.preprocessing.builders import MISSING_LEVEL
+from mlcookbook.preprocessing.builders import DATETIME_PARTS, MISSING_LEVEL
 from mlcookbook.preprocessing.config import PreprocessingConfig
 
 _SHOW_LEVELS = 8
@@ -50,7 +50,8 @@ def _levels(values) -> str:
     return ", ".join(shown) + (f", ... (+{more})" if more > 0 else "")
 
 
-def _numeric_steps(pipeline, config: PreprocessingConfig, n_missing: int, dates: bool) -> list[str]:
+def _numeric_steps(pipeline, i: int, config: PreprocessingConfig, n_missing: int, dates: bool) -> list[str]:
+    """Steps for the *i*-th column of a numeric (or datetime) group pipeline."""
     steps = []
     if dates:
         steps.append("expanded to days since 1970, year, month, and day of week (Monday = 0)")
@@ -59,7 +60,7 @@ def _numeric_steps(pipeline, config: PreprocessingConfig, n_missing: int, dates:
     if dates:
         steps.append(f"missing dates: each part filled with its training {config.numeric_impute}{counted}")
     else:
-        fill = _fmt(float(imputer.statistics_[0]))
+        fill = _fmt(float(imputer.statistics_[i]))
         steps.append(f"missing values filled with training {config.numeric_impute} {fill}{counted}")
     scaler = pipeline.named_steps.get("scale")
     if scaler is None:
@@ -67,39 +68,59 @@ def _numeric_steps(pipeline, config: PreprocessingConfig, n_missing: int, dates:
     elif dates:
         steps.append(f"{config.scaling} scaling of each part, fitted on training rows")
     elif config.scaling == "standard":
-        steps.append(f"standard scaling: (x - {_fmt(float(scaler.mean_[0]))}) / {_fmt(float(scaler.scale_[0]))}")
+        steps.append(f"standard scaling: (x - {_fmt(float(scaler.mean_[i]))}) / {_fmt(float(scaler.scale_[i]))}")
     elif config.scaling == "robust":
         steps.append(
-            f"robust scaling: (x - median {_fmt(float(scaler.center_[0]))}) / IQR {_fmt(float(scaler.scale_[0]))}"
+            f"robust scaling: (x - median {_fmt(float(scaler.center_[i]))}) / IQR {_fmt(float(scaler.scale_[i]))}"
         )
     else:
         steps.append(
-            f"min-max scaling from [{_fmt(float(scaler.data_min_[0]))}, {_fmt(float(scaler.data_max_[0]))}] to [0, 1]"
+            f"min-max scaling from [{_fmt(float(scaler.data_min_[i]))}, {_fmt(float(scaler.data_max_[i]))}] to [0, 1]"
         )
     return steps
 
 
-def _categorical_steps(pipeline, config: PreprocessingConfig, n_missing: int) -> list[str]:
+def _infrequent(encoder, i: int):
+    infrequent = getattr(encoder, "infrequent_categories_", None)
+    levels = infrequent[i] if infrequent is not None else None
+    return levels if levels is not None and len(levels) else None
+
+
+def _categorical_steps(pipeline, i: int, config: PreprocessingConfig, n_missing: int) -> list[str]:
+    """Steps for the *i*-th column of the categorical group pipeline."""
     imputer = pipeline.named_steps["impute"]
     if config.categorical_impute == "missing_category":
         steps = [f"missing values kept as their own level {MISSING_LEVEL!r}"]
     else:
-        fill = imputer.statistics_[0]
+        fill = imputer.statistics_[i]
         steps = [f"missing values filled with training mode {_fmt(fill.item() if hasattr(fill, 'item') else fill)}"]
     if n_missing:
         steps[0] += f" ({n_missing} missing in training)"
     encoder = pipeline.named_steps.get("onehot") or pipeline.named_steps["ordinal"]
-    levels = encoder.categories_[0]
-    infrequent = getattr(encoder, "infrequent_categories_", [None])[0]
-    pooled = infrequent is not None and len(infrequent) > 0
-    if pooled:
+    levels = encoder.categories_[i]
+    infrequent = _infrequent(encoder, i)
+    if infrequent is not None:
         steps.append(f"{len(infrequent)} rare level(s) pooled as 'infrequent': {_levels(infrequent)}")
     if "onehot" in pipeline.named_steps:
-        unseen = "'infrequent'" if pooled else "all zeros"
+        unseen = "'infrequent'" if infrequent is not None else "all zeros"
         steps.append(f"one-hot encoded: {len(levels)} training level(s) [{_levels(levels)}]; unseen levels -> {unseen}")
     else:
         steps.append(f"ordinal codes in sorted order [{_levels(levels)}]; unseen levels -> -1")
     return steps
+
+
+def _output_widths(pipeline, n_columns: int, dates: bool) -> list[int]:
+    """How many model columns each input column of a group pipeline becomes."""
+    if dates:
+        return [len(DATETIME_PARTS)] * n_columns
+    encoder = pipeline.named_steps.get("onehot")
+    if encoder is None:  # numeric or ordinal: one output per input
+        return [1] * n_columns
+    widths = []
+    for i, levels in enumerate(encoder.categories_):
+        infrequent = _infrequent(encoder, i)
+        widths.append(len(levels) - (len(infrequent) - 1 if infrequent is not None else 0))
+    return widths
 
 
 def describe_preprocessor(
@@ -112,31 +133,37 @@ def describe_preprocessor(
     schema = dataset.schema()
     by_column: dict[str, dict] = {}
     for name, transformer, columns in preprocessor.transformers_:
-        if name == "remainder" or not columns:
+        if name == "remainder" or not len(columns):
             continue
-        column = columns[0]
-        n_missing = int(X_fit[column].isna().sum())
         outputs = [str(n) for n in transformer.get_feature_names_out()]
-        entry = by_column.setdefault(column, {"steps": [], "outputs": [], "n_missing": n_missing})
         if isinstance(transformer, MissingIndicator):
-            if outputs:
-                entry["steps"].append("0/1 missing-value indicator added")
-        elif "onehot" in transformer.named_steps or "ordinal" in transformer.named_steps:
-            entry["steps"].extend(_categorical_steps(transformer, config, n_missing))
-        else:
-            dates = "expand" in transformer.named_steps
-            entry["steps"].extend(_numeric_steps(transformer, config, n_missing, dates))
-        entry["outputs"].extend(outputs)
+            flagged = {columns[j] for j in transformer.features_}
+            for column, output in zip([c for c in columns if c in flagged], outputs):
+                by_column[column]["steps"].append("0/1 missing-value indicator added")
+                by_column[column]["outputs"].append(output)
+            continue
+        dates = "expand" in transformer.named_steps
+        categorical = "onehot" in transformer.named_steps or "ordinal" in transformer.named_steps
+        offset = 0
+        for i, (column, width) in enumerate(zip(columns, _output_widths(transformer, len(columns), dates))):
+            n_missing = int(X_fit[column].isna().sum())
+            if categorical:
+                steps = _categorical_steps(transformer, i, config, n_missing)
+            else:
+                steps = _numeric_steps(transformer, i, config, n_missing, dates)
+            by_column[column] = {"steps": steps, "outputs": outputs[offset:offset + width], "n_missing": n_missing}
+            offset += width
 
     columns = [
         ColumnPreprocessing(
             column=column,
             var_type=schema.var_type(column),
-            n_missing_fit=info["n_missing"],
-            steps=info["steps"],
-            output_features=info["outputs"],
+            n_missing_fit=by_column[column]["n_missing"],
+            steps=by_column[column]["steps"],
+            output_features=by_column[column]["outputs"],
         )
-        for column, info in by_column.items()
+        for column in X_fit.columns
+        if column in by_column
     ]
     return PreprocessingSummary(
         config=config,

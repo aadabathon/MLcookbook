@@ -11,7 +11,8 @@ Purely presentational: it renders a plain ``spec`` dict handed in by app.py.
         ],
     }
 
-``color`` is one of "accent", "alt", "muted". Axis ranges are fitted to the data.
+``color`` is "accent", "alt", "muted" (dashed when a line), or "c0".."c9" from
+the categorical palette in theme.py. Axis ranges are fitted to the data.
 """
 
 from __future__ import annotations
@@ -24,11 +25,6 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from gui import theme
 
-_COLORS = {
-    "accent": theme.ACCENT,
-    "alt": theme.PLOT_ALT,
-    "muted": theme.TEXT_FAINT,
-}
 _MARGIN_LEFT, _MARGIN_RIGHT, _MARGIN_TOP, _MARGIN_BOTTOM = 62, 20, 44, 46
 
 
@@ -112,7 +108,7 @@ class PlotWidget(QWidget):
         p.save()
         p.setClipRect(plot)
         for series in self._spec["series"]:
-            color = QColor(_COLORS.get(series.get("color", "accent"), theme.ACCENT))
+            color = QColor(theme.palette(series.get("color", "accent")))
             pts = [to_px(x, y) for x, y in series["points"]]
             if series["kind"] == "line":
                 pen = QPen(color, 2)
@@ -129,11 +125,16 @@ class PlotWidget(QWidget):
                     p.drawEllipse(pt, 3.5, 3.5)
         p.restore()
 
-        # Title, axis labels, legend
+        # Title, axis labels, legend (the title gets whatever width the legend leaves)
+        p.setFont(small)
+        labels = [s.get("label") for s in self._spec["series"] if s.get("label")]
+        legend_w = sum(p.fontMetrics().horizontalAdvance(label) + 26 for label in labels)
         p.setPen(QColor(theme.TEXT))
         p.setFont(QFont("Segoe UI", 10))
-        p.drawText(QRectF(_MARGIN_LEFT, 8, w / 2, 24), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                   self._spec.get("title", ""))
+        title_w = max(80.0, plot.right() - legend_w - _MARGIN_LEFT - 12)
+        title = p.fontMetrics().elidedText(self._spec.get("title", ""), Qt.TextElideMode.ElideRight, int(title_w))
+        p.drawText(QRectF(_MARGIN_LEFT, 8, title_w, 24), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   title)
         p.setFont(small)
         p.setPen(QColor(theme.TEXT_FAINT))
         p.drawText(QRectF(plot.left(), h - 22, plot.width(), 18), Qt.AlignmentFlag.AlignCenter,
@@ -154,7 +155,7 @@ class PlotWidget(QWidget):
             x -= width
             p.setPen(QColor(theme.TEXT_MUTED))
             p.drawText(QRectF(x, 12, width + 2, 18), Qt.AlignmentFlag.AlignVCenter, label)
-            p.setBrush(QColor(_COLORS.get(series.get("color", "accent"), theme.ACCENT)))
+            p.setBrush(QColor(theme.palette(series.get("color", "accent"))))
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(x - 9, 21), 4, 4)
             x -= 26

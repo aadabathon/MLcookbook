@@ -2,15 +2,19 @@
 
 Personal notes for the author. The scaffold is done — from here on, this project is yours. This file is your map: where things are, how to work, and what to build in what order. Edit it freely; it's a living document.
 
-## End-of-day handoff - 2026-09-27
+## Handoff - 2026-10-12
 
-Today's completed work: shared CSV/Parquet import with PyArrow, data preview and column controls, background analysis, nullable-feature preprocessing, and the new binary random-forest recipe. Four recipes are ready: linear regression, logistic regression, decision trees, and random forests.
+Shipped at my request in three local commits (not pushed), in this order:
 
-Last code verification: **110 tests passed**, the public API demo ran, the new forest reports were visually checked, and the rebuilt Windows executable launched, responded, and closed normally. The usual shortcut points at the updated `dist/MLcookbook/MLcookbook.exe`. Today's final edits were documentation only.
+1. **Data pipeline** - `PreprocessingConfig` (median/mean imputation; standard/robust/min-max/no scaling; one-hot/ordinal encoding; rare-level pooling; "(missing)" as a level; numeric missing-value flags), datetime features (days since 1970, year, month, weekday), a `PreprocessingSummary` on every supervised result showing what was fitted on which rows, training-only k-fold cross-validation in every supervised workflow (`cv_folds`, default 5), data-quality checks (constant, mostly missing, ID-like, high-cardinality), and import quality (leading zeros kept, extra missing markers, ISO dates parsed, `ImportReport`).
+2. **Modules** - multiclass for all three classifiers, `decision_tree_regression`, `random_forest_regression`, ridge/lasso on `linear_regression` plus residual diagnostics, `kmeans`, `pca`, `chi_square`, `anova` (with Kruskal-Wallis), correlation confidence intervals and normality warnings, and `association_scan`.
+3. **GUI** - seven ready recipes (K-Means, PCA, Association Scan are new), a Task switch on trees/forests, multiclass targets, model settings, the Preprocessing & validation dialog, extra missing markers on import, data checks, and cross-validation/preprocessing tables in every report.
 
-The working tree remains uncommitted and includes earlier work as well as today's changes; review the diff before creating a commit or rolling anything back. No active implementation task remains. Next time, Adam chooses the next task: format expansion, saved analysis configurations/result export, and the remaining algorithms are ideas in `ROADMAP.md`, not standing instructions to build them.
+Verification: **207 pytest tests passed**; `examples/basic_usage.py` ran end to end; every recipe's demo plus multiclass-tree, regression-tree/forest, multiclass-logistic, and data-check screens were rendered and inspected; the Windows exe was rebuilt and launch-tested.
 
-Current boundaries: CSV/Parquet only, in-memory datasets, session-only imported data, fixed GUI model defaults, and binary classification for all three classifiers. Saved projects, result export, Excel/JSON/SQLite/GGUF workflows, regression forests, and multiclass evaluation are not implemented.
+Interview prep (the parts worth being able to explain): why preprocessing must be refitted inside each CV fold; why CV runs on training rows only; ridge vs lasso geometry; what residual normality/heteroscedasticity tests do and don't imply; macro vs per-class metrics and one-vs-rest AUC; silhouette vs inertia for choosing k; why PCA needs scaling; Cramér's V vs the chi-square p-value; when Kruskal-Wallis beats ANOVA; why many tests need Benjamini-Hochberg.
+
+Limits: in-memory CSV/Parquet only, nothing saved across sessions, no result export, no hyperparameter search or model comparison table, SVM/neural-network cards still "Planned".
 
 ## Daily workflow
 
@@ -25,7 +29,7 @@ python examples/basic_usage.py    # smoke-test the public API end to end
 python -m mlcookbook              # launch the desktop app
 ```
 
-App architecture: `gui/` is dumb (widgets + signals), `src/mlcookbook` is UI-free, and root `app.py` is the single seam that knows both — it owns the window, delete-and-redraw navigation, and the `SCREEN_FACTORIES` routing table. To wire a new recipe: flip it to `variant="ready"` with a `key` in `gui/recipes.py`, build a screen in `gui/screens/`, register a factory in `app.py`.
+App architecture: `gui/` is dumb (widgets + signals), `src/mlcookbook` is UI-free, and root `app.py` is the single seam that knows both — it owns the window, delete-and-redraw navigation, demo datasets (`DEMOS`), and report builders (`REPORT_BUILDERS`). To wire a new recipe: flip it to `variant="ready"` with a `key` in `gui/recipes.py`, build a screen in `gui/screens/` (declaring its task and params), and add a `DEMOS` entry and a report builder in `app.py`.
 
 Packaging: `python -m PyInstaller --noconfirm --windowed --name MLcookbook --icon gui\assets\mlcookbook.ico --add-data "gui/assets;gui/assets" --paths . --paths src --collect-all pyarrow --exclude-module torch --exclude-module torchvision --exclude-module tensorflow --exclude-module keras app.py` → `dist/MLcookbook/MLcookbook.exe`. **The exe is a frozen snapshot**: editing `.py` files never changes it. If your shortcut shows old behavior (e.g. a card still says "Planned"), it just needs a rebuild — or run from source with `py -3.12 -m mlcookbook`. Rebuild after significant changes; the desktop/Start Menu shortcuts point at that exe, so keep the path stable. `dist/` and `build/` are gitignored.
 
@@ -33,16 +37,17 @@ Work in small loops: write the test first (or alongside), run it red, make it gr
 
 ## What's built (status)
 
-| Recipe | Core | GUI screen (built-in example until user data is imported) |
+| Recipe | Core | GUI report (built-in example until user data is imported) |
 |---|---|---|
-| Linear Regression | `regression/linear.py` | actual-vs-predicted scatter, metrics, coefficients (diabetes data) |
-| Logistic Regression | `classification/logistic.py` (+ `evaluation.classification_metrics`) | fitted sigmoid, metrics, confusion matrix, odds ratios (breast cancer) |
-| Decision Trees | `classification/tree.py` | the drawn tree, depth-vs-overfit curve, importances, rules (breast cancer) |
-| Random Forests | `classification/forest.py` | held-out ROC curve, metrics, tree-size summary, importances, confusion matrix (breast cancer) |
+| Linear Regression | `regression/linear.py`, `regression/diagnostics.py` | actual vs predicted, residuals, CV, residual checks, coefficients; OLS/ridge/lasso (diabetes) |
+| Logistic Regression | `classification/logistic.py` | sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, coefficients (breast cancer) |
+| Decision Trees | `classification/tree.py`, `regression/tree.py` | drawn tree, depth curve, importances, rules; classification or regression (breast cancer) |
+| Random Forests | `classification/forest.py`, `regression/forest.py` | ROC / recall by class / actual vs predicted, structure, importances (breast cancer) |
+| K-Means | `clustering/kmeans.py` | clusters on PC1/PC2, elbow + silhouette scans, sizes, profiles (wine) |
+| PCA | `dimensionality/pca.py` | scree plot, scores, loadings (wine) |
+| Association Scan | `statistics/scan.py` (+ `association.py`, `categorical.py`, `groups.py`) | ranked pairs with adjusted p-values, detail for the strongest pair (breast cancer) |
 
-Logistic regression, decision trees, and random forests were built by an agent at my request ("vibe" mode) — read them as worked examples, then review/extend. Not built: everything else on the roadmap (chi-square, ANOVA, pairwise scan, CV utility, regularization, regression forests, k-means, PCA, diagnostics, API). Cards for SVM/PCA/K-Means/NN are still "Planned" placeholders. The GUI now accepts CSV and Parquet in all four recipes: open a file, preview rows, review column types, select the target/features (and positive class), then Run Analysis. Imported data stays available across recipes for the session. CSV delimiter/encoding are selectable; PyArrow reads Parquet. File loading and analysis run in background threads. Existing model defaults are retained.
-
-Things worth understanding in the tree code: numerics are **not scaled** for trees (thresholds in real units); the depth curve is cross-validated on the *training* rows only (using the test set to pick depth would leak); and binary-only is a deliberate scope limit (multiclass needs `classification_metrics` extended).
+Every supervised report also shows cross-validation (mean ± SD) and the fitted preprocessing table.
 
 ## Random forests milestone - 2026-09-27
 
@@ -89,6 +94,8 @@ Future format and workflow ideas are recorded in [ROADMAP.md](ROADMAP.md#directi
 - Files are UTF-8 (a UTF-16 README once broke the build on this machine).
 
 ## Suggested build order (my curriculum)
+
+_Status 2026-10-12: items 1-5 below were built at my request; see the handoff above. Kept as the study order for understanding the code._
 
 Roughly increasing difficulty; full list with hints in [ROADMAP.md](ROADMAP.md).
 

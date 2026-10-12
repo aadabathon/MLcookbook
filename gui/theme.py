@@ -21,6 +21,16 @@ TEXT = "#e8e4f2"
 TEXT_MUTED = "#8f8a9e"
 TEXT_FAINT = "#6b6678"
 PLOT_ALT = "#2dd4bf"  # second data color for plots
+# Categorical palette for clusters / classes: plot series and tree nodes refer to "c0".."c9".
+CATEGORICAL = ["#8b5cf6", "#2dd4bf", "#f59e0b", "#f472b6", "#60a5fa",
+               "#a3e635", "#fb7185", "#e879f9", "#facc15", "#94a3b8"]
+
+
+def palette(name: str) -> str:
+    """Color for a series/node color name: "accent", "alt", "muted", or "c0".."c9" (wraps)."""
+    if name.startswith("c") and name[1:].isdigit():
+        return CATEGORICAL[int(name[1:]) % len(CATEGORICAL)]
+    return {"accent": ACCENT, "alt": PLOT_ALT, "muted": TEXT_FAINT}.get(name, ACCENT)
 
 # --- Typography ---------------------------------------------------------------
 SERIF = '"Palatino Linotype", "Book Antiqua", Georgia, serif'
@@ -182,6 +192,17 @@ def stylesheet() -> str:
         border-radius: 4px;
         padding: 4px 6px;
         min-height: 20px;
+    }}
+    QSpinBox, QDoubleSpinBox {{
+        background-color: {CARD};
+        color: {TEXT};
+        border: 1px solid {BORDER};
+        border-radius: 4px;
+        padding: 4px 6px;
+        min-height: 20px;
+    }}
+    QSpinBox:focus, QDoubleSpinBox:focus {{
+        border: 1px solid {BORDER_ACCENT};
     }}
     QComboBox QAbstractItemView {{
         background-color: {CARD};

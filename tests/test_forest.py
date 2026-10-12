@@ -129,7 +129,7 @@ def test_training_only_preprocessing_and_unseen_test_category(logistic_df, monke
     def fit(pipeline, X, y=None, **kwargs):
         result = original(pipeline, X, y, **kwargs)
         if "forest" in pipeline.named_steps:
-            numeric = pipeline.named_steps["preprocess"].named_transformers_["numeric:x1"]
+            numeric = pipeline.named_steps["preprocess"].named_transformers_["numeric"]
             fits.append({"rows": set(X.index), "numeric_steps": list(numeric.named_steps),
                          "median": numeric.named_steps["impute"].statistics_[0]})
         return result

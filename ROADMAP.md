@@ -1,36 +1,42 @@
 # Roadmap
 
-Features intentionally left for hands-on implementation, roughly in suggested order. Each should follow the existing patterns: schema-validated inputs, frozen result dataclasses with warnings, leakage-safe pipelines, sklearn/scipy for the math.
+Originally features left for hands-on implementation; most were built at Adam's request on 2026-10-12 (marked [x]). Each should follow the existing patterns: schema-validated inputs, frozen result dataclasses with warnings, leakage-safe pipelines, sklearn/scipy for the math.
 
 ## Statistics
 
-- [ ] **Chi-square test of independence + Cramér's V** for categorical×categorical pairs (`statistics/association.py`). Warn on low expected cell counts.
-- [ ] **One-way ANOVA** (and Kruskal–Wallis as the nonparametric fallback) for numeric×categorical. Report effect size (eta squared).
-- [ ] **Correlation matrix / pairwise association scan**: given a `Dataset`, pick the right test per column pair based on `VarType` — this is the payoff of the schema design.
-- [ ] **Confidence intervals** on correlation coefficients (Fisher z-transform).
-- [ ] **Normality/assumption checks** (Shapiro–Wilk, skewness) surfaced as warnings on Pearson.
+- [x] **Chi-square test of independence + Cramér's V** (`statistics/categorical.py`), with a low-expected-count warning and Fisher's exact test for 2x2 tables.
+- [x] **One-way ANOVA + Kruskal–Wallis** (`statistics/groups.py`), with eta squared, Levene and per-group Shapiro-Wilk checks, and a recommended test.
+- [x] **Pairwise association scan** (`statistics/scan.py`): Spearman / chi-square / Kruskal-Wallis chosen by `VarType`, effect sizes, Benjamini-Hochberg adjusted p-values.
+- [x] **Confidence intervals** on correlation coefficients (Fisher z-transform).
+- [x] **Normality checks** surfaced as warnings on Pearson.
 - [ ] **Mutual information** for mixed-type pairs (`sklearn.feature_selection.mutual_info_*`).
 
 ## Machine learning
 
-- [x] **Logistic regression classification workflow** (`classification/`) mirroring `regression/linear.py`, with `classification_metrics` (accuracy, precision/recall/F1, ROC AUC, confusion matrix) in `evaluation/`.
-- [ ] **Cross-validation** utility (`evaluation/`) wrapping `sklearn.model_selection.cross_validate` and returning a structured result (per-fold + aggregate metrics).
-- [ ] **Regularized regression** (Ridge/Lasso) — mostly a parameter to the existing workflow; a good exercise in extending without duplicating.
-- [x] **Binary random forest classification** (`classification/forest.py`): shared validation, training-only preprocessing, held-out probabilities/ROC, importances, forest-size summary, CSV/Parquet GUI workflow.
-- [ ] **Tree-based regression**: decision-tree and random-forest regression with appropriate regression metrics. Binary decision trees and random forests are complete; multiclass classification remains open.
-- [ ] **K-means clustering workflow** (`clustering/`) with silhouette score and an elbow/inertia scan.
-- [ ] **PCA workflow** (`dimensionality/`) returning explained variance ratios and loadings.
-- [ ] **Residual diagnostics** for regression: residual normality, heteroscedasticity flags, added to `LinearRegressionResult.warnings` or a dedicated diagnostics result.
+- [x] **Logistic regression classification workflow** with `classification_metrics`.
+- [x] **Cross-validation** utility (`evaluation/cross_validation.py`); every supervised workflow cross-validates its training rows.
+- [x] **Regularized regression** (ridge/lasso) as `penalty=`/`alpha=` on `linear_regression`.
+- [x] **Random forest classification** (`classification/forest.py`).
+- [x] **Tree-based regression**: `decision_tree_regression`, `random_forest_regression`.
+- [x] **Multiclass classification** for all three classifiers (macro metrics, per-class metrics, multinomial logistic).
+- [x] **K-means clustering workflow** (`clustering/kmeans.py`) with silhouette and an elbow/inertia scan.
+- [x] **PCA workflow** (`dimensionality/pca.py`) with explained variance and loadings.
+- [x] **Residual diagnostics** for regression (`regression/diagnostics.py`).
+- [ ] **Hyperparameter search** (e.g. choose alpha or max_depth by cross-validation, reported as a curve).
+- [ ] **Fair model comparison**: several algorithms on the same split and folds, one comparison table.
+- [ ] **SVM and neural-network recipes** (cards are still "Planned").
 
 ## Infrastructure
 
-- [x] **Local CSV/Parquet input** for all four ready ML recipes: preview, schema-role overrides, target/features and positive-class selection, background loading/training.
-
-- [ ] **Visualization module**: functions that take result objects (never raw data + recomputation) and return matplotlib figures.
+- [x] **Local CSV/Parquet input** for every ready recipe: preview, schema-role overrides, target/features/positive-class selection, background loading/training.
+- [x] **Configurable, recorded preprocessing** (`PreprocessingConfig`, `PreprocessingSummary`): imputation, scaling, encoding, rare-level pooling, missing indicators, datetime features.
+- [x] **Import quality**: leading zeros kept, extra missing markers, ISO-8601 date detection, ID-like/constant/mostly-missing column flags.
+- [ ] **Visualization module**: functions that take result objects (never raw data + recomputation) and return figures (needs a plotting dependency decision).
 - [ ] **`Dataset.dropna()` / row-filtering helpers** returning new `Dataset` instances.
 - [ ] **FastAPI service** in a separate `api/` or sibling package: endpoints that wrap analyses and return `result.to_dict()`.
 - [ ] **CI** (GitHub Actions: pytest on 3.12+), plus `ruff` and `mypy` configs.
 - [ ] **Property-based tests** with `hypothesis` for schema inference edge cases.
+- [ ] **Saved analyses and export**: import options, overrides, settings, seed, and a data fingerprint saved per run; metrics and predictions exportable.
 
 ## Directions under discussion
 

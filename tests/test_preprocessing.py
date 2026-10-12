@@ -28,7 +28,7 @@ def test_nullable_categories_impute_from_training_only():
     held_out = pd.DataFrame({"group": pd.Series([pd.NA, "b", "b", "b", "b"], dtype="string")})
     pre = build_preprocessor(Dataset(train), ["group"])
     pre.fit(train)
-    cat = pre.named_transformers_["categorical:group"]
+    cat = pre.named_transformers_["categorical"]
     assert cat.named_steps["impute"].statistics_[0] == "a"
     transformed = pre.transform(held_out)
     np.testing.assert_array_equal(transformed[0], pre.transform(train.iloc[[0]])[0])

@@ -27,7 +27,7 @@ class Recipe:
 RECIPES: list[Recipe] = [
     Recipe(
         title="Linear Regression",
-        description="Ordinary least squares with leakage-safe preprocessing and held-out evaluation.",
+        description="Least squares, ridge, or lasso, with residual checks and cross-validated error.",
         icon="β",  # β
         status="Ready",
         variant="ready",
@@ -35,7 +35,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         title="Logistic Regression",
-        description="Binary classification via the sigmoid, with probability-aware metrics.",
+        description="Binary or multinomial classification via the sigmoid / softmax, with probability-aware metrics.",
         icon="σ",  # σ
         status="Ready",
         variant="ready",
@@ -43,7 +43,7 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         title="Decision Trees",
-        description="Interpretable recursive splits, drawn as the fitted tree with a depth-vs-overfit curve.",
+        description="Interpretable recursive splits for classes or numbers, drawn as the fitted tree.",
         icon="τ",  # τ
         status="Ready",
         variant="ready",
@@ -51,11 +51,35 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         title="Random Forests",
-        description="Bootstrap-aggregated tree ensembles with feature importances.",
+        description="Bootstrap-aggregated tree ensembles for classification or regression, with importances.",
         icon="⁂",  # ⁂
         status="Ready",
         variant="ready",
         key="random-forest",
+    ),
+    Recipe(
+        title="K-Means",
+        description="Centroid-based clustering with cluster profiles, silhouette, and an elbow scan.",
+        icon="∴",  # ∴
+        status="Ready",
+        variant="ready",
+        key="kmeans",
+    ),
+    Recipe(
+        title="PCA",
+        description="Principal component analysis: variance-preserving dimensionality reduction.",
+        icon="λ",  # λ
+        status="Ready",
+        variant="ready",
+        key="pca",
+    ),
+    Recipe(
+        title="Association Scan",
+        description="Every column pair tested by type: Spearman, chi-square, or Kruskal-Wallis, FDR-adjusted.",
+        icon="χ",  # χ
+        status="Ready",
+        variant="ready",
+        key="association-scan",
     ),
     Recipe(
         title="Support Vector Machines",
@@ -63,25 +87,8 @@ RECIPES: list[Recipe] = [
         icon="∥",  # ∥
     ),
     Recipe(
-        title="PCA",
-        description="Principal component analysis: variance-preserving dimensionality reduction.",
-        icon="λ",  # λ
-    ),
-    Recipe(
-        title="K-Means",
-        description="Centroid-based clustering with silhouette and inertia diagnostics.",
-        icon="∴",  # ∴
-    ),
-    Recipe(
         title="Neural Networks",
         description="Multilayer perceptrons for when linear just isn't enough.",
         icon="ψ",  # ψ
-    ),
-    Recipe(
-        title="Coming Soon",
-        description="A growing collection — the next recipe is always simmering.",
-        icon="…",  # …
-        status="Coming Soon",
-        variant="soon",
     ),
 ]

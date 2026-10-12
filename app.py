@@ -11,7 +11,8 @@ delete-and-redraw: screens are constructed on entry and destroyed on exit.
 Routing is data-driven — a ready Recipe's ``key`` looks up a screen factory in
 SCREEN_FACTORIES; the factory binds the relevant core entry point to a dumb
 screen widget. To bring a new recipe alive: flip its variant to "ready" in
-gui/recipes.py, give it a key, and register a factory here.
+gui/recipes.py, give it a key, add a screen, a demo in DEMOS, and a report
+builder in REPORT_BUILDERS.
 
 Launch with:  python -m mlcookbook
 """
@@ -30,16 +31,22 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 
 from gui import theme
 from gui.front_page import FrontPage
 from gui.main_window import MainWindow
 from gui.recipes import Recipe
+from gui.screens.association_scan import AssociationScanScreen
 from gui.screens.decision_tree import DecisionTreeScreen
-from gui.screens.random_forest import RandomForestScreen
+from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
 from gui.screens.logistic_regression import LogisticRegressionScreen
+from gui.screens.pca import PCAScreen
+from gui.screens.random_forest import RandomForestScreen
+from gui.screens.report_screen import MAX_CLASSES
+
+MAX_PLOT_POINTS = 3000  # scatter plots draw a deterministic sample beyond this
 
 
 def _assets_dir() -> Path:
@@ -66,10 +73,34 @@ def _breast_cancer_frame():
     return frame
 
 
+def _wine_frame():
+    from sklearn.datasets import load_wine
+
+    return load_wine(as_frame=True).data  # 13 chemical measurements of 178 wines, no labels
+
+
+# key -> (frame factory, display name, target, positive class)
+DEMOS = {
+    "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
+    "logistic-regression": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
+    "decision-tree": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
+    "random-forest": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
+    "kmeans": (_wine_frame, "Wine measurements", None, None),
+    "pca": (_wine_frame, "Wine measurements", None, None),
+    "association-scan": (_breast_cancer_frame, "Breast cancer (Wisconsin)", None, None),
+}
+
+
 # --- Result formatting (core result -> plain strings for the dumb screens) ----
 
 def _num(value: float | None, digits: int = 3) -> str:
     return "—" if value is None or value != value else f"{value:.{digits}f}"
+
+
+def _p(value: float | None) -> str:
+    if value is None or value != value:
+        return "—"
+    return "< 0.001" if value < 0.001 else f"{value:.3f}"
 
 
 def _engine_info(func) -> dict[str, str]:
@@ -81,6 +112,11 @@ def _engine_info(func) -> dict[str, str]:
     }
 
 
+def _sample(points: list, limit: int = MAX_PLOT_POINTS) -> list:
+    step = max(1, -(-len(points) // limit))
+    return points[::step]
+
+
 def _coefficient_rows(coefficients: dict[str, float], extra: dict[str, float] | None = None):
     rows = []
     for name, value in sorted(coefficients.items(), key=lambda kv: abs(kv[1]), reverse=True):
@@ -89,6 +125,107 @@ def _coefficient_rows(coefficients: dict[str, float], extra: dict[str, float] | 
             row.append(_num(extra[name]))
         rows.append(row)
     return rows
+
+
+CV_LABELS = {"r2": "R²", "rmse": "RMSE", "mae": "MAE", "accuracy": "ACCURACY", "f1": "F1",
+             "roc_auc": "ROC AUC", "f1_macro": "MACRO F1", "roc_auc_ovr": "ROC AUC (OVR)"}
+
+
+def _cv_group(cv) -> list[dict]:
+    if cv is None:
+        return []
+    digits = {"rmse": 2, "mae": 2}
+    return [{
+        "title": f"Cross-validation · {cv.n_folds}-fold {cv.strategy} on {cv.n_rows} training rows · mean ± sd",
+        "items": [(CV_LABELS.get(m, m.upper()), f"{_num(cv.mean[m], digits.get(m, 3))} ± {_num(cv.std[m], digits.get(m, 3))}")
+                  for m in cv.metrics],
+    }]
+
+
+def _preprocessing_table(summary) -> dict:
+    rows = []
+    for col in summary.columns:
+        for i, step in enumerate(col.steps):
+            outputs = col.output_features
+            shown = (", ".join(outputs) if len(outputs) <= 3 else f"{len(outputs)} columns") if i == 0 else ""
+            rows.append([col.column if i == 0 else "", step, shown])
+    return {
+        "title": f"Preprocessing · fitted on {summary.n_rows_fitted} rows · {summary.n_output_features} model columns",
+        "headers": ["COLUMN", "STEP (FITTED VALUES)", "BECOMES"],
+        "rows": rows,
+        "stretch_column": 1,
+    }
+
+
+def _regression_group(title: str, m) -> dict:
+    return {"title": f"{title} · {m.n_obs} rows",
+            "items": [("R²", _num(m.r2)), ("RMSE", _num(m.rmse, 2)), ("MAE", _num(m.mae, 2))]}
+
+
+def _classification_group(title: str, m) -> dict:
+    if m.average == "binary":
+        items = [("ACCURACY", _num(m.accuracy)), ("PRECISION", _num(m.precision)), ("RECALL", _num(m.recall)),
+                 ("F1", _num(m.f1)), ("ROC AUC", _num(m.roc_auc))]
+    else:
+        items = [("ACCURACY", _num(m.accuracy)), ("BALANCED ACC.", _num(m.balanced_accuracy)),
+                 ("MACRO F1", _num(m.f1)), ("ROC AUC (OVR)", _num(m.roc_auc))]
+    return {"title": f"{title} · {m.n_obs} rows", "items": items}
+
+
+def _confusion_table(m) -> dict:
+    return {
+        "title": "Confusion matrix (test set) · rows = actual, columns = predicted",
+        "headers": ["ACTUAL / PREDICTED", *[str(label).upper() for label in m.labels]],
+        "rows": [[str(label), *map(str, row)] for label, row in zip(m.labels, m.confusion_matrix)],
+    }
+
+
+def _per_class_table(m) -> dict:
+    return {
+        "title": "Per-class metrics (test set, each class vs the rest)",
+        "headers": ["CLASS", "PRECISION", "RECALL", "F1", "ROWS"],
+        "rows": [[str(c.label), _num(c.precision), _num(c.recall), _num(c.f1), str(c.support)] for c in m.per_class],
+    }
+
+
+def _recall_bars(m) -> dict:
+    return {"title": "Recall by class (test set): share of each class found",
+            "items": [(str(c.label), c.recall, f"{c.recall:.0%}") for c in m.per_class]}
+
+
+def _importance_bars(importances: dict[str, float], title: str) -> dict:
+    return {"title": title,
+            "items": [(name, value, f"{value:.1%}")
+                      for name, value in sorted(importances.items(), key=lambda kv: -kv[1]) if value > 0]}
+
+
+def _actual_vs_predicted(result) -> dict:
+    lo = min(result.test_actual + result.test_predicted)
+    hi = max(result.test_actual + result.test_predicted)
+    return {
+        "title": "Actual vs predicted · held-out rows",
+        "x_label": f"predicted {result.target}",
+        "y_label": f"actual {result.target}",
+        "series": [
+            {"kind": "line", "color": "muted", "label": "perfect fit", "points": [(lo, lo), (hi, hi)]},
+            {"kind": "points", "color": "accent", "label": "test rows",
+             "points": _sample(list(zip(result.test_predicted, result.test_actual)))},
+        ],
+    }
+
+
+def _residual_plot(result) -> dict:
+    residuals = [(p, a - p) for a, p in zip(result.test_actual, result.test_predicted)]
+    lo, hi = min(result.test_predicted), max(result.test_predicted)
+    return {
+        "title": "Residuals vs predicted · held-out rows",
+        "x_label": f"predicted {result.target}",
+        "y_label": "actual − predicted",
+        "series": [
+            {"kind": "line", "color": "muted", "label": "zero error", "points": [(lo, 0), (hi, 0)]},
+            {"kind": "points", "color": "alt", "label": "test rows", "points": _sample(residuals)},
+        ],
+    }
 
 
 def _sigmoid_plot(result) -> dict:
@@ -116,277 +253,407 @@ def _sigmoid_plot(result) -> dict:
     }
 
 
-# --- Screen factories: where a recipe meets its core module -------------------
+def _target_line(result) -> str:
+    if result.positive_class is None:
+        return f"{result.target}  ({len(result.classes)} classes: {', '.join(map(str, result.classes))})"
+    return f"{result.target}  (positive = {result.positive_class})"
 
-def _linear_regression_report(dataset, target, features=None, positive_class=None, dataset_name="Dataset") -> dict:
+
+def _base(result, dataset, name, settings: str = "") -> dict:
+    report = {"dataset": f"{name} · {len(dataset.df)} rows", "features": ", ".join(result.features)}
+    if getattr(result, "target", None):
+        report["target"] = _target_line(result) if hasattr(result, "classes") else result.target
+    if settings:
+        report["settings"] = settings
+    return report
+
+
+def _config(request):
+    from mlcookbook import PreprocessingConfig
+
+    return PreprocessingConfig(**request["preprocessing"]) if request.get("preprocessing") else None
+
+
+def _supervised_kwargs(request) -> dict:
+    kwargs = {"preprocessing": _config(request)}
+    if request.get("cv_folds") is not None:
+        kwargs["cv_folds"] = request["cv_folds"]
+    return kwargs
+
+
+# --- Report builders: where a recipe meets its core module ---------------------
+# Each takes (configured Dataset, the screen's request dict, display name).
+
+def _linear_regression_report(dataset, request, name) -> dict:
     from mlcookbook.regression import linear_regression
 
-    frame = dataset.df
-    result = linear_regression(dataset, target=target, features=features)
-
-    def metrics(title: str, m) -> dict:
-        return {
-            "title": f"{title} · {m.n_obs} rows",
-            "items": [("R²", _num(m.r2)), ("RMSE", _num(m.rmse, 1)), ("MAE", _num(m.mae, 1))],
-        }
-
-    lo, hi = min(result.test_actual + result.test_predicted), max(result.test_actual + result.test_predicted)
-    report = {
-        "plots": [
-            {
-                "title": "Actual vs predicted · held-out rows",
-                "x_label": f"predicted {result.target}",
-                "y_label": f"actual {result.target}",
-                "series": [
-                    {"kind": "line", "color": "muted", "label": "perfect fit", "points": [(lo, lo), (hi, hi)]},
-                    {
-                        "kind": "points",
-                        "color": "accent",
-                        "label": "test rows",
-                        "points": list(zip(result.test_predicted, result.test_actual)),
-                    },
-                ],
-            }
+    params = request.get("params", {})
+    result = linear_regression(dataset, target=request["target"], features=request["features"],
+                               penalty=params.get("penalty", "none"), alpha=params.get("alpha", 1.0),
+                               **_supervised_kwargs(request))
+    d = result.residual_diagnostics
+    penalty = "ordinary least squares" if result.alpha is None else f"{result.penalty}, alpha={result.alpha:g}"
+    scaling = result.preprocessing.config.scaling
+    per = " (per SD of feature)" if scaling == "standard" else f" ({scaling} scaling)"
+    title = f"Coefficients{per} · intercept {_num(result.intercept, 2)}"
+    if result.penalty == "lasso":
+        title += f" · {result.n_zero_coefficients} set to zero"
+    return {
+        **_base(result, dataset, name, penalty),
+        "plots": [_actual_vs_predicted(result), _residual_plot(result)],
+        "metric_groups": [
+            _regression_group("Test set", result.test_metrics), _regression_group("Train set", result.train_metrics),
+            *_cv_group(result.cross_validation),
+            {"title": f"Residual checks · {d.n_obs} training rows", "items": [
+                ("SKEW", _num(d.skewness, 2)), ("EXCESS KURTOSIS", _num(d.excess_kurtosis, 2)),
+                ("NORMALITY p", _p(d.normality_p_value)), ("SPREAD RHO", _num(d.spread_correlation, 2)),
+                ("SPREAD p", _p(d.spread_p_value)),
+            ]},
         ],
-        "dataset": f"{dataset_name} · {len(frame)} rows",
-        "target": result.target,
-        "features": ", ".join(result.features),
-        "metric_groups": [metrics("Test set", result.test_metrics), metrics("Train set", result.train_metrics)],
         "tables": [
-            {
-                "title": f"Coefficients (per SD of feature) · intercept {_num(result.intercept, 1)}",
-                "headers": ["FEATURE", "COEFFICIENT"],
-                "rows": _coefficient_rows(result.coefficients),
-            }
+            {"title": title, "headers": ["FEATURE", "COEFFICIENT"], "rows": _coefficient_rows(result.coefficients)},
+            _preprocessing_table(result.preprocessing),
         ],
         "warnings": result.warnings,
     }
-    return report
 
 
-def _logistic_regression_report(dataset, target, features=None, positive_class=None, dataset_name="Dataset") -> dict:
+def _logistic_regression_report(dataset, request, name) -> dict:
     from mlcookbook.classification import logistic_regression
 
-    frame = dataset.df
-    result = logistic_regression(dataset, target=target, features=features, positive_class=positive_class)
-
-    def metrics(title: str, m) -> dict:
-        return {
-            "title": f"{title} · {m.n_obs} rows",
-            "items": [
-                ("ACCURACY", _num(m.accuracy)),
-                ("PRECISION", _num(m.precision)),
-                ("RECALL", _num(m.recall)),
-                ("F1", _num(m.f1)),
-                ("ROC AUC", _num(m.roc_auc)),
-            ],
-        }
-
-    negative, positive = result.classes
-    matrix = result.test_metrics.confusion_matrix
+    result = logistic_regression(dataset, target=request["target"], features=request["features"],
+                                 positive_class=request.get("positive_class"), **_supervised_kwargs(request))
+    m = result.test_metrics
     report = {
-        "plots": [_sigmoid_plot(result)],
-        "dataset": f"{dataset_name} · {len(frame)} rows",
-        "target": f"{result.target}  (positive = {result.positive_class})",
-        "features": ", ".join(result.features),
-        "metric_groups": [metrics("Test set", result.test_metrics), metrics("Train set", result.train_metrics)],
-        "tables": [
-            {
-                "title": "Confusion matrix (test set)",
-                "headers": ["ACTUAL / PREDICTED", str(negative).upper(), str(positive).upper()],
-                "rows": [[str(negative), *map(str, matrix[0])], [str(positive), *map(str, matrix[1])]],
-            },
-            {
-                "title": f"Coefficients (log-odds of {positive}, per SD) · intercept {_num(result.intercept)}",
-                "headers": ["FEATURE", "COEFFICIENT", "ODDS RATIO"],
-                "rows": _coefficient_rows(result.coefficients, result.odds_ratios),
-            },
-        ],
+        **_base(result, dataset, name),
+        "metric_groups": [_classification_group("Test set", m), _classification_group("Train set", result.train_metrics),
+                          *_cv_group(result.cross_validation)],
+        "tables": [_confusion_table(m)],
         "warnings": result.warnings,
     }
+    if result.positive_class is not None:
+        positive = result.positive_class
+        report["plots"] = [_sigmoid_plot(result)]
+        report["tables"].append({
+            "title": f"Coefficients (log-odds of {positive}) · intercept {_num(result.intercept)}",
+            "headers": ["FEATURE", "COEFFICIENT", "ODDS RATIO"],
+            "rows": _coefficient_rows(result.coefficients, result.odds_ratios),
+        })
+    else:
+        report["bars"] = [_recall_bars(m)]
+        report["tables"].append(_per_class_table(m))
+        features = list(next(iter(result.class_coefficients.values())))
+        report["tables"].append({
+            "title": "Softmax coefficients per class · differences between two classes are log-odds ratios",
+            "headers": ["FEATURE", *[str(c).upper() for c in result.classes]],
+            "rows": [[f, *[_num(result.class_coefficients[c][f]) for c in result.classes]] for f in features],
+        })
+    report["tables"].append(_preprocessing_table(result.preprocessing))
     return report
 
 
-def _decision_tree_report(dataset, target, features=None, positive_class=None, dataset_name="Dataset") -> dict:
-    from mlcookbook.classification import decision_tree
-
-    frame = dataset.df
-    result = decision_tree(dataset, target=target, features=features, positive_class=positive_class)
-    negative, positive = result.classes
-
-    def metrics(title: str, m) -> dict:
-        return {
-            "title": f"{title} · {m.n_obs} rows",
-            "items": [
-                ("ACCURACY", _num(m.accuracy)),
-                ("PRECISION", _num(m.precision)),
-                ("RECALL", _num(m.recall)),
-                ("F1", _num(m.f1)),
-                ("ROC AUC", _num(m.roc_auc)),
-            ],
-        }
-
-    tree_nodes = [
-        {
-            "title": f"{n.feature} ≤ {n.threshold:.4g}" if n.left is not None else f"→ {n.prediction}",
-            "subtitle": f"n={n.n_samples} · gini {n.impurity:.2f}",
-            "fraction": n.class_counts[1] / sum(n.class_counts),
-            "positive": n.prediction == positive,
-            "left": n.left,
-            "right": n.right,
-        }
-        for n in result.nodes
-    ]
-
-    curve = result.depth_curve
-    depth_series = []
-    if curve:
-        train = [(d.max_depth, d.train_accuracy) for d in curve]
-        cv = [(d.max_depth, d.cv_accuracy) for d in curve]
-        low = min(y for _, y in train + cv)
-        depth_series = [
-            {"kind": "line", "color": "muted", "label": f"chosen depth ({result.max_depth})",
-             "points": [(result.max_depth, low), (result.max_depth, 1.0)]},
-            {"kind": "line", "color": "alt", "label": "train", "points": train},
-            {"kind": "points", "color": "alt", "label": "", "points": train},
-            {"kind": "line", "color": "accent", "label": "cross-validated", "points": cv},
-            {"kind": "points", "color": "accent", "label": "", "points": cv},
-        ]
-
-    matrix = result.test_metrics.confusion_matrix
-    report = {
-        "tree": {
-            "nodes": tree_nodes,
-            "negative_label": str(negative),
-            "positive_label": str(positive),
-        },
-        "plots": [
-            {
-                "title": "Accuracy vs tree depth · the overfitting curve",
-                "x_label": "max_depth",
-                "y_label": "accuracy",
-                "series": depth_series,
-            }
-        ]
-        if depth_series
-        else [],
-        "dataset": f"{dataset_name} · {len(frame)} rows",
-        "target": f"{result.target}  (positive = {result.positive_class})",
-        "features": ", ".join(result.features),
-        "settings": f"max_depth={result.max_depth} · min_samples_leaf={result.min_samples_leaf}"
-        f" · fitted depth {result.depth}, {result.n_leaves} leaves",
-        "metric_groups": [metrics("Test set", result.test_metrics), metrics("Train set", result.train_metrics)],
-        "bars": [
-            {
-                "title": "Feature importance (share of impurity reduction)",
-                "items": [
-                    (name, value, f"{value:.1%}")
-                    for name, value in sorted(result.feature_importances.items(), key=lambda kv: -kv[1])
-                    if value > 0
-                ],
-            }
-        ],
-        "tables": [
-            {
-                "title": "Decision rules (one per leaf)",
-                "headers": ["RULE", "SAMPLES", "CONFIDENCE"],
-                "stretch_first": True,
-                "rows": [
-                    [
-                        f"IF {' AND '.join(r.conditions).replace('<=', '≤') or 'always'}  THEN  {r.prediction}",
-                        str(r.n_samples),
-                        f"{r.confidence:.0%}",
-                    ]
-                    for r in sorted(result.rules, key=lambda r: -r.n_samples)
-                ],
-            },
-            {
-                "title": "Confusion matrix (test set)",
-                "headers": ["ACTUAL / PREDICTED", str(negative).upper(), str(positive).upper()],
-                "rows": [[str(negative), *map(str, matrix[0])], [str(positive), *map(str, matrix[1])]],
-            },
-        ],
-        "warnings": result.warnings,
-    }
-    return report
-
-
-def _random_forest_report(dataset, target, features=None, positive_class=None, dataset_name="Dataset") -> dict:
-    from mlcookbook.classification import random_forest
-
-    result = random_forest(dataset, target=target, features=features, positive_class=positive_class)
-    negative, positive = result.classes
-
-    def metrics(title, m):
-        return {
-            "title": f"{title} - {m.n_obs} rows",
-            "items": [("ACCURACY", _num(m.accuracy)), ("PRECISION", _num(m.precision)),
-                      ("RECALL", _num(m.recall)), ("F1", _num(m.f1)), ("ROC AUC", _num(m.roc_auc))],
-        }
-
-    matrix = result.test_metrics.confusion_matrix
+def _depth_plot(points_train, points_cv, chosen, metric) -> dict:
+    low = min(y for _, y in points_train + points_cv)
+    top = max(y for _, y in points_train + points_cv)
     return {
-        "dataset": f"{dataset_name} - {len(dataset.df)} rows",
-        "target": f"{result.target}  (positive = {positive})",
-        "features": ", ".join(result.features),
-        "settings": f"{result.n_estimators} trees, bootstrap samples, max_features={result.max_features}, "
-                    f"max_depth={result.max_depth}, min_samples_leaf={result.min_samples_leaf}",
-        "plots": [{
-            "title": "ROC curve - held-out rows",
+        "title": f"{metric} vs tree depth · the overfitting curve",
+        "x_label": "max_depth",
+        "y_label": metric,
+        "series": [
+            {"kind": "line", "color": "muted", "label": f"chosen depth ({chosen})", "points": [(chosen, low), (chosen, top)]},
+            {"kind": "line", "color": "alt", "label": "train", "points": points_train},
+            {"kind": "points", "color": "alt", "label": "", "points": points_train},
+            {"kind": "line", "color": "accent", "label": "cross-validated", "points": points_cv},
+            {"kind": "points", "color": "accent", "label": "", "points": points_cv},
+        ],
+    }
+
+
+def _class_legend(classes) -> str:
+    return " &nbsp; ".join(f"<span style='color:{theme.palette(f'c{i}')}'>●</span> {c}" for i, c in enumerate(classes)) + \
+        " &nbsp;·&nbsp; bar = share of the node's majority class &nbsp;·&nbsp; left branch = condition true (≤)"
+
+
+def _decision_tree_report(dataset, request, name) -> dict:
+    from mlcookbook.classification import decision_tree
+    from mlcookbook.regression import decision_tree_regression
+
+    params = request.get("params", {})
+    kwargs = dict(target=request["target"], features=request["features"],
+                  max_depth=params.get("max_depth", 3), min_samples_leaf=params.get("min_samples_leaf", 5),
+                  **_supervised_kwargs(request))
+    if request.get("task") == "regression":
+        result = decision_tree_regression(dataset, **kwargs)
+        values = [n.value for n in result.nodes]
+        lo, hi = min(values), max(values)
+        tree = {
+            "nodes": [{
+                "title": f"{n.feature} ≤ {n.threshold:.4g}" if n.left is not None else f"→ {n.value:.4g}",
+                "subtitle": f"n={n.n_samples} · mean {n.value:.4g}",
+                "fraction": (n.value - lo) / (hi - lo) if hi > lo else 0.5,
+                "color": "accent", "left": n.left, "right": n.right,
+            } for n in result.nodes],
+            "legend": f"bar = node mean of {result.target}, from {lo:.4g} (empty) to {hi:.4g} (full) &nbsp;·&nbsp; "
+                      "left branch = condition true (≤)",
+        }
+        curve = result.depth_curve
+        plots = [_actual_vs_predicted(result)]
+        if curve:
+            plots.insert(0, _depth_plot([(d.max_depth, d.train_r2) for d in curve],
+                                        [(d.max_depth, d.cv_r2) for d in curve], result.max_depth, "R²"))
+        rules = [[f"IF {' AND '.join(r.conditions).replace('<=', '≤') or 'always'}  THEN  {r.prediction:.4g}",
+                  str(r.n_samples), _num(r.std, 2)] for r in sorted(result.rules, key=lambda r: -r.n_samples)]
+        return {
+            **_base(result, dataset, name, f"regression · max_depth={result.max_depth} · "
+                    f"min_samples_leaf={result.min_samples_leaf} · fitted depth {result.depth}, {result.n_leaves} leaves"),
+            "tree": tree,
+            "plots": plots,
+            "metric_groups": [_regression_group("Test set", result.test_metrics),
+                              _regression_group("Train set", result.train_metrics), *_cv_group(result.cross_validation)],
+            "bars": [_importance_bars(result.feature_importances, "Feature importance (share of squared-error reduction)")],
+            "tables": [{"title": "Decision rules (one per leaf) · SD = spread of the leaf's training targets",
+                        "headers": ["RULE", "SAMPLES", "SD"], "stretch_column": 0, "rows": rules},
+                       _preprocessing_table(result.preprocessing)],
+            "warnings": result.warnings,
+        }
+
+    result = decision_tree(dataset, positive_class=request.get("positive_class"), **kwargs)
+    binary = result.positive_class is not None
+    if binary:
+        negative, positive = result.classes
+        nodes = [{"fraction": n.class_counts[1] / sum(n.class_counts), "positive": n.prediction == positive}
+                 for n in result.nodes]
+        tree = {"negative_label": str(negative), "positive_label": str(positive)}
+    else:
+        nodes = [{"fraction": max(n.class_counts) / sum(n.class_counts),
+                  "color": f"c{result.classes.index(n.prediction)}"} for n in result.nodes]
+        tree = {"legend": _class_legend(result.classes)}
+    tree["nodes"] = [{
+        **extra,
+        "title": f"{n.feature} ≤ {n.threshold:.4g}" if n.left is not None else f"→ {n.prediction}",
+        "subtitle": f"n={n.n_samples} · gini {n.impurity:.2f}",
+        "left": n.left, "right": n.right,
+    } for n, extra in zip(result.nodes, nodes)]
+    curve = result.depth_curve
+    m = result.test_metrics
+    tables = [{
+        "title": "Decision rules (one per leaf)",
+        "headers": ["RULE", "SAMPLES", "CONFIDENCE"],
+        "stretch_column": 0,
+        "rows": [[f"IF {' AND '.join(r.conditions).replace('<=', '≤') or 'always'}  THEN  {r.prediction}",
+                  str(r.n_samples), f"{r.confidence:.0%}"] for r in sorted(result.rules, key=lambda r: -r.n_samples)],
+    }, _confusion_table(m)]
+    if not binary:
+        tables.append(_per_class_table(m))
+    tables.append(_preprocessing_table(result.preprocessing))
+    return {
+        **_base(result, dataset, name, f"max_depth={result.max_depth} · min_samples_leaf={result.min_samples_leaf}"
+                f" · fitted depth {result.depth}, {result.n_leaves} leaves"),
+        "tree": tree,
+        "plots": [_depth_plot([(d.max_depth, d.train_accuracy) for d in curve],
+                              [(d.max_depth, d.cv_accuracy) for d in curve], result.max_depth, "accuracy")]
+        if curve else [],
+        "metric_groups": [_classification_group("Test set", m), _classification_group("Train set", result.train_metrics),
+                          *_cv_group(result.cross_validation)],
+        "bars": [_importance_bars(result.feature_importances, "Feature importance (share of impurity reduction)")],
+        "tables": tables,
+        "warnings": result.warnings,
+    }
+
+
+def _random_forest_report(dataset, request, name) -> dict:
+    from mlcookbook.classification import random_forest
+    from mlcookbook.regression import random_forest_regression
+
+    params = request.get("params", {})
+    kwargs = dict(target=request["target"], features=request["features"],
+                  n_estimators=params.get("n_estimators", 100), max_depth=params.get("max_depth"),
+                  min_samples_leaf=params.get("min_samples_leaf", 5), **_supervised_kwargs(request))
+    regression = request.get("task") == "regression"
+    if regression:
+        result = random_forest_regression(dataset, **kwargs)
+        metric_groups = [_regression_group("Test set", result.test_metrics),
+                         _regression_group("Train set", result.train_metrics)]
+        plots = [_actual_vs_predicted(result)]
+        bars, tables = [], []
+    else:
+        result = random_forest(dataset, positive_class=request.get("positive_class"), **kwargs)
+        m = result.test_metrics
+        metric_groups = [_classification_group("Test set", m), _classification_group("Train set", result.train_metrics)]
+        plots = [{
+            "title": "ROC curve · held-out rows",
             "x_label": "false positive rate",
             "y_label": "true positive rate (recall)",
             "series": [
                 {"kind": "line", "color": "muted", "label": "chance", "points": [(0, 0), (1, 1)]},
-                {"kind": "line", "color": "accent", "label": f"forest (AUC {_num(result.test_metrics.roc_auc)})",
+                {"kind": "line", "color": "accent", "label": f"forest (AUC {_num(m.roc_auc)})",
                  "points": list(zip(result.roc_fpr, result.roc_tpr))},
             ],
-        }] if result.roc_fpr else [],
-        "metric_groups": [
-            metrics("Test set", result.test_metrics), metrics("Train set", result.train_metrics),
-            {"title": "Forest structure", "items": [
-                ("TREES", str(result.n_estimators)),
-                ("DEPTH RANGE", f"{min(result.tree_depths)} - {max(result.tree_depths)}"),
-                ("LEAF COUNT RANGE", f"{min(result.tree_leaf_counts)} - {max(result.tree_leaf_counts)}"),
-            ]},
-        ],
-        "bars": [{
-            "title": "Feature importance (impurity reduction; encoded columns)",
-            "items": [(name, value, f"{value:.1%}") for name, value in
-                      sorted(result.feature_importances.items(), key=lambda item: -item[1]) if value > 0],
-        }],
-        "tables": [{
-            "title": "Confusion matrix (test set)",
-            "headers": ["ACTUAL / PREDICTED", str(negative).upper(), str(positive).upper()],
-            "rows": [[str(negative), *map(str, matrix[0])], [str(positive), *map(str, matrix[1])]],
-        }],
+        }] if result.roc_fpr else []
+        bars = [] if result.positive_class is not None else [_recall_bars(m)]
+        tables = [_confusion_table(m)] + ([] if result.positive_class is not None else [_per_class_table(m)])
+    depth = "unlimited" if result.max_depth is None else result.max_depth
+    task = "regression" if regression else "classification"
+    return {
+        **_base(result, dataset, name, f"{task} · {result.n_estimators} trees on bootstrap samples · "
+                f"max_features={result.max_features} · max_depth={depth} · min_samples_leaf={result.min_samples_leaf}"),
+        "plots": plots,
+        "metric_groups": [*metric_groups, *_cv_group(result.cross_validation),
+                          {"title": "Forest structure", "items": [
+                              ("TREES", str(result.n_estimators)),
+                              ("DEPTH RANGE", f"{min(result.tree_depths)} – {max(result.tree_depths)}"),
+                              ("LEAF COUNT RANGE", f"{min(result.tree_leaf_counts)} – {max(result.tree_leaf_counts)}"),
+                          ]}],
+        "bars": [*bars, _importance_bars(result.feature_importances,
+                                         "Feature importance (impurity reduction; encoded columns)")],
+        "tables": [*tables, _preprocessing_table(result.preprocessing)],
         "warnings": result.warnings,
     }
 
 
-def _default_screen(key, demo=True):
-    from mlcookbook import Dataset
-    from mlcookbook.regression import linear_regression
-    from mlcookbook.classification import logistic_regression, decision_tree, random_forest
+def _kmeans_report(dataset, request, name) -> dict:
+    from mlcookbook.clustering import kmeans
 
-    linear = key == "linear-regression"
-    dataset = Dataset(_diabetes_frame() if linear else _breast_cancer_frame())
-    target = "progression" if linear else "diagnosis"
-    name = "Diabetes" if linear else "Breast cancer (Wisconsin)"
-    func, screen_class = {
-        "linear-regression": (linear_regression, LinearRegressionScreen),
-        "logistic-regression": (logistic_regression, LogisticRegressionScreen),
-        "decision-tree": (decision_tree, DecisionTreeScreen),
-        "random-forest": (random_forest, RandomForestScreen),
-    }[key]
-    report = REPORT_BUILDERS[key](dataset, target, positive_class=None if linear else "malignant", dataset_name=name) if demo else {}
-    screen = screen_class(_engine_info(func), report)
-    screen.set_dataset(_dataset_view(dataset, name), classification=not linear, target=target)
-    if not linear:
-        screen.positive.setCurrentText("malignant")
-    screen.set_status("Built-in example. Open your own file or adjust the selections and run.")
-    screen.dataset = dataset
-    screen.dataset_name = name
-    return screen
+    params = request.get("params", {})
+    result = kmeans(dataset, features=request["features"], n_clusters=params.get("n_clusters", 3),
+                    max_k=params.get("max_k", 10), preprocessing=_config(request))
+    by_cluster: dict[int, list] = {}
+    for point, label in zip(result.projection, result.labels):
+        by_cluster.setdefault(label, []).append(tuple(point))
+    variance = sum(result.projection_variance)
+    scan = result.k_scan
+    plots = [{
+        "title": f"Clusters on the first two principal components · {variance:.0%} of the variance",
+        "x_label": "PC1", "y_label": "PC2",
+        "series": [{"kind": "points", "color": f"c{c}", "label": f"cluster {c + 1}", "points": _sample(by_cluster.get(c, []))}
+                   for c in range(result.n_clusters)],
+    }]
+    if scan:
+        chosen = next((s for s in scan if s.k == result.n_clusters), None)
+        inertia = [(s.k, s.inertia) for s in scan]
+        silhouette = [(s.k, s.silhouette) for s in scan if s.silhouette == s.silhouette]
+        plots.append({"title": "Elbow: inertia vs k (always falls; look for the bend)", "x_label": "k",
+                      "y_label": "inertia", "series": [
+                          {"kind": "line", "color": "accent", "label": "inertia", "points": inertia},
+                          {"kind": "points", "color": "accent", "label": "", "points": inertia},
+                          *([{"kind": "points", "color": "alt", "label": f"chosen k={chosen.k}",
+                              "points": [(chosen.k, chosen.inertia)]}] if chosen else []),
+                      ]})
+        plots.append({"title": "Silhouette vs k (higher = better-separated clusters)", "x_label": "k",
+                      "y_label": "silhouette", "series": [
+                          {"kind": "line", "color": "alt", "label": "silhouette", "points": silhouette},
+                          {"kind": "points", "color": "alt", "label": "", "points": silhouette},
+                      ]})
+    profiles = result.profiles
+    rows = [[f"{feature} (mean)", *[_num(p.numeric_means[feature], 2) for p in profiles]]
+            for feature in (profiles[0].numeric_means if profiles else {})]
+    rows += [[f"{feature} (most common)", *[p.top_levels.get(feature, "—") for p in profiles]]
+             for feature in (profiles[0].top_levels if profiles else {})]
+    return {
+        **_base(result, dataset, name, f"k={result.n_clusters} · k-means++ initialisation, 10 restarts"),
+        "plots": plots,
+        "metric_groups": [{"title": "Fit", "items": [
+            ("CLUSTERS", str(result.n_clusters)), ("SILHOUETTE", _num(result.silhouette)),
+            ("BEST k (SILHOUETTE)", str(result.best_k_by_silhouette or "—")), ("INERTIA", _num(result.inertia, 1)),
+        ]}],
+        "bars": [{"title": "Cluster sizes (rows · share)", "items": [(f"cluster {p.cluster + 1}", p.share, f"{p.size} · {p.share:.0%}")
+                                                      for p in profiles]}],
+        "tables": [{"title": "Cluster profiles (original units)", "headers": ["FEATURE", *[f"CLUSTER {p.cluster + 1}" for p in profiles]],
+                    "rows": rows, "stretch_column": 0},
+                   _preprocessing_table(result.preprocessing)],
+        "warnings": result.warnings,
+    }
+
+
+def _pca_report(dataset, request, name) -> dict:
+    from mlcookbook.dimensionality import pca
+
+    result = pca(dataset, features=request["features"], preprocessing=_config(request))
+    comps = result.components
+    ratio = [(c.index, c.explained_variance_ratio) for c in comps]
+    cumulative = [(c.index, c.cumulative_ratio) for c in comps]
+    plots = [{"title": "Scree plot · share of variance per component", "x_label": "component", "y_label": "variance share",
+              "series": [{"kind": "line", "color": "muted", "label": "90%", "points": [(1, 0.9), (len(comps), 0.9)]},
+                         {"kind": "line", "color": "alt", "label": "cumulative", "points": cumulative},
+                         {"kind": "points", "color": "alt", "label": "", "points": cumulative},
+                         {"kind": "line", "color": "accent", "label": "per component", "points": ratio},
+                         {"kind": "points", "color": "accent", "label": "", "points": ratio}]}]
+    if len(comps) >= 2:
+        plots.append({"title": "Rows on PC1 and PC2", "x_label": f"PC1 ({comps[0].explained_variance_ratio:.0%})",
+                      "y_label": f"PC2 ({comps[1].explained_variance_ratio:.0%})",
+                      "series": [{"kind": "points", "color": "accent", "label": "rows",
+                                  "points": _sample([tuple(s) for s in result.scores])}]})
+    shown = comps[:4]
+    first = shown[0].loadings
+    order = sorted(first, key=lambda f: -abs(first[f]))
+    return {
+        **_base(result, dataset, name, f"{result.n_components} components · scaling={result.preprocessing.config.scaling}"),
+        "plots": plots,
+        "metric_groups": [{"title": "Variance", "items": [
+            ("COMPONENTS", str(result.n_components)), ("PC1 SHARE", f"{comps[0].explained_variance_ratio:.1%}"),
+            ("FOR 90%", str(result.components_for_90_percent or "—")),
+            ("EIGENVALUE > 1", str(result.kaiser_components) if result.kaiser_components is not None else "—"),
+        ]}],
+        "tables": [{"title": "Loadings (weight of each encoded feature in a component; sorted by |PC1|)",
+                    "headers": ["FEATURE", *[f"PC{c.index}" for c in shown]],
+                    "rows": [[f, *[_num(c.loadings[f]) for c in shown]] for f in order], "stretch_column": 0},
+                   _preprocessing_table(result.preprocessing)],
+        "warnings": result.warnings,
+    }
+
+
+TEST_NAMES = {"spearman": "Spearman", "chi_square": "chi-square", "kruskal": "Kruskal-Wallis"}
+
+
+def _association_scan_report(dataset, request, name) -> dict:
+    from mlcookbook.statistics import anova, association_scan, chi_square, correlation
+
+    result = association_scan(dataset, columns=request["features"])
+    report = {
+        "dataset": f"{name} · {len(dataset.df)} rows",
+        "features": ", ".join(result.columns),
+        "settings": f"{result.n_pairs} pairs · p-values adjusted for multiple testing (Benjamini-Hochberg)",
+        "bars": [{"title": "Strongest associations (effect size, 0 to 1)",
+                  "items": [(f"{p.x} ~ {p.y}  ({TEST_NAMES[p.test]})", p.effect_size, _num(p.effect_size))
+                            for p in result.pairs[:12]]}],
+        "tables": [{"title": "Every pair · strongest first",
+                    "headers": ["PAIR", "TEST", "EFFECT", "SIZE", "p", "ADJ. p", "ROWS"], "stretch_column": 0,
+                    "rows": [[f"{p.x} ~ {p.y}", TEST_NAMES[p.test], p.effect_measure.replace("_", " "),
+                              _num(p.effect_size), _p(p.p_value), _p(p.p_adjusted), str(p.n_obs)]
+                             for p in result.pairs]}],
+        "warnings": list(result.warnings),
+    }
+    if not result.pairs:
+        return report
+    top = result.pairs[0]  # a closer look at the strongest pair, with its dedicated test
+    if top.test == "spearman":
+        detail = correlation(dataset, top.x, top.y, method="spearman")
+        report["plots"] = [{"title": f"Strongest pair: {top.x} vs {top.y}", "x_label": top.x, "y_label": top.y,
+                            "series": [{"kind": "points", "color": "accent", "label": "rows",
+                                        "points": _sample(list(dataset.df[[top.x, top.y]].dropna()
+                                                               .astype(float).itertuples(index=False, name=None)))}]}]
+        report["metric_groups"] = [{"title": f"Spearman correlation · {top.x} ~ {top.y}", "items": [
+            ("RHO", _num(detail.statistic)), ("95% CI", f"{_num(detail.ci_low, 2)} to {_num(detail.ci_high, 2)}"),
+            ("p", _p(detail.p_value)), ("ROWS", str(detail.n_obs))]}]
+    elif top.test == "chi_square":
+        detail = chi_square(dataset, top.x, top.y)
+        report["metric_groups"] = [{"title": f"Chi-square test · {top.x} ~ {top.y}", "items": [
+            ("CHI²", _num(detail.statistic, 2)), ("DOF", str(detail.dof)), ("p", _p(detail.p_value)),
+            ("CRAMÉR'S V", _num(detail.cramers_v)), ("FISHER p", _p(detail.fisher_p_value))]}]
+        report["tables"].insert(0, {"title": f"Observed counts · rows = {top.x}, columns = {top.y}",
+                                    "headers": [f"{top.x} / {top.y}".upper(), *[str(v) for v in detail.y_levels]],
+                                    "rows": [[str(level), *map(str, row)] for level, row in zip(detail.x_levels, detail.observed)]})
+    else:
+        value, group = (top.x, top.y) if dataset.schema().var_type(top.x).value == "numeric" else (top.y, top.x)
+        detail = anova(dataset, value, group)
+        report["metric_groups"] = [{"title": f"Group comparison · {value} by {group}", "items": [
+            ("ANOVA F", _num(detail.f_statistic, 2)), ("ANOVA p", _p(detail.p_value)), ("ETA²", _num(detail.eta_squared)),
+            ("KRUSKAL p", _p(detail.kruskal_p_value)), ("TRUST", detail.recommended_test.upper())]}]
+        report["tables"].insert(0, {"title": f"{value} by {group}", "headers": ["GROUP", "ROWS", "MEAN", "SD", "MEDIAN"],
+                                    "rows": [[str(g.level), str(g.n_obs), _num(g.mean, 3), _num(g.std, 3), _num(g.median, 3)]
+                                             for g in detail.groups]})
+    report["warnings"] += [f"Strongest pair: {w}" for w in detail.warnings]
+    return report
 
 
 REPORT_BUILDERS = {
@@ -394,30 +661,88 @@ REPORT_BUILDERS = {
     "logistic-regression": _logistic_regression_report,
     "decision-tree": _decision_tree_report,
     "random-forest": _random_forest_report,
-}
-SCREEN_FACTORIES = {
-    "linear-regression": lambda demo=True: _default_screen("linear-regression", demo),
-    "logistic-regression": lambda demo=True: _default_screen("logistic-regression", demo),
-    "decision-tree": lambda demo=True: _default_screen("decision-tree", demo),
-    "random-forest": lambda demo=True: _default_screen("random-forest", demo),
+    "kmeans": _kmeans_report,
+    "pca": _pca_report,
+    "association-scan": _association_scan_report,
 }
 
 
-def _dataset_view(dataset, name):
+# Recipes whose Task setting switches to a regression twin of the classifier.
+REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest": "random_forest_regression"}
+
+
+def _screens():
+    from mlcookbook import (association_scan, decision_tree, kmeans, linear_regression,
+                            logistic_regression, pca, random_forest)
+
+    return {
+        "linear-regression": (linear_regression, LinearRegressionScreen),
+        "logistic-regression": (logistic_regression, LogisticRegressionScreen),
+        "decision-tree": (decision_tree, DecisionTreeScreen),
+        "random-forest": (random_forest, RandomForestScreen),
+        "kmeans": (kmeans, KMeansScreen),
+        "pca": (pca, PCAScreen),
+        "association-scan": (association_scan, AssociationScanScreen),
+    }
+
+
+def _default_screen(key, demo=True):
+    from mlcookbook import Dataset
+
+    make_frame, name, target, positive = DEMOS[key]
+    dataset = Dataset(make_frame())
+    func, screen_class = _screens()[key]
+    engine = _engine_info(func)
+    if key in REGRESSION_TWINS:
+        engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
+                             + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
+    screen = screen_class(engine, {})
+    screen.set_dataset(_dataset_view(dataset, name), target=target)
+    if positive is not None:
+        screen.positive.setCurrentText(positive)
+    screen.dataset = dataset
+    screen.dataset_name = name
+    if demo:
+        screen.show_report(REPORT_BUILDERS[key](dataset, screen.request(), name))
+    screen.set_status("Built-in example. Open your own file or adjust the selections and run.")
+    return screen
+
+
+SCREEN_FACTORIES = {key: (lambda demo=True, key=key: _default_screen(key, demo)) for key in DEMOS}
+
+
+def _dataset_view(dataset, name, import_report=None):
     import pandas as pd
 
     frame = dataset.df
+    issues = dataset.describe().issues
+    by_column: dict[str, list] = {}
+    for issue in issues:
+        by_column.setdefault(issue.column, []).append((issue.kind, issue.message))
+
+    def classes(series):
+        values = series.dropna().unique().tolist()
+        if not 2 <= len(values) <= MAX_CLASSES:
+            return []
+        try:
+            return sorted(values)
+        except TypeError:
+            return values
+
     return {
         "name": name,
         "rows": len(frame),
         "columns": [
             {"name": col.name, "type": col.var_type.value,
              "missing": int(frame[col.name].isna().sum()),
-             "classes": frame[col.name].dropna().unique().tolist() if frame[col.name].nunique() == 2 else []}
+             "classes": classes(frame[col.name]),
+             "issues": by_column.get(col.name, [])}
             for col in dataset.schema().columns
         ],
         "preview": [["" if pd.isna(value) else str(value) for value in row]
                     for row in frame.head(20).itertuples(index=False, name=None)],
+        "notes": list(import_report.notes) if import_report is not None else [],
+        "issues": [issue.message for issue in issues],
     }
 
 
@@ -432,9 +757,10 @@ def _run_report(key, dataset, name, request):
             raise ValueError(f"{column!r} contains non-numeric data. Clean the source column before choosing numeric.")
         if role == "boolean" and not pd.api.types.is_bool_dtype(values):
             raise ValueError(f"{column!r} is not stored as boolean. Use categorical for coded labels.")
+        if role == "datetime" and not pd.api.types.is_datetime64_any_dtype(values):
+            raise ValueError(f"{column!r} is not stored as dates. ISO-8601 dates (2024-05-31) are parsed on import.")
     configured = Dataset(dataset.df, overrides=request["overrides"])
-    return REPORT_BUILDERS[key](configured, request["target"], request["features"],
-                               request["positive_class"], name)
+    return REPORT_BUILDERS[key](configured, request, name)
 
 
 class _Job(QThread):
@@ -502,12 +828,15 @@ class MLCookbookApp:
         self.job.deleteLater()
         self.job = None
 
-    def load_file(self, path, delimiter, encoding):
-        from mlcookbook.io import load_dataset
+    def load_file(self, path, delimiter, encoding, markers=""):
+        from mlcookbook.io import load_dataset_with_report
+
+        missing_markers = [m.strip() for m in markers.split(",") if m.strip()]
 
         def read():
-            dataset = load_dataset(path, delimiter=delimiter, encoding=encoding)
-            return dataset, Path(path).name, _dataset_view(dataset, Path(path).name)
+            dataset, report = load_dataset_with_report(path, delimiter=delimiter, encoding=encoding,
+                                                       missing_markers=missing_markers)
+            return dataset, Path(path).name, _dataset_view(dataset, Path(path).name, report)
         self._start_job(read, self._use_import, "Loading file...")
 
     def _use_import(self, loaded):
@@ -515,9 +844,9 @@ class MLCookbookApp:
         dataset, name, view = loaded
         self.screen.dataset = dataset
         self.screen.dataset_name = name
-        self.screen.set_dataset(view, classification=self.key != "linear-regression")
+        self.screen.set_dataset(view)
         self.screen.show_report({})
-        self.screen.set_status("File loaded. Review column types, choose a target and features, then run.")
+        self.screen.set_status("File loaded. Review the data checks and column types, choose your columns, then run.")
 
     def run_analysis(self, request):
         screen = self.screen

@@ -51,10 +51,13 @@ def test_mean_imputation_and_missing_indicator():
     config = PreprocessingConfig(numeric_impute="mean", scaling="none", missing_indicators=True)
     pre = build_preprocessor(Dataset(frame), ["x", "y"], config=config)
     out = pre.fit_transform(frame)
-    # x, its indicator (it had missing values), y (no indicator: nothing missing)
-    assert list(pre.get_feature_names_out()) == ["x", "missingindicator_x", "y"]
+    # x, y, then an indicator for x only (y had nothing missing)
+    assert list(pre.get_feature_names_out()) == ["x", "y", "missingindicator_x"]
     assert out[2, 0] == pytest.approx(4.0)
-    assert out[:, 1].tolist() == [0, 0, 1, 0]
+    assert out[:, 2].tolist() == [0, 0, 1, 0]
+    summary = describe_preprocessor(pre, frame, Dataset(frame), config)
+    assert summary.columns[0].output_features == ["x", "missingindicator_x"]
+    assert summary.columns[1].output_features == ["y"]
 
 
 def test_missing_category_keeps_missingness_visible():
@@ -239,3 +242,22 @@ def test_preprocessing_is_refit_inside_each_fold(linear_df, monkeypatch):
     assert seen[0] == set(train)
     assert len(seen) == 5 and all(len(rows) < len(train) for rows in seen[1:])
     assert result.cross_validation.n_folds == 4
+
+
+def test_summary_attributes_grouped_outputs_to_each_column():
+    frame = pd.DataFrame({
+        "city": ["Oslo"] * 10 + ["Bergen"] * 8 + ["Moss", "Hamar"],
+        "size": ["s", "m"] * 10,
+        "when": pd.date_range("2024-01-01", periods=20),
+        "x": np.arange(20.0),
+    })
+    data = Dataset(frame)
+    config = resolve_config(PreprocessingConfig(min_category_frequency=3))
+    pre = build_preprocessor(data, list(frame.columns), config=config).fit(frame)
+    summary = describe_preprocessor(pre, frame, data, config)
+    outputs = {c.column: c.output_features for c in summary.columns}
+    assert [c.column for c in summary.columns] == ["city", "size", "when", "x"]  # input order
+    assert outputs["city"] == ["city_Bergen", "city_Oslo", "city_infrequent_sklearn"]
+    assert outputs["size"] == ["size_m", "size_s"]
+    assert outputs["when"] == ["when_days", "when_year", "when_month", "when_dayofweek"]
+    assert sum(len(o) for o in outputs.values()) == summary.n_output_features == len(pre.get_feature_names_out())

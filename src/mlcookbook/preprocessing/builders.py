@@ -4,9 +4,10 @@ The returned ``ColumnTransformer`` is unfitted: it must be fitted inside a
 ``Pipeline`` on training data only, which is what keeps preprocessing free of
 train/test leakage.
 
-Each input column gets its own transformer entry (named ``"<kind>:<column>"``),
-so every fitted value can be traced back to the column it came from; see
-``preprocessing.summary.describe_preprocessor``.
+Columns are grouped by role into the transformers ``"numeric"``,
+``"missing"`` (indicators), ``"categorical"`` and ``"datetime"``;
+``preprocessing.summary.describe_preprocessor`` traces every fitted value back
+to its column.
 """
 
 from __future__ import annotations
@@ -129,30 +130,29 @@ def build_preprocessor(
     """
     config = resolve_config(config, scale)
     schema = dataset.schema()
-    entries = []
-    unsupported = []
-    for column in columns:
-        var_type = schema.var_type(column)
-        if var_type is VarType.NUMERIC:
-            entries.append((f"numeric:{column}", _numeric_pipeline(config), [column]))
-            if config.missing_indicators:
-                indicator = MissingIndicator(features="missing-only", error_on_new=False)
-                entries.append((f"missing:{column}", indicator, [column]))
-        elif var_type in (VarType.CATEGORICAL, VarType.BOOLEAN):
-            entries.append((f"categorical:{column}", _categorical_pipeline(config), [column]))
-        elif var_type is VarType.DATETIME:
-            if not pd.api.types.is_datetime64_any_dtype(dataset.df[column]):
-                raise ValueError(
-                    f"Datetime column {column!r} is not stored as dates ({dataset.df[column].dtype}). "
-                    "Parse it first; load_dataset converts ISO-8601 date columns automatically."
-                )
-            entries.append((f"datetime:{column}", _numeric_pipeline(config, expand_dates=True), [column]))
-        else:
-            unsupported.append(column)
+    numeric = [c for c in columns if schema.var_type(c) is VarType.NUMERIC]
+    categorical = [c for c in columns if schema.var_type(c) in (VarType.CATEGORICAL, VarType.BOOLEAN)]
+    dates = [c for c in columns if schema.var_type(c) is VarType.DATETIME]
+    unsupported = sorted(set(columns) - set(numeric) - set(categorical) - set(dates))
     if unsupported:
-        raise ValueError(f"Columns not supported by build_preprocessor (text/unsupported): {sorted(unsupported)}")
-    if not entries:
+        raise ValueError(f"Columns not supported by build_preprocessor (text/unsupported): {unsupported}")
+    for column in dates:
+        if not pd.api.types.is_datetime64_any_dtype(dataset.df[column]):
+            raise ValueError(
+                f"Datetime column {column!r} is not stored as dates ({dataset.df[column].dtype}). "
+                "Parse it first; load_dataset converts ISO-8601 date columns automatically."
+            )
+
+    transformers = []
+    if numeric:
+        transformers.append(("numeric", _numeric_pipeline(config), numeric))
+        if config.missing_indicators:
+            indicator = MissingIndicator(features="missing-only", error_on_new=False)
+            transformers.append(("missing", indicator, numeric))
+    if categorical:
+        transformers.append(("categorical", _categorical_pipeline(config), categorical))
+    if dates:
+        transformers.append(("datetime", _numeric_pipeline(config, expand_dates=True), dates))
+    if not transformers:
         raise ValueError("No usable columns to build a preprocessor from.")
-    if any("__" in name for name, _, _ in entries):  # sklearn reserves "__" for parameter paths
-        entries = [(f"{i}:{name.split(':', 1)[0]}", t, cols) for i, (name, t, cols) in enumerate(entries)]
-    return ColumnTransformer(entries, verbose_feature_names_out=False)
+    return ColumnTransformer(transformers, verbose_feature_names_out=False)
