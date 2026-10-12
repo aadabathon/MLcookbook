@@ -1,10 +1,26 @@
 """Evaluation utilities returning structured metric objects.
 
-Implemented: regression metrics.
-Planned (see ROADMAP.md): classification metrics, cross-validation,
-residual diagnostics.
+Implemented: regression and classification metrics, k-fold cross-validation.
 """
 
-from mlcookbook.evaluation.metrics import RegressionMetrics, regression_metrics
+from mlcookbook.evaluation.cross_validation import (
+    CrossValidationFold,
+    CrossValidationResult,
+    cross_validate_pipeline,
+)
+from mlcookbook.evaluation.metrics import (
+    ClassificationMetrics,
+    RegressionMetrics,
+    classification_metrics,
+    regression_metrics,
+)
 
-__all__ = ["RegressionMetrics", "regression_metrics"]
+__all__ = [
+    "ClassificationMetrics",
+    "CrossValidationFold",
+    "CrossValidationResult",
+    "RegressionMetrics",
+    "classification_metrics",
+    "cross_validate_pipeline",
+    "regression_metrics",
+]

@@ -22,8 +22,11 @@ from sklearn.tree import DecisionTreeClassifier
 from mlcookbook.classification._binary import prepare_binary_problem
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.results import Result
+from mlcookbook.evaluation.cross_validation import CrossValidationResult, training_cross_validation
 from mlcookbook.evaluation.metrics import ClassificationMetrics, classification_metrics
-from mlcookbook.preprocessing.builders import build_preprocessor
+from mlcookbook.preprocessing.builders import build_preprocessor, resolve_config
+from mlcookbook.preprocessing.config import PreprocessingConfig
+from mlcookbook.preprocessing.summary import PreprocessingSummary, describe_preprocessor
 
 OVERFIT_GAP = 0.10  # warn if train accuracy beats test accuracy by more than this
 MAX_CV_FOLDS = 5
@@ -79,6 +82,8 @@ class DecisionTreeResult(Result):
     depth_curve: list[DepthScore]
     train_metrics: ClassificationMetrics
     test_metrics: ClassificationMetrics
+    preprocessing: PreprocessingSummary
+    cross_validation: CrossValidationResult | None  # at max_depth, on the training rows only
     warnings: list[str] = field(default_factory=list)
 
 
@@ -91,6 +96,8 @@ def decision_tree(
     min_samples_leaf: int = 5,
     test_size: float = 0.25,
     random_state: int = 0,
+    preprocessing: PreprocessingConfig | None = None,
+    cv_folds: int = 5,
 ) -> DecisionTreeResult:
     """Fit a binary decision tree of *target* on *features*.
 
@@ -101,6 +108,8 @@ def decision_tree(
 
     The result includes a depth-vs-accuracy curve (cross-validated on the
     training rows only) so you can see where extra depth stops helping.
+    *preprocessing* configures imputation/encoding (scaling defaults to none);
+    *cv_folds* cross-validates the chosen depth on the training rows.
     """
     if max_depth < 1:
         raise ValueError(f"max_depth must be at least 1; got {max_depth}.")
@@ -109,6 +118,7 @@ def decision_tree(
     )
     positive_class = labels[1]
     y = frame[target]
+    config = resolve_config(preprocessing, scale=False)
 
     X = frame[features]
     X_train, X_test, y_train, y_test = train_test_split(
@@ -118,7 +128,7 @@ def decision_tree(
     def make_model(depth: int) -> Pipeline:
         return Pipeline(
             [
-                ("preprocess", build_preprocessor(dataset, features, scale=False)),
+                ("preprocess", build_preprocessor(dataset, features, config=config)),
                 (
                     "tree",
                     DecisionTreeClassifier(
@@ -148,6 +158,9 @@ def decision_tree(
         )
 
     depth_curve = _depth_curve(make_model, X_train, y_train, max(8, max_depth + 2), warnings)
+    cross_validation = training_cross_validation(
+        make_model(max_depth), X_train, y_train, "binary", cv_folds, random_state, warnings, positive_class
+    )
 
     return DecisionTreeResult(
         method="decision_tree",
@@ -167,6 +180,8 @@ def decision_tree(
         depth_curve=depth_curve,
         train_metrics=train_metrics,
         test_metrics=test_metrics,
+        preprocessing=describe_preprocessor(model.named_steps["preprocess"], X_train, dataset, config),
+        cross_validation=cross_validation,
         warnings=warnings,
     )
 

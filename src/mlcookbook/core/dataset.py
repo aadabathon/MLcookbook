@@ -13,6 +13,7 @@ from typing import Mapping
 
 import pandas as pd
 
+from mlcookbook.core.quality import QualityIssue, column_issues
 from mlcookbook.core.results import Result
 from mlcookbook.core.schema import ColumnSchema, DatasetSchema, VarType, infer_var_type
 
@@ -34,6 +35,7 @@ class DatasetSummary(Result):
     n_columns: int
     constant_columns: list[str] = field(default_factory=list)
     columns: list[ColumnSummary] = field(default_factory=list)
+    issues: list[QualityIssue] = field(default_factory=list)  # see core/quality.py
 
 
 class Dataset:
@@ -85,7 +87,7 @@ class Dataset:
         return DatasetSchema(columns=columns)
 
     def describe(self) -> DatasetSummary:
-        """Structural metadata: missingness, cardinality, constant columns."""
+        """Structural metadata: missingness, cardinality, constant columns, quality issues."""
         schema = self.schema()
         n_rows = len(self._df)
         summaries = []
@@ -109,6 +111,7 @@ class Dataset:
             n_columns=len(summaries),
             constant_columns=[s.name for s in summaries if s.is_constant],
             columns=summaries,
+            issues=column_issues(self._df, schema),
         )
 
     def columns_of_type(self, *types: VarType) -> list[str]:

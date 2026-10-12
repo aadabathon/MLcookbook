@@ -18,10 +18,10 @@ def test_recovers_linear_relationship(linear_df):
 
 def test_default_features_skip_unusable_columns(mixed_df):
     result = linear_regression(Dataset(mixed_df), target="income")
-    assert "signup" not in result.features
     assert "notes" not in result.features
-    assert set(result.features) == {"age", "city", "is_member", "constant"}
-    assert any("Skipped" in w for w in result.warnings)
+    assert set(result.features) == {"age", "city", "is_member", "signup", "constant"}
+    assert any("Skipped" in w and "notes" in w for w in result.warnings)
+    assert any("'constant' is constant" in w for w in result.warnings)
 
 
 def test_categorical_features_are_onehot_encoded(linear_df):

@@ -17,7 +17,7 @@ def test_transforms_numeric_and_categorical(mixed_df):
 
 def test_rejects_unusable_columns(mixed_df):
     with pytest.raises(ValueError, match="not supported"):
-        build_preprocessor(Dataset(mixed_df), ["age", "signup"])
+        build_preprocessor(Dataset(mixed_df), ["age", "notes"])
 
 
 def test_nullable_categories_impute_from_training_only():
@@ -28,7 +28,7 @@ def test_nullable_categories_impute_from_training_only():
     held_out = pd.DataFrame({"group": pd.Series([pd.NA, "b", "b", "b", "b"], dtype="string")})
     pre = build_preprocessor(Dataset(train), ["group"])
     pre.fit(train)
-    cat = pre.named_transformers_["categorical"]
+    cat = pre.named_transformers_["categorical:group"]
     assert cat.named_steps["impute"].statistics_[0] == "a"
     transformed = pre.transform(held_out)
     np.testing.assert_array_equal(transformed[0], pre.transform(train.iloc[[0]])[0])

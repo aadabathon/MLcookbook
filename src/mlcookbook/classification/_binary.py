@@ -8,8 +8,7 @@ import pandas as pd
 
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.schema import VarType
-
-FEATURE_TYPES = (VarType.NUMERIC, VarType.CATEGORICAL, VarType.BOOLEAN)
+from mlcookbook.preprocessing.features import resolve_features
 TARGET_TYPES = (VarType.CATEGORICAL, VarType.BOOLEAN, VarType.NUMERIC)
 IMBALANCE_WARN_FRACTION = 0.10  # warn if the minority class is below this share
 
@@ -36,23 +35,7 @@ def prepare_binary_problem(
             f"target; {target!r} is {target_type.value}."
         )
 
-    warnings: list[str] = []
-    if features is None:
-        features = [c.name for c in schema.columns if c.name != target and c.var_type in FEATURE_TYPES]
-        skipped = [c.name for c in schema.columns if c.name != target and c.var_type not in FEATURE_TYPES]
-        if skipped:
-            warnings.append(
-                f"Skipped columns with non-feature types (datetime/text/unsupported): {skipped}."
-            )
-    else:
-        if target in features:
-            raise ValueError(f"Target {target!r} cannot also be a feature.")
-        for feature in features:
-            var_type = schema.var_type(feature)  # raises KeyError for unknown columns
-            if var_type not in FEATURE_TYPES:
-                raise ValueError(f"Feature {feature!r} has unsupported type {var_type.value}.")
-    if not features:
-        raise ValueError("No usable feature columns.")
+    features, warnings = resolve_features(dataset, target, features)
 
     frame = dataset.df[features + [target]]
     n_missing_target = int(frame[target].isna().sum())

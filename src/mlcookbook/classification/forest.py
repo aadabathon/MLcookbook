@@ -1,4 +1,4 @@
-﻿"""Binary random forests with training-only preprocessing and held-out evaluation."""
+"""Binary random forests with training-only preprocessing and held-out evaluation."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,8 +13,11 @@ from sklearn.pipeline import Pipeline
 from mlcookbook.classification._binary import prepare_binary_problem
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.results import Result
+from mlcookbook.evaluation.cross_validation import CrossValidationResult, training_cross_validation
 from mlcookbook.evaluation.metrics import ClassificationMetrics, classification_metrics
-from mlcookbook.preprocessing.builders import build_preprocessor
+from mlcookbook.preprocessing.builders import build_preprocessor, resolve_config
+from mlcookbook.preprocessing.config import PreprocessingConfig
+from mlcookbook.preprocessing.summary import PreprocessingSummary, describe_preprocessor
 
 OVERFIT_GAP = 0.10
 
@@ -42,6 +45,8 @@ class RandomForestResult(Result):
     test_probability: list[float]  # probability of positive_class
     roc_fpr: list[float]  # test set, empty if only one class occurs
     roc_tpr: list[float]
+    preprocessing: PreprocessingSummary
+    cross_validation: CrossValidationResult | None  # on the training rows only
     warnings: list[str] = field(default_factory=list)
 
 
@@ -56,6 +61,8 @@ def random_forest(
     max_features: str | int | float | None = "sqrt",
     test_size: float = 0.25,
     random_state: int = 0,
+    preprocessing: PreprocessingConfig | None = None,
+    cv_folds: int = 5,
 ) -> RandomForestResult:
     """Fit a binary random forest with held-out probabilities and feature importances.
 
@@ -68,6 +75,8 @@ def random_forest(
     The result carries test ROC coordinates and per-tree sizes, never estimators.
     Impurity importances are per encoded feature, may favor high-cardinality
     features, and are not causal effects. Model parameters are validated by sklearn.
+    *preprocessing* configures imputation/encoding (scaling defaults to none);
+    *cv_folds* runs stratified k-fold cross-validation on the training rows.
     """
     features, frame, labels, warnings = prepare_binary_problem(
         dataset, target, features, positive_class, "random_forest"
@@ -77,23 +86,24 @@ def random_forest(
         frame[features], frame[target], test_size=test_size,
         random_state=random_state, stratify=frame[target],
     )
-    constants = [name for name in features if X_train[name].nunique(dropna=True) <= 1]
-    if constants:
-        warnings.append(f"Constant or entirely missing training features have no training variation: {constants}.")
+    config = resolve_config(preprocessing, scale=False)
     if not X_train.notna().any().any():
         raise ValueError("No observed feature values in the training rows.")
     missing = int(X_train.isna().sum().sum() + X_test.isna().sum().sum())
     if missing:
         warnings.append(f"Found {missing} missing feature value(s); imputation is fitted on training rows only.")
 
-    model = Pipeline([
-        ("preprocess", build_preprocessor(dataset, features, scale=False)),
-        ("forest", RandomForestClassifier(
-            n_estimators=n_estimators, max_depth=max_depth,
-            min_samples_leaf=min_samples_leaf, max_features=max_features,
-            bootstrap=True, random_state=random_state, n_jobs=1,
-        )),
-    ])
+    def make_model() -> Pipeline:
+        return Pipeline([
+            ("preprocess", build_preprocessor(dataset, features, config=config)),
+            ("forest", RandomForestClassifier(
+                n_estimators=n_estimators, max_depth=max_depth,
+                min_samples_leaf=min_samples_leaf, max_features=max_features,
+                bootstrap=True, random_state=random_state, n_jobs=1,
+            )),
+        ])
+
+    model = make_model()
     # sklearn may warn about entirely missing columns. Surface those warnings in
     # the result too, rather than writing them to the desktop app's console.
     with python_warnings.catch_warnings(record=True) as caught:
@@ -106,6 +116,9 @@ def random_forest(
         test_predicted = model.predict(X_test)
         train_probability = model.predict_proba(X_train)[:, positive_col]
         test_probability = model.predict_proba(X_test)[:, positive_col]
+        cross_validation = training_cross_validation(
+            make_model(), X_train, y_train, "binary", cv_folds, random_state, warnings, positive_class
+        )
     warnings.extend(dict.fromkeys(str(w.message) for w in caught))
 
     train_metrics = classification_metrics(y_train, train_predicted, train_probability, labels)
@@ -137,5 +150,7 @@ def random_forest(
         test_actual=y_test.tolist(), test_predicted=test_predicted.tolist(),
         test_probability=test_probability.tolist(),
         roc_fpr=list(map(float, fpr)), roc_tpr=list(map(float, tpr)),
+        preprocessing=describe_preprocessor(model.named_steps["preprocess"], X_train, dataset, config),
+        cross_validation=cross_validation,
         warnings=warnings,
     )

@@ -1,4 +1,4 @@
-﻿import json
+import json
 from dataclasses import FrozenInstanceError
 
 import numpy as np
@@ -106,9 +106,11 @@ def test_missing_targets_features_and_skipped_columns_warn(logistic_df):
     logistic_df.loc[:9, "y"] = None
     logistic_df.loc[20:24, "x1"] = np.nan
     logistic_df["when"] = pd.date_range("2026-01-01", periods=len(logistic_df))
+    logistic_df["notes"] = [f"free text {i}" for i in range(len(logistic_df))]
     result = random_forest(Dataset(logistic_df), "y", n_estimators=10)
     assert result.n_train + result.n_test == 390
-    assert "when" not in result.features
+    assert "when" in result.features  # dates are expanded into numeric parts
+    assert "notes" not in result.features
     assert any("missing target" in w for w in result.warnings)
     assert any("5 missing feature" in w for w in result.warnings)
     assert any("Skipped columns" in w for w in result.warnings)
@@ -120,23 +122,25 @@ def test_training_only_preprocessing_and_unseen_test_category(logistic_df, monke
     logistic_df.loc[test, "group"] = "held_out_only"
     logistic_df.loc[test, "x1"] = 1_000_000
     logistic_df.loc[train[:3], "x1"] = np.nan
-    observed = {}
+    fits = []  # the final model first, then one per cross-validation fold
     original = forest_module.Pipeline.fit
 
     def fit(pipeline, X, y=None, **kwargs):
         result = original(pipeline, X, y, **kwargs)
         if "forest" in pipeline.named_steps:
-            observed["rows"] = set(X.index)
-            numeric = pipeline.named_steps["preprocess"].named_transformers_["numeric"]
-            observed["numeric_steps"] = list(numeric.named_steps)
-            observed["median"] = numeric.named_steps["impute"].statistics_[0]
+            numeric = pipeline.named_steps["preprocess"].named_transformers_["numeric:x1"]
+            fits.append({"rows": set(X.index), "numeric_steps": list(numeric.named_steps),
+                         "median": numeric.named_steps["impute"].statistics_[0]})
         return result
 
     monkeypatch.setattr(forest_module.Pipeline, "fit", fit)
     result = random_forest(Dataset(logistic_df), "y", features=["x1", "group"], n_estimators=10)
-    assert observed["rows"] == set(train) and observed["rows"].isdisjoint(test)
-    assert "scale" not in observed["numeric_steps"]
-    assert observed["median"] == pytest.approx(logistic_df.loc[train, "x1"].median())
+    assert fits[0]["rows"] == set(train)
+    assert len(fits) == 1 + result.cross_validation.n_folds
+    for observed in fits:  # cross-validation folds refit preprocessing on their own training rows
+        assert observed["rows"] <= set(train) and observed["rows"].isdisjoint(test)
+        assert "scale" not in observed["numeric_steps"]
+        assert observed["median"] == pytest.approx(logistic_df.loc[list(observed["rows"]), "x1"].median())
     assert "group_held_out_only" not in result.feature_importances
     assert "group_training" in result.feature_importances
 
@@ -157,7 +161,7 @@ def test_constant_features_return_zero_importances_with_warning():
     result = random_forest(data, "y", n_estimators=10)
     assert result.feature_importances == {"x": 0.0}
     assert result.tree_depths == [0] * 10
-    assert any("Constant" in w for w in result.warnings)
+    assert any("constant" in w for w in result.warnings)
 
 
 def test_all_missing_features_rejected():
