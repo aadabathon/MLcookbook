@@ -1,4 +1,4 @@
-"""Binary logistic regression workflow.
+"""Logistic regression workflow (binary or multinomial).
 
 Mirrors ``regression/linear.py``: validate against the schema, build a
 leakage-safe Pipeline, hold out a (stratified) test split, evaluate both splits,
@@ -15,7 +15,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-from mlcookbook.classification._binary import prepare_binary_problem
+from mlcookbook.classification._problem import (
+    class_probabilities,
+    metric_scores,
+    prepare_classification_problem,
+    task_for,
+)
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.results import Result
 from mlcookbook.core.schema import VarType
@@ -32,17 +37,21 @@ class LogisticRegressionResult(Result):
     method: str
     target: str
     features: list[str]
-    classes: list[Any]  # [negative_class, positive_class]
-    positive_class: Any
+    classes: list[Any]  # binary: [negative_class, positive_class]; multiclass: sorted classes
+    positive_class: Any  # None for multiclass
     n_train: int
     n_test: int
-    intercept: float  # log-odds of the positive class at the feature means
-    coefficients: dict[str, float]  # log-odds, keyed by post-preprocessing feature name
-    odds_ratios: dict[str, float]  # exp(coefficient)
+    intercept: float | None  # binary: log-odds of the positive class at the feature means
+    coefficients: dict[str, float]  # binary: log-odds per post-preprocessing feature; {} if multiclass
+    odds_ratios: dict[str, float]  # exp(coefficient); {} if multiclass
+    class_intercepts: dict[Any, float]  # multiclass softmax intercepts; {} if binary
+    class_coefficients: dict[Any, dict[str, float]]  # multiclass softmax coefficients; {} if binary
     train_metrics: ClassificationMetrics
     test_metrics: ClassificationMetrics
     test_actual: list[Any]  # held-out class labels, for plotting
-    test_probability: list[float]  # predicted P(positive_class) for each held-out row
+    test_predicted: list[Any]
+    test_probability: list[float]  # binary: P(positive_class) per held-out row; [] if multiclass
+    test_class_probabilities: list[list[float]]  # per held-out row, one probability per class
     preprocessing: PreprocessingSummary
     cross_validation: CrossValidationResult | None  # on the training rows only
     warnings: list[str] = field(default_factory=list)
@@ -58,12 +67,14 @@ def logistic_regression(
     preprocessing: PreprocessingConfig | None = None,
     cv_folds: int = 5,
 ) -> LogisticRegressionResult:
-    """Fit a binary logistic regression of *target* on *features*.
+    """Fit a logistic regression of *target* on *features*.
 
-    The target must have exactly two classes (after dropping missing values).
-    *positive_class* picks which one is modeled as "1"; by default it is the
-    larger of the two in sorted order (e.g. True over False). The train/test
-    split is stratified so both splits contain both classes.
+    With two classes, *positive_class* picks which one is modeled as "1"; by
+    default it is the larger of the two in sorted order (e.g. True over False).
+    With three or more classes the model is multinomial (softmax): each class
+    gets its own coefficients, and the difference between two classes'
+    coefficients is the change in their log-odds per unit of the feature.
+    The train/test split is stratified so both splits contain every class.
 
     If *features* is None, all numeric/categorical/boolean/datetime columns
     except the target are used; other columns are skipped with a warning. Rows
@@ -75,10 +86,11 @@ def logistic_regression(
     Note: coefficients are log-odds; with the default standard scaling, numeric
     features' coefficients are per standard deviation.
     """
-    features, frame, labels, warnings = prepare_binary_problem(
+    features, frame, labels, warnings = prepare_classification_problem(
         dataset, target, features, positive_class, "logistic_regression"
     )
-    positive_class = labels[1]
+    binary = len(labels) == 2
+    positive_class = labels[1] if binary else None
     y = frame[target]
     config = resolve_config(preprocessing, scale=True)
     schema = dataset.schema()
@@ -103,21 +115,31 @@ def logistic_regression(
     model = make_model()
     model.fit(X_train, y_train)
     cross_validation = training_cross_validation(
-        make_model(), X_train, y_train, "binary", cv_folds, random_state, warnings, positive_class
+        make_model(), X_train, y_train, task_for(labels), cv_folds, random_state, warnings, positive_class
     )
 
     classifier = model.named_steps["classify"]
-    # sklearn orders classes_ ascending; the positive class's probability is its column.
-    positive_col = list(classifier.classes_).index(positive_class)
-    # coef_ describes classes_[1]; flip the sign if the user chose the other as positive.
-    sign = 1.0 if positive_col == 1 else -1.0
+    feature_names = [str(n) for n in model.named_steps["preprocess"].get_feature_names_out()]
+    if binary:
+        # coef_ describes classes_[1]; flip the sign if the user chose the other as positive.
+        sign = 1.0 if list(classifier.classes_).index(positive_class) == 1 else -1.0
+        coefs = sign * classifier.coef_[0]
+        intercept = float(sign * classifier.intercept_[0])
+        coefficients = {name: float(c) for name, c in zip(feature_names, coefs)}
+        odds_ratios = {name: float(np.exp(c)) for name, c in zip(feature_names, coefs)}
+        class_intercepts, class_coefficients = {}, {}
+    else:
+        intercept, coefficients, odds_ratios = None, {}, {}
+        rows = {label: i for i, label in enumerate(classifier.classes_)}
+        class_intercepts = {label: float(classifier.intercept_[rows[label]]) for label in labels}
+        class_coefficients = {
+            label: {name: float(c) for name, c in zip(feature_names, classifier.coef_[rows[label]])}
+            for label in labels
+        }
 
-    def score(X_part) -> np.ndarray:
-        return model.predict_proba(X_part)[:, positive_col]
-
-    feature_names = model.named_steps["preprocess"].get_feature_names_out()
-    coefs = sign * classifier.coef_[0]
-    test_probability = score(X_test)
+    train_probabilities = class_probabilities(model, X_train, labels)
+    test_probabilities = class_probabilities(model, X_test, labels)
+    test_predicted = model.predict(X_test)
     return LogisticRegressionResult(
         method="logistic_regression",
         target=target,
@@ -126,13 +148,19 @@ def logistic_regression(
         positive_class=positive_class,
         n_train=len(X_train),
         n_test=len(X_test),
-        intercept=float(sign * classifier.intercept_[0]),
-        coefficients={str(name): float(c) for name, c in zip(feature_names, coefs)},
-        odds_ratios={str(name): float(np.exp(c)) for name, c in zip(feature_names, coefs)},
-        train_metrics=classification_metrics(y_train, model.predict(X_train), score(X_train), labels),
-        test_metrics=classification_metrics(y_test, model.predict(X_test), test_probability, labels),
+        intercept=intercept,
+        coefficients=coefficients,
+        odds_ratios=odds_ratios,
+        class_intercepts=class_intercepts,
+        class_coefficients=class_coefficients,
+        train_metrics=classification_metrics(
+            y_train, model.predict(X_train), metric_scores(train_probabilities, labels), labels
+        ),
+        test_metrics=classification_metrics(y_test, test_predicted, metric_scores(test_probabilities, labels), labels),
         test_actual=y_test.tolist(),
-        test_probability=[float(p) for p in test_probability],
+        test_predicted=test_predicted.tolist(),
+        test_probability=[float(p) for p in test_probabilities[:, 1]] if binary else [],
+        test_class_probabilities=test_probabilities.tolist(),
         preprocessing=describe_preprocessor(model.named_steps["preprocess"], X_train, dataset, config),
         cross_validation=cross_validation,
         warnings=warnings,

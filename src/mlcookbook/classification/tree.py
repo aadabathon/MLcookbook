@@ -1,4 +1,4 @@
-"""Binary decision tree workflow.
+"""Decision tree classification workflow (binary or multiclass).
 
 Same shape as ``logistic.py``, with two differences worth knowing:
 
@@ -19,7 +19,12 @@ from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
-from mlcookbook.classification._binary import prepare_binary_problem
+from mlcookbook.classification._problem import (
+    class_probabilities,
+    metric_scores,
+    prepare_classification_problem,
+    task_for,
+)
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.results import Result
 from mlcookbook.evaluation.cross_validation import CrossValidationResult, training_cross_validation
@@ -68,8 +73,8 @@ class DecisionTreeResult(Result):
     method: str
     target: str
     features: list[str]
-    classes: list[Any]  # [negative_class, positive_class]
-    positive_class: Any
+    classes: list[Any]  # binary: [negative_class, positive_class]; multiclass: sorted classes
+    positive_class: Any  # None for multiclass
     n_train: int
     n_test: int
     max_depth: int  # requested cap
@@ -99,11 +104,11 @@ def decision_tree(
     preprocessing: PreprocessingConfig | None = None,
     cv_folds: int = 5,
 ) -> DecisionTreeResult:
-    """Fit a binary decision tree of *target* on *features*.
+    """Fit a classification tree of *target* on *features*.
 
-    Target and feature rules match logistic_regression: the target must have
-    exactly two classes, *positive_class* picks the "1" class, the split is
-    stratified, and rows with a missing target are dropped. Numeric features
+    Target and feature rules match logistic_regression: two classes (with
+    *positive_class* picking the "1" class) or several (multiclass), a
+    stratified split, and rows with a missing target dropped. Numeric features
     are imputed but not scaled, so thresholds are in real units.
 
     The result includes a depth-vs-accuracy curve (cross-validated on the
@@ -113,10 +118,10 @@ def decision_tree(
     """
     if max_depth < 1:
         raise ValueError(f"max_depth must be at least 1; got {max_depth}.")
-    features, frame, labels, warnings = prepare_binary_problem(
+    features, frame, labels, warnings = prepare_classification_problem(
         dataset, target, features, positive_class, "decision_tree"
     )
-    positive_class = labels[1]
+    positive_class = labels[1] if len(labels) == 2 else None
     y = frame[target]
     config = resolve_config(preprocessing, scale=False)
 
@@ -144,10 +149,9 @@ def decision_tree(
     names = [str(n) for n in model.named_steps["preprocess"].get_feature_names_out()]
 
     nodes = _extract_nodes(classifier, names, labels)
-    positive_col = list(classifier.classes_).index(positive_class)
 
     def score(X_part) -> np.ndarray:
-        return model.predict_proba(X_part)[:, positive_col]
+        return metric_scores(class_probabilities(model, X_part, labels), labels)
 
     train_metrics = classification_metrics(y_train, model.predict(X_train), score(X_train), labels)
     test_metrics = classification_metrics(y_test, model.predict(X_test), score(X_test), labels)
@@ -159,7 +163,7 @@ def decision_tree(
 
     depth_curve = _depth_curve(make_model, X_train, y_train, max(8, max_depth + 2), warnings)
     cross_validation = training_cross_validation(
-        make_model(max_depth), X_train, y_train, "binary", cv_folds, random_state, warnings, positive_class
+        make_model(max_depth), X_train, y_train, task_for(labels), cv_folds, random_state, warnings, positive_class
     )
 
     return DecisionTreeResult(

@@ -92,9 +92,9 @@ def test_missing_target_rows_dropped(logistic_df):
     assert any("missing target" in w for w in result.warnings)
 
 
-def test_rejects_multiclass_and_bad_depth(mixed_df, logistic_df):
-    with pytest.raises(ValueError, match="binary"):
-        decision_tree(Dataset(mixed_df), target="city")
+def test_rejects_continuous_target_and_bad_depth(mixed_df, logistic_df):
+    with pytest.raises(ValueError, match="regression"):
+        decision_tree(Dataset(mixed_df), target="income")
     with pytest.raises(ValueError, match="max_depth"):
         decision_tree(Dataset(logistic_df), target="y", max_depth=0)
 

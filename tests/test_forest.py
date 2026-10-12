@@ -76,14 +76,15 @@ def test_invalid_settings(logistic_df, kwargs):
 
 
 @pytest.mark.parametrize("case,message", [
-    ("multiclass", "binary"), ("oneclass", "binary"), ("rare", "at least 2"),
+    ("multiclass", "two-class"), ("oneclass", "at least two classes"), ("rare", "at least 2"),
     ("positive", "positive_class"), ("target_feature", "also be a feature"),
     ("no_features", "No usable"), ("text_feature", "unsupported type"),
 ])
 def test_shared_validation(logistic_df, case, message):
     kwargs = {"n_estimators": 5}
     if case == "multiclass":
-        logistic_df.loc[0, "y"] = "third"
+        logistic_df.loc[:1, "y"] = "third"
+        kwargs["positive_class"] = "yes"
     elif case == "oneclass":
         logistic_df["y"] = "yes"
     elif case == "rare":

@@ -64,13 +64,13 @@ def test_imbalance_warning(logistic_df):
     assert any("imbalance" in w for w in result.warnings)
 
 
-def test_rejects_multiclass_target(mixed_df):
-    with pytest.raises(ValueError, match="binary"):
-        logistic_regression(Dataset(mixed_df), target="city")
+def test_positive_class_only_for_two_classes(mixed_df):
+    with pytest.raises(ValueError, match="two-class"):
+        logistic_regression(Dataset(mixed_df), target="city", positive_class="Oslo")
 
 
 def test_rejects_continuous_target(mixed_df):
-    with pytest.raises(ValueError, match="binary"):
+    with pytest.raises(ValueError, match="regression"):
         logistic_regression(Dataset(mixed_df), target="income")
 
 
