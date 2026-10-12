@@ -43,13 +43,19 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         title="Decision Trees",
-        description="Interpretable recursive splits for regression and classification.",
+        description="Interpretable recursive splits, drawn as the fitted tree with a depth-vs-overfit curve.",
         icon="τ",  # τ
+        status="Ready",
+        variant="ready",
+        key="decision-tree",
     ),
     Recipe(
         title="Random Forests",
         description="Bootstrap-aggregated tree ensembles with feature importances.",
         icon="⁂",  # ⁂
+        status="Ready",
+        variant="ready",
+        key="random-forest",
     ),
     Recipe(
         title="Support Vector Machines",

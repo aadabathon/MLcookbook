@@ -16,15 +16,59 @@ Features intentionally left for hands-on implementation, roughly in suggested or
 - [x] **Logistic regression classification workflow** (`classification/`) mirroring `regression/linear.py`, with `classification_metrics` (accuracy, precision/recall/F1, ROC AUC, confusion matrix) in `evaluation/`.
 - [ ] **Cross-validation** utility (`evaluation/`) wrapping `sklearn.model_selection.cross_validate` and returning a structured result (per-fold + aggregate metrics).
 - [ ] **Regularized regression** (Ridge/Lasso) — mostly a parameter to the existing workflow; a good exercise in extending without duplicating.
-- [ ] **Tree-based models** (RandomForest for regression and classification) with feature importances in the result.
+- [x] **Binary random forest classification** (`classification/forest.py`): shared validation, training-only preprocessing, held-out probabilities/ROC, importances, forest-size summary, CSV/Parquet GUI workflow.
+- [ ] **Tree-based regression**: decision-tree and random-forest regression with appropriate regression metrics. Binary decision trees and random forests are complete; multiclass classification remains open.
 - [ ] **K-means clustering workflow** (`clustering/`) with silhouette score and an elbow/inertia scan.
 - [ ] **PCA workflow** (`dimensionality/`) returning explained variance ratios and loadings.
 - [ ] **Residual diagnostics** for regression: residual normality, heteroscedasticity flags, added to `LinearRegressionResult.warnings` or a dedicated diagnostics result.
 
 ## Infrastructure
 
+- [x] **Local CSV/Parquet input** for all four ready ML recipes: preview, schema-role overrides, target/features and positive-class selection, background loading/training.
+
 - [ ] **Visualization module**: functions that take result objects (never raw data + recomputation) and return matplotlib figures.
 - [ ] **`Dataset.dropna()` / row-filtering helpers** returning new `Dataset` instances.
 - [ ] **FastAPI service** in a separate `api/` or sibling package: endpoints that wrap analyses and return `result.to_dict()`.
 - [ ] **CI** (GitHub Actions: pytest on 3.12+), plus `ruff` and `mypy` configs.
 - [ ] **Property-based tests** with `hypothesis` for schema inference edge cases.
+
+## Directions under discussion
+
+Recorded after the CSV/Parquet milestone on 2026-09-27. These are proposals for Adam to consider, not scheduled work or authorization to implement anything. The learning curriculum above remains intact.
+
+### Candidate data inputs
+
+Relative effort includes the import UI, validation, tests, and packaging, not just calling a reader.
+
+| Candidate | What it would enable | Relative effort and decisions |
+|---|---|---|
+| TSV (`.tsv`) | Tab-delimited research and application exports | Small: tab parsing already exists for `.csv`; extend extension dispatch/file filters and tests, with tab as the TSV default. |
+| Compressed CSV (`.csv.gz`) | Read compressed exports without manual extraction | Small to moderate: make both header validation and data parsing compression-aware. This does not make training out-of-core. |
+| Excel (`.xlsx`) | Analyze worksheets directly | Moderate: choose a sheet and header row; define how to handle blank regions and formula cells. An Excel engine such as `openpyxl` would need separate dependency approval. |
+| JSON Lines (`.jsonl`/`.ndjson`), then record-array JSON | Analyze event records and application/API exports | Moderate: start with flat records; define missing-field and mixed-type behavior. Nested data needs an explicit flattening choice. |
+| SQLite (`.sqlite`/`.db`) | Analyze local database tables without exporting CSV first | Moderate: start with read-only table selection and preview; joins, custom SQL, and remote databases can come later. |
+| Feather (`.feather`) | Exchange typed tables with Python/R workflows | Small to moderate: the existing Arrow dependency helps; prioritize when there is a concrete dataset needing it. |
+
+Proposed order: TSV/compressed CSV as convenience additions, Excel as the next major import capability, then JSONL. SQLite and Feather can follow actual dataset needs. Keep each supported input feeding the existing `Dataset` and schema checks so every algorithm benefits.
+
+Technical references: pandas documents [Excel engines and sheet selection](https://pandas.pydata.org/docs/reference/api/pandas.read_excel.html), [JSON and line-oriented records](https://pandas.pydata.org/docs/reference/api/pandas.read_json.html), [SQL query input including sqlite3 connections](https://pandas.pydata.org/docs/reference/api/pandas.read_sql_query.html), and [Feather input](https://pandas.pydata.org/docs/reference/api/pandas.read_feather.html).
+
+### Candidate workflow improvements
+
+A possible product direction is a local analysis workbench where users can inspect data, run suitable methods, understand the results, and reproduce the run.
+
+1. **Import review and data quality:** preserve leading-zero identifiers through parser-level type choices; configurable missing-value markers; explicit numeric/date conversion; flag constant/all-missing columns and likely IDs. Keep cleaning choices visible.
+2. **Reproducible projects and useful outputs:** save import options, schema overrides, selected columns, algorithm settings, seed, package versions, and a source-data fingerprint; export metrics and per-row predictions. Explain whether reopening references or includes the original data.
+3. **Fair model comparison:** reuse the same holdout rows across compatible algorithms, introduce training-only cross-validation and appropriate metrics, and distinguish classification from regression comparisons. Grouped or time-based splits would be separate explicit choices when rows are not independent.
+4. **Broader analysis:** connect the existing correlation core to the GUI, then consider the statistical tests, regularization, regression forests, multiclass classification, PCA, and clustering as individually chosen learning projects. Methods should explain their input requirements and interpretation.
+5. **Larger datasets:** measure actual memory/runtime limits before adding sampling, column projection, or batch processing. A reader that streams does not automatically make the estimator train incrementally.
+
+Saved configurations and reports deserve consideration alongside new formats: importing more files is most useful when users can retain and compare the analyses they run.
+
+### Later model-inference workflows
+
+GGUF stores model tensors and metadata for inference ([Hugging Face GGUF documentation](https://huggingface.co/docs/hub/gguf)). It belongs to a future model-loading workflow alongside a dataset input, with its own runtime and resource requirements.
+
+Possible first scope: select a compatible local model, inspect its metadata, run a bounded text task on selected rows, and retain outputs with the model and prompt settings used. Examples include labeling text or extracting structured fields for review before downstream analysis. Labeling, generation, embeddings, and fine-tuning are distinct capabilities; support should be chosen explicitly rather than implied by accepting a GGUF file.
+
+A model file alone does not supply a labeled evaluation dataset. Existing statistical/ML results should remain computed by their analytical core; any future generated explanation or label should be identifiable as such. Runtime selection, hardware support, model acquisition, licensing, and dependency approvals need their own design discussion before implementation.

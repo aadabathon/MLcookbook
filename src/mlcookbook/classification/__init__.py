@@ -1,9 +1,10 @@
-"""Classification workflows.
+"""Binary classification workflows: logistic regression, decision trees, and forests."""
 
-Implemented: binary logistic regression (logistic_regression).
-Planned (see ROADMAP.md): tree models, cross-validation.
-"""
-
+from mlcookbook.classification.forest import RandomForestResult, random_forest
 from mlcookbook.classification.logistic import LogisticRegressionResult, logistic_regression
+from mlcookbook.classification.tree import DecisionTreeResult, decision_tree
 
-__all__ = ["LogisticRegressionResult", "logistic_regression"]
+__all__ = [
+    "DecisionTreeResult", "LogisticRegressionResult", "RandomForestResult",
+    "decision_tree", "logistic_regression", "random_forest",
+]

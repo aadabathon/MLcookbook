@@ -175,6 +175,19 @@ def stylesheet() -> str:
         letter-spacing: 2px;
         color: {TEXT_FAINT};
     }}
+    QComboBox {{
+        background-color: {CARD};
+        color: {TEXT};
+        border: 1px solid {BORDER};
+        border-radius: 4px;
+        padding: 4px 6px;
+        min-height: 20px;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {CARD};
+        color: {TEXT};
+        selection-background-color: {ACCENT_DIM};
+    }}
     QLineEdit {{
         background-color: {CARD};
         border: 1px solid {BORDER};
@@ -295,6 +308,26 @@ def stylesheet() -> str:
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0;
+    }}
+    QScrollBar:horizontal {{
+        background: {SURFACE};
+        height: 10px;
+        margin: 0;
+        border-radius: 5px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: {ACCENT_DIM};
+        min-width: 48px;
+        border-radius: 5px;
+    }}
+    QScrollBar::handle:horizontal:hover {{
+        background: {ACCENT};
+    }}
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+        width: 0;
+    }}
+    QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+        background: transparent;
     }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
         background: transparent;

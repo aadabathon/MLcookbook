@@ -7,19 +7,29 @@ train/test leakage.
 
 from __future__ import annotations
 
+import numpy as np
+
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.schema import VarType
 
 
-def build_preprocessor(dataset: Dataset, columns: list[str]) -> ColumnTransformer:
+def _categorical_missing_values(frame):
+    """Keep categorical values intact; present all missing sentinels as np.nan."""
+    return frame.astype(object).where(frame.notna(), np.nan)
+
+
+def build_preprocessor(
+    dataset: Dataset, columns: list[str], scale: bool = True
+) -> ColumnTransformer:
     """Return an unfitted ColumnTransformer covering *columns*.
 
-    Numeric columns: median imputation + standard scaling.
+    Numeric columns: median imputation + standard scaling (skipped when
+    ``scale=False``, e.g. for tree models whose thresholds should stay in real units).
     Categorical/boolean columns: mode imputation + one-hot encoding
     (unknown categories at predict time are ignored, not errors).
     """
@@ -36,16 +46,15 @@ def build_preprocessor(dataset: Dataset, columns: list[str]) -> ColumnTransforme
 
     transformers = []
     if numeric:
-        numeric_pipeline = Pipeline(
-            [
-                ("impute", SimpleImputer(strategy="median")),
-                ("scale", StandardScaler()),
-            ]
-        )
+        steps = [("impute", SimpleImputer(strategy="median"))]
+        if scale:
+            steps.append(("scale", StandardScaler()))
+        numeric_pipeline = Pipeline(steps)
         transformers.append(("numeric", numeric_pipeline, numeric))
     if categorical:
         categorical_pipeline = Pipeline(
             [
+                ("missing", FunctionTransformer(_categorical_missing_values, feature_names_out="one-to-one")),
                 ("impute", SimpleImputer(strategy="most_frequent")),
                 ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
             ]

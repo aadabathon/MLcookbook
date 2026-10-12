@@ -158,3 +158,45 @@ class PlotWidget(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(x - 9, 21), 4, 4)
             x -= 26
+
+
+class BarList(QWidget):
+    """Horizontal bars, one row per item.
+
+    Spec: ``{"items": [(label, value, text), ...]}`` where value is 0..1 (bar
+    fill) and text is the already-formatted number shown at the right.
+    """
+
+    ROW_H = 26
+    LABEL_W = 210
+
+    def __init__(self, spec: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._items = spec["items"]
+        self.setFixedHeight(max(1, len(self._items)) * self.ROW_H + 8)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor(theme.SURFACE))
+        p.setFont(QFont("Segoe UI", 9))
+        text_w = 56
+        bar_left = self.LABEL_W + 12
+        bar_w = max(10, self.width() - bar_left - text_w - 16)
+        top = max((v for _, v, _ in self._items), default=1) or 1  # scale to the largest bar
+        for i, (label, value, text) in enumerate(self._items):
+            y = 4 + i * self.ROW_H
+            p.setPen(QColor(theme.TEXT))
+            elided = p.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight, self.LABEL_W)
+            p.drawText(QRectF(12, y, self.LABEL_W, self.ROW_H), Qt.AlignmentFlag.AlignVCenter, elided)
+            track = QRectF(bar_left, y + 8, bar_w, 10)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(theme.BORDER))
+            p.drawRoundedRect(track, 5, 5)
+            if value > 0:
+                p.setBrush(QColor(theme.ACCENT))
+                p.drawRoundedRect(QRectF(track.left(), track.top(), max(4.0, track.width() * value / top), track.height()), 5, 5)
+            p.setPen(QColor(theme.TEXT_MUTED))
+            p.drawText(QRectF(bar_left + bar_w + 8, y, text_w, self.ROW_H),
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
