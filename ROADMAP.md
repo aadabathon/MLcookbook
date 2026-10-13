@@ -24,7 +24,7 @@ Originally features left for hands-on implementation; most were built at Adam's 
 - [x] **Residual diagnostics** for regression (`regression/diagnostics.py`).
 - [ ] **Hyperparameter search** (e.g. choose alpha or max_depth by cross-validation, reported as a curve).
 - [ ] **Fair model comparison**: several algorithms on the same split and folds, one comparison table.
-- [ ] **SVM and neural-network recipes** (cards are still "Planned").
+- [x] **SVM and neural-network recipes**: `svm`/`svm_regression` (kernels, support vectors, standardized SVR target) and `neural_network`/`neural_network_regression` (scikit-learn MLP with loss and early-stopping validation curves).
 
 ## Infrastructure
 
@@ -34,7 +34,8 @@ Originally features left for hands-on implementation; most were built at Adam's 
 - [ ] **Visualization module**: functions that take result objects (never raw data + recomputation) and return figures (needs a plotting dependency decision).
 - [ ] **`Dataset.dropna()` / row-filtering helpers** returning new `Dataset` instances.
 - [ ] **FastAPI service** in a separate `api/` or sibling package: endpoints that wrap analyses and return `result.to_dict()`.
-- [ ] **CI** (GitHub Actions: pytest on 3.12+), plus `ruff` and `mypy` configs.
+- [x] **CI** (GitHub Actions): ruff, library tests on Ubuntu 3.12/3.13, full app suite on Windows.
+- [ ] **mypy** configuration and type-checking in CI.
 - [ ] **Property-based tests** with `hypothesis` for schema inference edge cases.
 - [ ] **Saved analyses and export**: import options, overrides, settings, seed, and a data fingerprint saved per run; metrics and predictions exportable.
 

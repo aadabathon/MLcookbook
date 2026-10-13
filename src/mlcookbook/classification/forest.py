@@ -1,9 +1,9 @@
 """Random forest classification (binary or multiclass) with training-only preprocessing."""
 from __future__ import annotations
 
+import warnings as python_warnings
 from dataclasses import dataclass, field
 from typing import Any
-import warnings as python_warnings
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_curve

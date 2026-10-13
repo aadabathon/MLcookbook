@@ -42,9 +42,11 @@ from gui.screens.decision_tree import DecisionTreeScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
 from gui.screens.logistic_regression import LogisticRegressionScreen
+from gui.screens.neural_network import NeuralNetworkScreen
 from gui.screens.pca import PCAScreen
 from gui.screens.random_forest import RandomForestScreen
 from gui.screens.report_screen import MAX_CLASSES
+from gui.screens.svm import SVMScreen
 
 MAX_PLOT_POINTS = 3000  # scatter plots draw a deterministic sample beyond this
 
@@ -79,12 +81,21 @@ def _wine_frame():
     return load_wine(as_frame=True).data  # 13 chemical measurements of 178 wines, no labels
 
 
+def _wine_labeled_frame():
+    from sklearn.datasets import load_wine
+
+    bunch = load_wine(as_frame=True)  # the three classes are cultivars of Piedmont grapes
+    return bunch.data.assign(cultivar=bunch.target.map({0: "barolo", 1: "grignolino", 2: "barbera"}))
+
+
 # key -> (frame factory, display name, target, positive class)
 DEMOS = {
     "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
     "logistic-regression": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
     "decision-tree": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
     "random-forest": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
+    "svm": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
+    "neural-network": (_wine_labeled_frame, "Wine cultivars", "cultivar", None),
     "kmeans": (_wine_frame, "Wine measurements", None, None),
     "pca": (_wine_frame, "Wine measurements", None, None),
     "association-scan": (_breast_cancer_frame, "Breast cancer (Wisconsin)", None, None),
@@ -238,7 +249,9 @@ def _sigmoid_plot(result) -> dict:
     curve = [(lo + (hi - lo) * i / 100, 1 / (1 + math.exp(-(lo + (hi - lo) * i / 100)))) for i in range(101)]
     negative, positive = result.classes
     # Deterministic vertical jitter so overlapping points stay readable.
-    jitter = lambda i: ((i * 0.618034) % 1 - 0.5) * 0.05
+    def jitter(i: int) -> float:
+        return ((i * 0.618034) % 1 - 0.5) * 0.05
+
     pos = [(zi, 1 + jitter(i)) for i, (zi, a) in enumerate(zip(z, result.test_actual)) if a == positive]
     neg = [(zi, 0 + jitter(i)) for i, (zi, a) in enumerate(zip(z, result.test_actual)) if a != positive]
     return {
@@ -461,6 +474,29 @@ def _decision_tree_report(dataset, request, name) -> dict:
     }
 
 
+def _roc_plot(result, model: str) -> list[dict]:
+    if not getattr(result, "roc_fpr", None):
+        return []
+    return [{
+        "title": "ROC curve · held-out rows",
+        "x_label": "false positive rate",
+        "y_label": "true positive rate (recall)",
+        "series": [
+            {"kind": "line", "color": "muted", "label": "chance", "points": [(0, 0), (1, 1)]},
+            {"kind": "line", "color": "accent", "label": f"{model} (AUC {_num(result.test_metrics.roc_auc)})",
+             "points": list(zip(result.roc_fpr, result.roc_tpr))},
+        ],
+    }]
+
+
+def _classifier_tables(result) -> tuple[list[dict], list[dict]]:
+    """(bars, tables) shared by classifier reports: recall bars and per-class table for multiclass."""
+    m = result.test_metrics
+    if result.positive_class is not None:
+        return [], [_confusion_table(m)]
+    return [_recall_bars(m)], [_confusion_table(m), _per_class_table(m)]
+
+
 def _random_forest_report(dataset, request, name) -> dict:
     from mlcookbook.classification import random_forest
     from mlcookbook.regression import random_forest_regression
@@ -656,11 +692,113 @@ def _association_scan_report(dataset, request, name) -> dict:
     return report
 
 
+def _svm_report(dataset, request, name) -> dict:
+    from mlcookbook.classification import svm
+    from mlcookbook.regression import svm_regression
+
+    params = request.get("params", {})
+    kwargs = dict(target=request["target"], features=request["features"], kernel=params.get("kernel", "rbf"),
+                  C=params.get("C", 1.0), **_supervised_kwargs(request))
+    if request.get("task") == "regression":
+        result = svm_regression(dataset, epsilon=params.get("epsilon", 0.1), **kwargs)
+        return {
+            **_base(result, dataset, name, f"regression · {result.kernel} kernel · C={result.C:g} · "
+                    f"epsilon={result.epsilon:g} target SDs (target standardized on training rows)"),
+            "plots": [_actual_vs_predicted(result), _residual_plot(result)],
+            "metric_groups": [_regression_group("Test set", result.test_metrics),
+                              _regression_group("Train set", result.train_metrics), *_cv_group(result.cross_validation),
+                              {"title": "Support vectors (rows on or outside the epsilon tube)", "items": [
+                                  ("SUPPORT VECTORS", str(result.n_support_vectors)),
+                                  ("SHARE OF TRAINING ROWS", f"{result.support_vector_share:.0%}")]}],
+            "tables": [_preprocessing_table(result.preprocessing)],
+            "warnings": result.warnings,
+        }
+    result = svm(dataset, positive_class=request.get("positive_class"), **kwargs)
+    bars, tables = _classifier_tables(result)
+    if result.coefficients:
+        tables.append({"title": f"Boundary weights (linear kernel, toward {result.positive_class})",
+                       "headers": ["FEATURE", "WEIGHT"], "rows": _coefficient_rows(result.coefficients)})
+    return {
+        **_base(result, dataset, name, f"{result.kernel} kernel · C={result.C:g} · Platt-scaled probabilities"),
+        "plots": _roc_plot(result, "SVM"),
+        "metric_groups": [_classification_group("Test set", result.test_metrics),
+                          _classification_group("Train set", result.train_metrics), *_cv_group(result.cross_validation),
+                          {"title": "Support vectors (training rows that define the boundary)", "items": [
+                              *[(f"CLASS {label}".upper(), str(n)) for label, n in result.support_vectors.items()],
+                              ("SHARE OF TRAINING ROWS", f"{result.support_vector_share:.0%}")]}],
+        "bars": bars,
+        "tables": [*tables, _preprocessing_table(result.preprocessing)],
+        "warnings": result.warnings,
+    }
+
+
+def _training_plots(training) -> list[dict]:
+    loss = list(zip(range(1, len(training.loss_curve) + 1), training.loss_curve))
+    plots = [{"title": "Training loss per epoch", "x_label": "epoch", "y_label": "loss", "series": [
+        {"kind": "line", "color": "accent", "label": "training loss", "points": loss}]}]
+    if training.validation_curve:
+        validation = list(zip(range(1, len(training.validation_curve) + 1), training.validation_curve))
+        best = max(validation, key=lambda point: point[1])
+        plots.append({
+            "title": f"Validation {training.validation_metric} per epoch (10% of training rows held out)",
+            "x_label": "epoch", "y_label": training.validation_metric, "series": [
+                {"kind": "line", "color": "alt", "label": "validation", "points": validation},
+                {"kind": "points", "color": "accent", "label": f"best (epoch {best[0]})", "points": [best]},
+            ]})
+    return plots
+
+
+def _network_group(training) -> dict:
+    return {"title": "Network", "items": [
+        ("ARCHITECTURE", " → ".join(map(str, training.architecture))),
+        ("PARAMETERS", f"{training.n_parameters:,}"),
+        ("EPOCHS", str(training.epochs)),
+        ("CONVERGED", "yes" if training.converged else "no"),
+    ]}
+
+
+def _neural_network_report(dataset, request, name) -> dict:
+    from mlcookbook.classification import neural_network
+    from mlcookbook.regression import neural_network_regression
+
+    params = request.get("params", {})
+    layers = tuple(int(n) for n in str(params.get("hidden_layers", "64,32")).split(","))
+    kwargs = dict(target=request["target"], features=request["features"], hidden_layers=layers,
+                  activation=params.get("activation", "relu"), alpha=params.get("alpha", 1e-4),
+                  max_epochs=params.get("max_epochs", 500), early_stopping=params.get("early_stopping", True),
+                  **_supervised_kwargs(request))
+    regression = request.get("task") == "regression"
+    if regression:
+        result = neural_network_regression(dataset, **kwargs)
+        metric_groups = [_regression_group("Test set", result.test_metrics),
+                         _regression_group("Train set", result.train_metrics)]
+        plots, bars, tables = [_actual_vs_predicted(result)], [], []
+    else:
+        result = neural_network(dataset, positive_class=request.get("positive_class"), **kwargs)
+        metric_groups = [_classification_group("Test set", result.test_metrics),
+                         _classification_group("Train set", result.train_metrics)]
+        plots = []
+        bars, tables = _classifier_tables(result)
+    t = result.training
+    task = "regression" if regression else "classification"
+    return {
+        **_base(result, dataset, name, f"{task} · {t.activation} · alpha={t.alpha:g} · Adam, learning rate "
+                f"{t.learning_rate:g}, batches of 32 · early stopping {'on' if t.early_stopping else 'off'}"),
+        "plots": [*_training_plots(t), *plots],
+        "metric_groups": [*metric_groups, *_cv_group(result.cross_validation), _network_group(t)],
+        "bars": bars,
+        "tables": [*tables, _preprocessing_table(result.preprocessing)],
+        "warnings": result.warnings,
+    }
+
+
 REPORT_BUILDERS = {
     "linear-regression": _linear_regression_report,
     "logistic-regression": _logistic_regression_report,
     "decision-tree": _decision_tree_report,
     "random-forest": _random_forest_report,
+    "svm": _svm_report,
+    "neural-network": _neural_network_report,
     "kmeans": _kmeans_report,
     "pca": _pca_report,
     "association-scan": _association_scan_report,
@@ -668,18 +806,30 @@ REPORT_BUILDERS = {
 
 
 # Recipes whose Task setting switches to a regression twin of the classifier.
-REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest": "random_forest_regression"}
+REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest": "random_forest_regression",
+                    "svm": "svm_regression", "neural-network": "neural_network_regression"}
 
 
 def _screens():
-    from mlcookbook import (association_scan, decision_tree, kmeans, linear_regression,
-                            logistic_regression, pca, random_forest)
+    from mlcookbook import (
+        association_scan,
+        decision_tree,
+        kmeans,
+        linear_regression,
+        logistic_regression,
+        neural_network,
+        pca,
+        random_forest,
+        svm,
+    )
 
     return {
         "linear-regression": (linear_regression, LinearRegressionScreen),
         "logistic-regression": (logistic_regression, LogisticRegressionScreen),
         "decision-tree": (decision_tree, DecisionTreeScreen),
         "random-forest": (random_forest, RandomForestScreen),
+        "svm": (svm, SVMScreen),
+        "neural-network": (neural_network, NeuralNetworkScreen),
         "kmeans": (kmeans, KMeansScreen),
         "pca": (pca, PCAScreen),
         "association-scan": (association_scan, AssociationScanScreen),
@@ -748,6 +898,7 @@ def _dataset_view(dataset, name, import_report=None):
 
 def _run_report(key, dataset, name, request):
     import pandas as pd
+
     from mlcookbook import Dataset
 
     # Overrides describe roles; they never convert strings into numbers silently.

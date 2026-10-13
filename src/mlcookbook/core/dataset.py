@@ -8,8 +8,8 @@ instead of guessing from raw dtypes.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
 
 import pandas as pd
 

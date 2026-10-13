@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
+from mlcookbook import decision_tree, linear_regression, logistic_regression, random_forest
 from mlcookbook.io import load_dataset
-from mlcookbook import linear_regression, logistic_regression, decision_tree, random_forest
 
 
 @pytest.mark.parametrize("suffix", ["csv", "parquet"])
@@ -68,7 +68,7 @@ def test_invalid_file_and_extension(tmp_path):
         load_dataset(tmp_path / "missing.csv")
     path = tmp_path / "broken.parquet"
     path.write_text("not parquet")
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         load_dataset(path)
 
 @pytest.mark.parametrize("algorithm", [linear_regression, logistic_regression, decision_tree, random_forest])

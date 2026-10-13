@@ -7,9 +7,10 @@ Public API:
     # statistics
     correlation, chi_square, anova, association_scan
     # supervised learning (regression)
-    linear_regression, decision_tree_regression, random_forest_regression
+    linear_regression, decision_tree_regression, random_forest_regression,
+    svm_regression, neural_network_regression
     # supervised learning (classification: binary or multiclass)
-    logistic_regression, decision_tree, random_forest
+    logistic_regression, decision_tree, random_forest, svm, neural_network
     # unsupervised learning
     kmeans, pca
 
@@ -19,6 +20,8 @@ mlcookbook.evaluation, ...) and is imported explicitly.
 
 from mlcookbook.classification.forest import RandomForestResult, random_forest
 from mlcookbook.classification.logistic import LogisticRegressionResult, logistic_regression
+from mlcookbook.classification.neural_network import NeuralNetworkResult, neural_network
+from mlcookbook.classification.svm import SVMResult, svm
 from mlcookbook.classification.tree import DecisionTreeResult, decision_tree
 from mlcookbook.clustering.kmeans import KMeansResult, kmeans
 from mlcookbook.core.dataset import Dataset
@@ -28,13 +31,15 @@ from mlcookbook.io import load_dataset
 from mlcookbook.preprocessing.config import PreprocessingConfig
 from mlcookbook.regression.forest import RandomForestRegressionResult, random_forest_regression
 from mlcookbook.regression.linear import LinearRegressionResult, linear_regression
+from mlcookbook.regression.neural_network import NeuralNetworkRegressionResult, neural_network_regression
+from mlcookbook.regression.svm import SVMRegressionResult, svm_regression
 from mlcookbook.regression.tree import RegressionTreeResult, decision_tree_regression
 from mlcookbook.statistics.association import CorrelationResult, correlation
 from mlcookbook.statistics.categorical import ChiSquareResult, chi_square
 from mlcookbook.statistics.groups import AnovaResult, anova
 from mlcookbook.statistics.scan import AssociationScanResult, association_scan
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "AnovaResult",
@@ -46,11 +51,15 @@ __all__ = [
     "KMeansResult",
     "LinearRegressionResult",
     "LogisticRegressionResult",
+    "NeuralNetworkRegressionResult",
+    "NeuralNetworkResult",
     "PCAResult",
     "PreprocessingConfig",
     "RandomForestRegressionResult",
     "RandomForestResult",
     "RegressionTreeResult",
+    "SVMRegressionResult",
+    "SVMResult",
     "VarType",
     "anova",
     "association_scan",
@@ -62,7 +71,11 @@ __all__ = [
     "linear_regression",
     "load_dataset",
     "logistic_regression",
+    "neural_network",
+    "neural_network_regression",
     "pca",
     "random_forest",
     "random_forest_regression",
+    "svm",
+    "svm_regression",
 ]

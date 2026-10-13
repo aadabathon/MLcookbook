@@ -1,7 +1,7 @@
 ﻿"""Integration checks for the desktop import and background analysis flow."""
+import sys
 import time
 from pathlib import Path
-import sys
 
 import pytest
 
@@ -164,7 +164,7 @@ def test_every_recipe_renders_its_demo(qt, key):
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-@pytest.mark.parametrize("key", ["decision-tree", "random-forest"])
+@pytest.mark.parametrize("key", ["decision-tree", "random-forest", "svm", "neural-network"])
 def test_tree_recipes_switch_to_regression_for_numeric_targets(controller, qt, linear_df, key):
     open_recipe(controller, key)
     screen = use_frame(controller, linear_df)

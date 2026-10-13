@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mlcookbook"
-version = "0.2.0"
+version = "0.3.0"
 description = "A statistics, data science, and classical ML workbench for tabular datasets."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
 ]
 gui = [
     "PySide6>=6.6",
@@ -31,3 +32,22 @@ packages = ["src/mlcookbook"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # long lines are allowed; formatting is not enforced
+    "B905",   # zip() without strict=: lengths are equal by construction throughout
+    "UP042",  # VarType(str, Enum) stays: StrEnum would change its str()
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These modules put src/ and the repo root on sys.path before importing from them.
+"app.py" = ["E402"]
+"src/mlcookbook/__main__.py" = ["E402"]
+"tests/test_app_import.py" = ["E402"]

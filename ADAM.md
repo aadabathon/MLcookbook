@@ -10,11 +10,13 @@ Shipped at my request in three local commits (not pushed), in this order:
 2. **Modules** - multiclass for all three classifiers, `decision_tree_regression`, `random_forest_regression`, ridge/lasso on `linear_regression` plus residual diagnostics, `kmeans`, `pca`, `chi_square`, `anova` (with Kruskal-Wallis), correlation confidence intervals and normality warnings, and `association_scan`.
 3. **GUI** - seven ready recipes (K-Means, PCA, Association Scan are new), a Task switch on trees/forests, multiclass targets, model settings, the Preprocessing & validation dialog, extra missing markers on import, data checks, and cross-validation/preprocessing tables in every report.
 
-Verification: **207 pytest tests passed**; `examples/basic_usage.py` ran end to end; every recipe's demo plus multiclass-tree, regression-tree/forest, multiclass-logistic, and data-check screens were rendered and inspected; the Windows exe was rebuilt and launch-tested.
+Verification at the three-phase handoff: **207 pytest tests passed**; `examples/basic_usage.py` ran end to end; every recipe's demo plus multiclass-tree, regression-tree/forest, multiclass-logistic, and data-check screens were rendered and inspected; the Windows exe was rebuilt and launch-tested.
 
 Interview prep (the parts worth being able to explain): why preprocessing must be refitted inside each CV fold; why CV runs on training rows only; ridge vs lasso geometry; what residual normality/heteroscedasticity tests do and don't imply; macro vs per-class metrics and one-vs-rest AUC; silhouette vs inertia for choosing k; why PCA needs scaling; Cramér's V vs the chi-square p-value; when Kruskal-Wallis beats ANOVA; why many tests need Benjamini-Hochberg.
 
-Limits: in-memory CSV/Parquet only, nothing saved across sessions, no result export, no hyperparameter search or model comparison table, SVM/neural-network cards still "Planned".
+Follow-up the same day: **SVM** (`svm`, `svm_regression`: rbf/linear/poly kernels, C, support vectors, Platt-scaled probabilities, target standardized for SVR so C and epsilon are unit-free) and **neural networks** (`neural_network`, `neural_network_regression`: scikit-learn MLP, Adam with batches of 32, L2 alpha, early stopping on 10% validation rows, loss and validation curves, parameter count) with recipes for both, plus **CI** (`.github/workflows/ci.yml`: ruff, library tests on Ubuntu 3.12/3.13, full app suite on Windows offscreen). 229 tests and `ruff check .` pass; the exe was rebuilt and launch-tested. Interview angles: margin vs C, the kernel trick, why SVR and MLPs want a standardized target, what early stopping's validation curve shows, parameters vs rows.
+
+Limits: in-memory CSV/Parquet only, nothing saved across sessions, no result export, no hyperparameter search or model comparison table, no mypy.
 
 ## Daily workflow
 

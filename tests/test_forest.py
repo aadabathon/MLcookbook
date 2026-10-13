@@ -7,8 +7,8 @@ import pytest
 from sklearn.metrics import auc, confusion_matrix
 from sklearn.model_selection import train_test_split
 
-from mlcookbook import Dataset, RandomForestResult, random_forest
 import mlcookbook.classification.forest as forest_module
+from mlcookbook import Dataset, RandomForestResult, random_forest
 
 
 def test_forest_learns_signal_and_exposes_plain_data():

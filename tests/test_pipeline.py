@@ -112,7 +112,7 @@ def test_summary_reports_values_learned_from_training_rows_only():
     frame = pd.DataFrame({"x": rng.normal(10, 2, 100), "city": rng.choice(["a", "b"], 100)})
     frame.loc[:4, "x"] = np.nan
     frame.loc[5, "city"] = None
-    train, test = frame.iloc[:80], frame.iloc[80:]
+    train = frame.iloc[:80]
     data = Dataset(frame)
     config = resolve_config(None)
     pre = build_preprocessor(data, ["x", "city"], config=config).fit(train)

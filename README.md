@@ -24,7 +24,8 @@ Python / Notebook / desktop app / future REST API
 import pandas as pd
 from mlcookbook import (Dataset, PreprocessingConfig, load_dataset, correlation, chi_square, anova,
                         association_scan, linear_regression, logistic_regression, decision_tree,
-                        decision_tree_regression, random_forest, random_forest_regression, kmeans, pca)
+                        decision_tree_regression, random_forest, random_forest_regression, svm,
+                        svm_regression, neural_network, neural_network_regression, kmeans, pca)
 
 data = Dataset(df)                      # infers a VarType for every column
 data.schema()                           # numeric / categorical / boolean / datetime / text / unsupported
@@ -51,6 +52,9 @@ decision_tree(data, target="species", max_depth=3).rules
 decision_tree_regression(data, target="price").nodes
 random_forest(data, target="churned").roc_fpr
 random_forest_regression(data, target="price").feature_importances
+svm(data, target="churned", kernel="rbf", C=1.0).support_vectors
+neural_network(data, target="species", hidden_layers=(64, 32)).training.loss_curve
+neural_network_regression(data, target="price").training.validation_curve
 
 # Unsupervised learning
 kmeans(data, n_clusters=3).profiles     # cluster profiles in original units, k scan, silhouette
@@ -81,8 +85,8 @@ pytest
 | `preprocessing` | `PreprocessingConfig`, `build_preprocessor` (unfitted `ColumnTransformer`), `describe_preprocessor` (fitted values per column), `resolve_features` (shared feature selection + quality warnings) |
 | `evaluation` | `regression_metrics`, `classification_metrics` (binary or macro-averaged multiclass, per-class metrics), `cross_validate_pipeline` |
 | `statistics` | `correlation`, `chi_square`, `anova`, `association_scan` |
-| `regression` | `linear_regression` (OLS/ridge/lasso + residual diagnostics), `decision_tree_regression`, `random_forest_regression` |
-| `classification` | `logistic_regression`, `decision_tree`, `random_forest` — binary or multiclass; shared validation in `_problem.py` |
+| `regression` | `linear_regression` (OLS/ridge/lasso + residual diagnostics), `decision_tree_regression`, `random_forest_regression`, `svm_regression`, `neural_network_regression` |
+| `classification` | `logistic_regression`, `decision_tree`, `random_forest`, `svm`, `neural_network` — binary or multiclass; shared validation in `_problem.py` |
 | `clustering` | `kmeans` |
 | `dimensionality` | `pca` |
 | `visualization` | 🚧 skeletal — the desktop app draws its own charts from result data |
@@ -136,7 +140,7 @@ Three layers, one seam:
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window, navigation, background jobs, the built-in demo datasets (`DEMOS`), and the report builders (`REPORT_BUILDERS`) that turn core results into plain report dicts.
 
-Seven recipes are ready. Each opens on a built-in scikit-learn dataset, then accepts your own CSV/Parquet file:
+Nine recipes are ready. Each opens on a built-in scikit-learn dataset, then accepts your own CSV/Parquet file:
 
 | Recipe | Demo data | Report |
 |---|---|---|
@@ -144,6 +148,8 @@ Seven recipes are ready. Each opens on a built-in scikit-learn dataset, then acc
 | Logistic Regression | breast cancer | fitted sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, odds ratios or softmax coefficients |
 | Decision Trees | breast cancer | the drawn tree (colored by class, or by predicted value for regression), depth-vs-overfit curve, importances, rules |
 | Random Forests | breast cancer | ROC curve (binary), recall by class (multiclass), or actual vs predicted (regression); forest structure; importances |
+| Support Vector Machines | breast cancer | ROC curve (binary), recall by class, or actual vs predicted (regression); support vectors; linear-kernel weights |
+| Neural Networks | wine cultivars (3 classes) | training-loss and validation curves, metrics, architecture and parameter count |
 | K-Means | wine measurements | clusters on two principal components, elbow and silhouette scans, cluster sizes and profiles |
 | PCA | wine measurements | scree plot, rows on PC1/PC2, loadings |
 | Association Scan | breast cancer | strongest associations, every pair with adjusted p-values, a closer look at the strongest pair |
@@ -154,7 +160,7 @@ Every report ends with the preprocessing table (what was fitted on which rows) a
 
 1. Open a recipe. For CSV, choose the delimiter and encoding, and optionally extra missing-value markers (e.g. `?, -999`), then click **Open CSV / Parquet**.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.
-3. Choose the target and features. Decision trees and random forests pick classification or regression from the target (a numeric target with more than 20 values means regression) and let you switch. Classification works with 2 to 20 classes: two classes let you pick the positive class; more run as multiclass.
+3. Choose the target and features. Decision trees, random forests, SVMs, and neural networks pick classification or regression from the target (a numeric target with more than 20 values means regression) and let you switch. Classification works with 2 to 20 classes: two classes let you pick the positive class; more run as multiclass.
 4. Adjust **model settings** (penalty, depth, trees, k, ...) and **Preprocessing & validation** (imputation, scaling, encoding, rare levels, missing flags, CV folds).
 5. Click **Run Analysis**. Import and training run in background threads; reports show the dataset, target, features, and settings used.
 
@@ -176,6 +182,10 @@ Screens share one layout (`gui/screens/report_screen.py`) that renders a plain r
 
 A standalone Windows build (PyInstaller) is produced into `dist/MLcookbook/MLcookbook.exe` — see the packaging notes in ADAM.md.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: `ruff check .` (rules configured in `pyproject.toml`), the library tests on Ubuntu with Python 3.12 and 3.13 (plus the example tour), and the full suite including the PySide6 app tests on Windows with Qt's offscreen platform. Locally: `ruff check .` and `pytest`.
+
 ## Web portability
 
 The core has no UI or web dependency. A future service is just:
@@ -196,6 +206,6 @@ def analyze(...):
 5. `src/mlcookbook/evaluation/cross_validation.py` — why one split is not enough
 6. `src/mlcookbook/statistics/` — the statistical tests and the type-driven scan
 7. `src/mlcookbook/regression/linear.py` — the ML-workflow template
-8. `src/mlcookbook/classification/` and `clustering/`, `dimensionality/` — the remaining workflows
+8. `src/mlcookbook/classification/` and `clustering/`, `dimensionality/` — the remaining workflows (`classification/neural_network.py` for the MLP and its training curves)
 
 Then `ROADMAP.md` for what is still open.

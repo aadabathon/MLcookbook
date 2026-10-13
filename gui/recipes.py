@@ -83,12 +83,18 @@ RECIPES: list[Recipe] = [
     ),
     Recipe(
         title="Support Vector Machines",
-        description="Maximum-margin classifiers with kernel tricks for nonlinear boundaries.",
+        description="Maximum-margin classifiers and regressors with kernels for nonlinear boundaries.",
         icon="∥",  # ∥
+        status="Ready",
+        variant="ready",
+        key="svm",
     ),
     Recipe(
         title="Neural Networks",
-        description="Multilayer perceptrons for when linear just isn't enough.",
+        description="Multilayer perceptrons with loss and validation curves, for classes or numbers.",
         icon="ψ",  # ψ
+        status="Ready",
+        variant="ready",
+        key="neural-network",
     ),
 ]
