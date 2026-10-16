@@ -36,7 +36,7 @@ from PySide6.QtWidgets import QApplication
 from gui import theme
 from gui.front_page import FrontPage
 from gui.main_window import MainWindow
-from gui.recipes import Recipe
+from gui.recipes import RECIPES, Recipe
 from gui.screens.association_scan import AssociationScanScreen
 from gui.screens.decision_tree import DecisionTreeScreen
 from gui.screens.kmeans import KMeansScreen
@@ -278,6 +278,14 @@ def _base(result, dataset, name, settings: str = "") -> dict:
         report["target"] = _target_line(result) if hasattr(result, "classes") else result.target
     if settings:
         report["settings"] = settings
+    metrics = getattr(result, "test_metrics", None)
+    if metrics is not None:
+        if hasattr(result, "classes"):
+            report["summary"] = (f"Correct predictions on {metrics.accuracy:.1%} of {metrics.n_obs} held-out rows. "
+                                 "Review recall and the confusion matrix to see which classes were missed.")
+        else:
+            report["summary"] = (f"Mean absolute error on {metrics.n_obs} held-out rows: {_num(metrics.mae, 2)} "
+                                 f"in {result.target} units. Lower error means closer predictions.")
     return report
 
 
@@ -587,6 +595,8 @@ def _kmeans_report(dataset, request, name) -> dict:
              for feature in (profiles[0].top_levels if profiles else {})]
     return {
         **_base(result, dataset, name, f"k={result.n_clusters} · k-means++ initialisation, 10 restarts"),
+        "summary": f"Grouped {len(result.labels)} rows into {result.n_clusters} clusters. "
+                   "Use the profiles and silhouette scan to assess whether the groups are useful.",
         "plots": plots,
         "metric_groups": [{"title": "Fit", "items": [
             ("CLUSTERS", str(result.n_clusters)), ("SILHOUETTE", _num(result.silhouette)),
@@ -624,6 +634,8 @@ def _pca_report(dataset, request, name) -> dict:
     order = sorted(first, key=lambda f: -abs(first[f]))
     return {
         **_base(result, dataset, name, f"{result.n_components} components · scaling={result.preprocessing.config.scaling}"),
+        "summary": f"The first component retains {comps[0].explained_variance_ratio:.1%} of the variation "
+                   "in the preprocessed features. Components are weighted combinations of the inputs.",
         "plots": plots,
         "metric_groups": [{"title": "Variance", "items": [
             ("COMPONENTS", str(result.n_components)), ("PC1 SHARE", f"{comps[0].explained_variance_ratio:.1%}"),
@@ -649,6 +661,8 @@ def _association_scan_report(dataset, request, name) -> dict:
         "dataset": f"{name} · {len(dataset.df)} rows",
         "features": ", ".join(result.columns),
         "settings": f"{result.n_pairs} pairs · p-values adjusted for multiple testing (Benjamini-Hochberg)",
+        "summary": f"Compared {result.n_pairs} column pairs using tests suited to their types. "
+                   "Review effect sizes alongside adjusted p-values; associations do not establish causation.",
         "bars": [{"title": "Strongest associations (effect size, 0 to 1)",
                   "items": [(f"{p.x} ~ {p.y}  ({TEST_NAMES[p.test]})", p.effect_size, _num(p.effect_size))
                             for p in result.pairs[:12]]}],
@@ -843,10 +857,12 @@ def _default_screen(key, demo=True):
     dataset = Dataset(make_frame())
     func, screen_class = _screens()[key]
     engine = _engine_info(func)
+    engine["description"] = next(recipe.description for recipe in RECIPES if recipe.key == key)
     if key in REGRESSION_TWINS:
         engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
                              + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
     screen = screen_class(engine, {})
+    screen.is_example = True
     screen.set_dataset(_dataset_view(dataset, name), target=target)
     if positive is not None:
         screen.positive.setCurrentText(positive)
@@ -936,6 +952,8 @@ class MLCookbookApp:
         self.window = MainWindow()
         self.imported = None
         self.job = None
+        self.screen = None
+        self.sessions: dict[str, dict] = {}
         QApplication.instance().aboutToQuit.connect(self.wait_for_job)
         self.show_front_page()
 
@@ -944,23 +962,46 @@ class MLCookbookApp:
             self.job.wait()
 
     def show_front_page(self) -> None:
+        if self.job is not None:
+            return
+        self._remember_screen()
+        self.screen = None
         page = FrontPage()
         page.recipe_selected.connect(self.open_recipe)
         self.window.show_screen(page)
 
     def open_recipe(self, recipe: Recipe) -> None:
+        if self.job is not None:
+            return
         factory = SCREEN_FACTORIES.get(recipe.key)
         if factory is None:
             return
-        screen = factory(demo=self.imported is None)
+        self._remember_screen()
+        screen = factory(demo=False)
         self.screen = screen
         self.key = recipe.key
-        if self.imported is not None:
-            self._use_import(self.imported)
+        saved = self.sessions.get(recipe.key)
+        if saved is not None:
+            screen.dataset = saved["dataset"]
+            screen.dataset_name = saved["name"]
+            screen.set_dataset(saved["view"])
+        elif self.imported is not None:
+            self._display_import(self.imported)
         screen.back_requested.connect(self.show_front_page)
         screen.load_requested.connect(self.load_file)
         screen.run_requested.connect(self.run_analysis)
         self.window.show_screen(screen)
+        if saved is not None:
+            screen.restore_session(saved["state"])
+        elif self.imported is None:
+            self.run_analysis(screen.request())
+
+    def _remember_screen(self):
+        if self.screen is not None:
+            self.sessions[self.key] = {
+                "dataset": self.screen.dataset, "name": self.screen.dataset_name,
+                "view": self.screen.view, "state": self.screen.session_state(),
+            }
 
     def _start_job(self, operation, accept, message):
         if self.job is not None:
@@ -992,7 +1033,13 @@ class MLCookbookApp:
 
     def _use_import(self, loaded):
         self.imported = loaded
+        # A successful replacement invalidates every recipe's results, even for the same path.
+        self.sessions.clear()
+        self._display_import(loaded)
+
+    def _display_import(self, loaded):
         dataset, name, view = loaded
+        self.screen.is_example = False
         self.screen.dataset = dataset
         self.screen.dataset_name = name
         self.screen.set_dataset(view)
@@ -1003,11 +1050,13 @@ class MLCookbookApp:
         screen = self.screen
         key = self.key
         self._start_job(lambda: _run_report(key, screen.dataset, screen.dataset_name, request),
-                        self._show_result, "Running analysis...")
+                        lambda report: self._show_result(report, request),
+                        "Running built-in example..." if screen.is_example else "Running analysis...")
 
-    def _show_result(self, report):
-        self.screen.show_report(report)
-        self.screen.set_status("Analysis complete. Results reflect the settings used for this run.")
+    def _show_result(self, report, request):
+        self.screen.show_report(report, request=request)
+        prefix = "Built-in example. " if self.screen.is_example else ""
+        self.screen.set_status(prefix + "Analysis complete. Results reflect the settings used for this run.")
 
 
 def main() -> int:

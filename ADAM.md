@@ -2,6 +2,16 @@
 
 Personal notes for the author. The scaffold is done — from here on, this project is yours. This file is your map: where things are, how to work, and what to build in what order. Edit it freely; it's a living document.
 
+## Quality-of-life update - 2026-10-16
+
+The nine existing recipes now share a fixed Run/status/progress bar, collapsed CSV and model/validation controls, wider column-name space, an About dialog for Python details, and a persistent warning summary. Data checks remain available after a run. Short result explanations use the existing computed metrics; long tables retain all rows in a bounded scroller. Recipe cards work with Tab and Enter/Space.
+
+Navigation remembers each recipe's configuration and last report during the session, including unrun changes, expanded controls, import options, and scroll positions. The result banner tells you when settings differ from the displayed run. Returning does not retrain. Successful file replacements clear old recipe sessions; failed imports and runs preserve previous work. First-visit demos now train in the background.
+
+This is an in-session usability pass: reopening the app still starts fresh. Saved projects/export, repeatable workflow design, and new recipes remain separate future work. The analytical core and dependencies are unchanged.
+
+Verification: **253 pytest tests passed** and `ruff check .` passed. All nine recipe demos plus imported-data, error, dialog, and minimum-window layouts were rendered and inspected on native Windows. The executable was rebuilt with an isolated `PATH` after diagnosing an incompatible Poppler ICU DLL in the earlier bundle. Its changed modules match the source, and the rebuilt app opened a responsive window and closed normally. No commit was made.
+
 ## Handoff - 2026-10-12
 
 Shipped at my request in three local commits (not pushed), in this order:
@@ -33,7 +43,24 @@ python -m mlcookbook              # launch the desktop app
 
 App architecture: `gui/` is dumb (widgets + signals), `src/mlcookbook` is UI-free, and root `app.py` is the single seam that knows both — it owns the window, delete-and-redraw navigation, demo datasets (`DEMOS`), and report builders (`REPORT_BUILDERS`). To wire a new recipe: flip it to `variant="ready"` with a `key` in `gui/recipes.py`, build a screen in `gui/screens/` (declaring its task and params), and add a `DEMOS` entry and a report builder in `app.py`.
 
-Packaging: `python -m PyInstaller --noconfirm --windowed --name MLcookbook --icon gui\assets\mlcookbook.ico --add-data "gui/assets;gui/assets" --paths . --paths src --collect-all pyarrow --exclude-module torch --exclude-module torchvision --exclude-module tensorflow --exclude-module keras app.py` → `dist/MLcookbook/MLcookbook.exe`. **The exe is a frozen snapshot**: editing `.py` files never changes it. If your shortcut shows old behavior (e.g. a card still says "Planned"), it just needs a rebuild — or run from source with `py -3.12 -m mlcookbook`. Rebuild after significant changes; the desktop/Start Menu shortcuts point at that exe, so keep the path stable. `dist/` and `build/` are gitignored.
+Packaging: close the app, then run this from the repository root in PowerShell. Use an isolated `PATH` for the build so PyInstaller cannot collect incompatible DLLs from other tools. A Poppler `icuuc.dll` on the tooling `PATH` caused the QtCore "specified procedure could not be found" startup error; a clean build with only Python and Windows directories fixes that collision.
+
+```powershell
+$buildPython = (& py -3.12 -c "import sys; print(sys.executable)")
+if ($LASTEXITCODE -ne 0 -or -not $buildPython) { throw "Python 3.12 is unavailable." }
+$buildPython = $buildPython.Trim()
+$buildPythonDir = Split-Path -Parent $buildPython
+$savedBuildPath = $env:PATH
+try {
+    $env:PATH = "$buildPythonDir;$buildPythonDir\Scripts;$env:SystemRoot\System32;$env:SystemRoot"
+    & $buildPython -m PyInstaller --clean --noconfirm --windowed --name MLcookbook --icon gui\assets\mlcookbook.ico --add-data "gui/assets;gui/assets" --paths . --paths src --collect-all pyarrow --exclude-module torch --exclude-module torchvision --exclude-module tensorflow --exclude-module keras app.py
+    if ($LASTEXITCODE -ne 0) { throw "Packaging failed; inspect the build output." }
+} finally {
+    $env:PATH = $savedBuildPath
+}
+```
+
+The output is `dist/MLcookbook/MLcookbook.exe`; launch it once after each build. If the Python launcher is unavailable, assign the installed Python 3.12 executable's absolute path to `$buildPython` instead of using the first three lines. **The exe is a frozen snapshot**: editing `.py` files never changes it. If your shortcut shows old behavior (e.g. a card still says "Planned"), it needs a rebuild — or run from source with `py -3.12 -m mlcookbook`. Rebuild after significant changes; the desktop/Start Menu shortcuts point at that exe, so keep the path stable. `dist/` and `build/` are gitignored. The build restores the shell's original `PATH` afterward.
 
 Work in small loops: write the test first (or alongside), run it red, make it green, run the full suite, commit.
 

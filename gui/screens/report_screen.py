@@ -8,6 +8,7 @@ and never imports mlcookbook. The report shape (all values already strings):
         "target":   "progression",                              # optional (unsupervised)
         "features": "age, sex, bmi, ...",
         "settings": "max_depth=3 · min_samples_leaf=5",        # optional
+        "summary":  "Mean absolute error on 111 held-out rows: 42.1 ...",  # optional, formatted by app.py
         "tree":     {...},   # optional node-link diagram, see gui/tree_plot.py; leads the report
         "bars":     [{"title": "...", "items": [(label, 0..1, "text"), ...]}],  # optional
         "plots":    [{"title": "...", "x_label": "...", "y_label": "...",
@@ -27,11 +28,14 @@ the screen subclass as ``params`` specs, and preprocessing choices.
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -40,8 +44,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -91,10 +97,17 @@ class ReportScreen(QWidget):
         self._min_features = min_features
         self.preprocessing = default_preprocessing() if preprocessing else None
         self.cv_folds = DEFAULT_CV_FOLDS if cross_validation else None
+        self._report = {}
+        self._report_request = None
+        self._restoring = False
+        self._status_message = ""
+        self.sections: dict[str, QPushButton] = {}
+        self.engine = engine
+        self.is_example = False
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(theme.SPACE_XL, theme.SPACE_LG, theme.SPACE_XL, theme.SPACE_LG)
-        outer.setSpacing(theme.SPACE_MD)
+        outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD, theme.SPACE_LG, theme.SPACE_MD)
+        outer.setSpacing(theme.SPACE_SM)
 
         self._busy = False
         self._columns = []
@@ -104,31 +117,128 @@ class ReportScreen(QWidget):
         back.setObjectName("BackButton")
         back.setCursor(Qt.CursorShape.PointingHandCursor)
         back.clicked.connect(self.back_requested)
-        outer.addWidget(back, alignment=Qt.AlignmentFlag.AlignLeft)
+        navigation = QHBoxLayout()
+        navigation.addWidget(back)
+        navigation.addStretch()
+        about = QPushButton("About this recipe")
+        about.clicked.connect(self._about)
+        navigation.addWidget(about)
+        outer.addLayout(navigation)
 
         heading = QLabel(title)
         heading.setObjectName("ScreenTitle")
         outer.addWidget(heading)
 
-        subtitle = QLabel(engine.get("summary", ""))
+        subtitle = QLabel(engine.get("description", engine.get("summary", "")))
         subtitle.setObjectName("ScreenSubtitle")
         subtitle.setWordWrap(True)
         outer.addWidget(subtitle)
 
-        engine_line = QLabel(f"engine  {engine.get('callable', '?')}{engine.get('signature', '')}")
-        engine_line.setObjectName("EngineInfo")
-        engine_line.setWordWrap(True)
-        engine_line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        outer.addWidget(engine_line)
-
+        actions = self._build_actions()
         body = QHBoxLayout()
-        body.setSpacing(theme.SPACE_LG)
+        body.setSpacing(theme.SPACE_MD)
         self.body = body
         self.form_panel = self._build_form(report)
         body.addWidget(self.form_panel, stretch=0)
+        results = QWidget()
+        self.result_layout = QVBoxLayout(results)
+        self.result_layout.setContentsMargins(0, 0, 0, 0)
+        self.result_state = QLabel("No results yet")
+        self.result_state.setObjectName("ResultState")
+        self.result_state.setWordWrap(True)
+        self.result_state.setTextFormat(Qt.TextFormat.PlainText)
+        self.result_layout.addWidget(self.result_state)
+        self.warning_button = QPushButton()
+        self.warning_button.setObjectName("WarningSummary")
+        self.warning_button.clicked.connect(self._show_warnings)
+        self.warning_button.hide()
+        self.result_layout.addWidget(self.warning_button)
         self.report_widget = self._build_report(report)
-        body.addWidget(self.report_widget, stretch=1)
+        self.result_layout.addWidget(self.report_widget, stretch=1)
+        body.addWidget(results, stretch=1)
         outer.addLayout(body, stretch=1)
+        outer.addWidget(actions)
+
+    def _build_actions(self) -> QWidget:
+        footer = QFrame()
+        footer.setObjectName("ActionBar")
+        row = QHBoxLayout(footer)
+        row.setContentsMargins(0, theme.SPACE_SM, 0, 0)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
+        self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.status.setMinimumWidth(0)
+        self.status.setMaximumHeight(60)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(self.status, stretch=1)
+        self.status_details = QPushButton("Details")
+        self.status_details.clicked.connect(lambda: self._show_notes("Analysis status", [self._status_message]))
+        self.status_details.hide()
+        row.addWidget(self.status_details)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedSize(90, 6)
+        self.progress.hide()
+        row.addWidget(self.progress)
+        self.run_button = QPushButton("Run Analysis")
+        self.run_button.setObjectName("PrimaryButton")
+        self.run_button.setMinimumWidth(180)
+        self.run_button.clicked.connect(self._request_run)
+        row.addWidget(self.run_button)
+        return footer
+
+    def _expandable(self, key: str, title: str, content: QWidget) -> QWidget:
+        title = title.replace("&", "&&")  # literal ampersands, not keyboard mnemonics
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.SPACE_XS)
+        button = QPushButton("▸  " + title)
+        button.setObjectName("SectionToggle")
+        button.setCheckable(True)
+        button.toggled.connect(content.setVisible)
+        button.toggled.connect(lambda opened: button.setText(("▾  " if opened else "▸  ") + title))
+        self.sections[key] = button
+        layout.addWidget(button)
+        layout.addWidget(content)
+        content.hide()
+        return box
+
+    def _show_notes(self, title: str, messages: list[str]):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.resize(620, 400)
+        layout = QVBoxLayout(dialog)
+        content = QWidget()
+        notes = QVBoxLayout(content)
+        for message in messages:
+            label = QLabel(message)
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            notes.addWidget(label)
+        notes.addStretch()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _about(self):
+        self._show_notes("About this recipe", [self.engine.get("summary", ""),
+                         "Python API", self.engine.get("callable", "") + self.engine.get("signature", "")])
+
+    def _show_warnings(self):
+        self._show_notes("Warnings for the displayed result", self._report.get("warnings", []))
+
+    def _data_checks(self):
+        self._show_notes("Data checks", self.view.get("notes", []) + self.view.get("issues", [])
+                         or ["No import or data-quality issues were flagged."])
 
     # --- Left: what was run --------------------------------------------------
 
@@ -145,6 +255,9 @@ class ReportScreen(QWidget):
         self.load_button = QPushButton("Open CSV / Parquet...")
         self.load_button.clicked.connect(self._choose_file)
         form.addWidget(self.load_button)
+        import_options = QWidget()
+        import_layout = QVBoxLayout(import_options)
+        import_layout.setContentsMargins(0, 0, 0, 0)
         options = QHBoxLayout()
         self.delimiter = QComboBox()
         for label, value in [("Comma", ","), ("Semicolon", ";"), ("Tab", "\t"), ("Pipe", "|")]:
@@ -157,14 +270,20 @@ class ReportScreen(QWidget):
         self.encoding.setToolTip("CSV text encoding")
         options.addWidget(self.delimiter)
         options.addWidget(self.encoding)
-        form.addLayout(options)
+        import_layout.addLayout(options)
         self.markers = QLineEdit()
         self.markers.setPlaceholderText("Extra missing markers, e.g.  ?, -999, n/a")
         self.markers.setToolTip("Values to read as missing, in addition to empty cells and NA/NaN. Applied when a file is opened.")
-        form.addWidget(self.markers)
+        import_layout.addWidget(self.markers)
+        form.addWidget(self._expandable("import", "CSV import options", import_options))
         self.preview_button = QPushButton("Preview first 20 rows...")
         self.preview_button.clicked.connect(self._preview)
-        form.addWidget(self.preview_button)
+        inspection = QHBoxLayout()
+        inspection.addWidget(self.preview_button)
+        self.checks_button = QPushButton("Data checks")
+        self.checks_button.clicked.connect(self._data_checks)
+        inspection.addWidget(self.checks_button)
+        form.addLayout(inspection)
 
         self.task_label = self._section_label("Task")
         self.task = QComboBox()
@@ -201,7 +320,11 @@ class ReportScreen(QWidget):
         self.columns.setHorizontalHeaderLabels(["USE / COLUMN", "TYPE", "MISSING"])
         self.columns.verticalHeader().setVisible(False)
         self.columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.columns.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.columns.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.columns.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.columns.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.columns.setColumnWidth(1, 112)
+        self.columns.setColumnWidth(2, 68)
         self.columns.setMinimumHeight(170)
         self.columns.verticalHeader().setDefaultSectionSize(34)
         self.columns.itemChanged.connect(self._configuration_changed)
@@ -209,8 +332,10 @@ class ReportScreen(QWidget):
 
         self.param_widgets: dict[str, QWidget] = {}
         self.param_rows: dict[str, tuple[QLabel, QWidget]] = {}
+        settings = QWidget()
+        settings_layout = QVBoxLayout(settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
         if self._params:
-            form.addWidget(self._section_label("Model settings"))
             grid = QFormLayout()
             grid.setSpacing(theme.SPACE_XS)
             for spec in self._params:
@@ -221,34 +346,27 @@ class ReportScreen(QWidget):
                 grid.addRow(label, widget)
                 self.param_widgets[spec["key"]] = widget
                 self.param_rows[spec["key"]] = (label, widget)
-            form.addLayout(grid)
+            settings_layout.addLayout(grid)
 
-        self.preprocessing_button = QPushButton("Preprocessing & validation...")
+        self.preprocessing_button = QPushButton("Preprocessing && validation...")
         self.preprocessing_button.clicked.connect(self._edit_preprocessing)
         self.preprocessing_summary = QLabel("")
-        self.preprocessing_summary.setObjectName("FieldLabel")
+        self.preprocessing_summary.setObjectName("HelpText")
         self.preprocessing_summary.setWordWrap(True)
         if self.preprocessing is not None:
-            form.addWidget(self._section_label("Preprocessing"))
-            form.addWidget(self.preprocessing_button)
-            form.addWidget(self.preprocessing_summary)
+            settings_layout.addWidget(self.preprocessing_button)
+            settings_layout.addWidget(self.preprocessing_summary)
             self._update_preprocessing_summary()
-
-        self.run_button = QPushButton("Run Analysis")
-        self.run_button.setObjectName("PrimaryButton")
-        self.run_button.clicked.connect(self._request_run)
-        form.addWidget(self.run_button)
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setTextFormat(Qt.TextFormat.PlainText)
-        self.status.setObjectName("WarningNote")
-        form.addWidget(self.status)
+        if self._params or self.preprocessing is not None:
+            form.addWidget(self._expandable("settings", "Model & validation settings", settings))
+        else:
+            settings.deleteLater()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(panel)
-        scroll.setFixedWidth(384)
+        scroll.setFixedWidth(412)
         self._task_changed()
         return scroll
 
@@ -292,6 +410,8 @@ class ReportScreen(QWidget):
         self.view = view
         self._columns = view["columns"]
         self.badge.setText(f"{view['name']} · {view['rows']} rows · {len(self._columns)} columns")
+        check_count = len(view.get("notes", [])) + len(view.get("issues", []))
+        self.checks_button.setText(f"Data checks ({check_count})")
         self.target.blockSignals(True)
         self.target.clear()
         self.target.addItem("Choose target...", None)
@@ -373,6 +493,9 @@ class ReportScreen(QWidget):
             elif len(classes) > 2:
                 self.positive.addItem(MULTICLASS, None)
         self.positive.blockSignals(False)
+        binary = self.current_task() == "classification" and self.positive.count() == 2
+        self.positive_label.setVisible(binary)
+        self.positive.setVisible(binary)
 
     def _roles_changed(self, *_):
         self.columns.blockSignals(True)
@@ -426,9 +549,29 @@ class ReportScreen(QWidget):
         return None
 
     def _configuration_changed(self, *_):
+        if self._restoring:
+            return
         self._update_run()
+        self._update_result_state()
         if hasattr(self, "status") and self._columns:
-            self.set_status(self._problem() or "Settings changed. Run Analysis to update the results.")
+            message = "Ready to run with these selections."
+            if self._report:
+                message = ("Results match the current settings." if self.request() == self._report_request else
+                           "Settings changed. Run Analysis to update the results.")
+            self.set_status(self._problem() or message)
+
+    def _update_result_state(self):
+        if not hasattr(self, "result_state"):
+            return
+        if not self._report:
+            text = "No results yet · choose your columns, then run"
+        elif self.request() != self._report_request:
+            text = "Settings changed · showing the previous result"
+        else:
+            text = "Results match current settings"
+        if self.is_example:
+            text = "Built-in example · " + text
+        self.result_state.setText(text)
 
     def _update_run(self):
         self.run_button.setEnabled(bool(self._columns) and self._problem() is None and not self._busy)
@@ -477,17 +620,80 @@ class ReportScreen(QWidget):
         self._busy = busy
         self.form_panel.setEnabled(not busy)
         self.back_button.setEnabled(not busy)
+        self.progress.setVisible(busy)
         self._update_run()
 
     def set_status(self, message: str):
-        self.status.setText(message)
+        self._status_message = message
+        detailed = len(message) > 180 or "\n" in message
+        self.status.setText(" ".join(message.split())[:177].rstrip() + "…" if detailed else message)
+        self.status.setToolTip(message)
+        self.status_details.setVisible(detailed)
 
-    def show_report(self, report: dict):
+    def show_report(self, report: dict, *, request: dict | None = None):
+        self._report = deepcopy(report)
+        self._report_request = deepcopy(self.request() if request is None else request) if report else None
         old = self.report_widget
         self.report_widget = self._build_report(report)
-        self.body.replaceWidget(old, self.report_widget)
+        self.result_layout.replaceWidget(old, self.report_widget)
         old.hide()
         old.deleteLater()
+        warnings = report.get("warnings", [])
+        self.warning_button.setText(f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} · Review before interpreting")
+        self.warning_button.setVisible(bool(warnings))
+        self._update_result_state()
+
+    def session_state(self) -> dict:
+        """Plain UI state; the coordinator owns its lifetime and dataset association."""
+        return deepcopy({
+            "request": self.request(),
+            "params": {spec["key"]: self._param_value(spec) for spec in self._params},
+            "report": self._report, "report_request": self._report_request,
+            "delimiter": self.delimiter.currentData(), "encoding": self.encoding.currentData(),
+            "markers": self.markers.text(), "status": self._status_message,
+            "sections": {key: button.isChecked() for key, button in self.sections.items()},
+            "scroll": (self.form_panel.verticalScrollBar().value(), self.report_widget.verticalScrollBar().value()),
+            "is_example": self.is_example,
+        })
+
+    def restore_session(self, state: dict):
+        self._restoring = True
+        request = state["request"]
+        self.is_example = state["is_example"]
+        for row, col in enumerate(self._columns):
+            self.columns.cellWidget(row, 1).setCurrentText(request["overrides"][col["name"]])
+        self.target.setCurrentIndex(self.target.findData(request["target"]))
+        if self._tasks:
+            self.task.setCurrentIndex(self.task.findData(request["task"]))
+        self._fill_positive()
+        self.positive.setCurrentIndex(self.positive.findData(request["positive_class"]))
+        for row, col in enumerate(self._columns):
+            self.columns.item(row, 0).setCheckState(Qt.CheckState.Checked if col["name"] in request["features"]
+                                                  else Qt.CheckState.Unchecked)
+        for spec in self._params:
+            value = state["params"][spec["key"]]
+            widget = self.param_widgets[spec["key"]]
+            if spec["kind"] == "choice":
+                widget.setCurrentIndex(widget.findData(value))
+            else:
+                widget.setValue(widget.minimum() if value is None else value)
+        if self.preprocessing is not None:
+            self.set_preprocessing(request["preprocessing"], request["cv_folds"])
+        self.delimiter.setCurrentIndex(self.delimiter.findData(state["delimiter"]))
+        self.encoding.setCurrentIndex(self.encoding.findData(state["encoding"]))
+        self.markers.setText(state["markers"])
+        for key, opened in state["sections"].items():
+            self.sections[key].setChecked(opened)
+        self._restoring = False
+        self.show_report(state["report"], request=state["report_request"])
+        self._update_run()
+        self.set_status(state["status"])
+        # Wait for restored content to be laid out; canceled when this screen is deleted.
+        QTimer.singleShot(0, self, lambda: self._restore_scroll(state["scroll"]))
+
+    def _restore_scroll(self, positions):
+        self.form_panel.verticalScrollBar().setValue(positions[0])
+        self.report_widget.verticalScrollBar().setValue(positions[1])
 
     # --- Right: results ------------------------------------------------------
 
@@ -521,6 +727,12 @@ class ReportScreen(QWidget):
             context.setTextFormat(Qt.TextFormat.PlainText)
             context.setWordWrap(True)
             column.addWidget(context)
+            if report.get("summary"):
+                summary = QLabel(report["summary"])
+                summary.setObjectName("ResultSummary")
+                summary.setTextFormat(Qt.TextFormat.PlainText)
+                summary.setWordWrap(True)
+                column.addWidget(summary)
         if "tree" in report:  # the diagram leads the report, in its own horizontal scroller
             column.addWidget(self._tree_view(report["tree"]))
         for spec in report.get("plots", []):  # graphs next
@@ -612,7 +824,7 @@ class ReportScreen(QWidget):
         table.setHorizontalHeaderLabels(headers)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         table.setShowGrid(False)
         header = table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -628,8 +840,8 @@ class ReportScreen(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 table.setItem(r, c, item)
         row_height = table.verticalHeader().defaultSectionSize()
-        table.setFixedHeight(table.horizontalHeader().height() + row_height * len(rows) + 4)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setFixedHeight(min(330, table.horizontalHeader().height() + row_height * len(rows) + 4))
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         layout.addWidget(table)
         return box
 

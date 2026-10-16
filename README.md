@@ -154,17 +154,19 @@ Nine recipes are ready. Each opens on a built-in scikit-learn dataset, then acce
 | PCA | wine measurements | scree plot, rows on PC1/PC2, loadings |
 | Association Scan | breast cancer | strongest associations, every pair with adjusted p-values, a closer look at the strongest pair |
 
-Every report ends with the preprocessing table (what was fitted on which rows) and any warnings. Supervised reports include cross-validation (mean ± SD over folds of the training rows).
+Reports include a short explanation of the result, followed by the recipe's visuals, metrics, and detailed tables. Every report ends with the preprocessing table (what was fitted on which rows) and any warnings; a warning summary above the report also opens the complete warning list. Supervised reports include cross-validation (mean ± SD over folds of the training rows). Long tables scroll within a bounded area.
 
 ### Analyze your own data
 
-1. Open a recipe. For CSV, choose the delimiter and encoding, and optionally extra missing-value markers (e.g. `?, -999`), then click **Open CSV / Parquet**.
+1. Open a recipe. Its built-in example runs in the background. For your own CSV, expand **CSV import options** if you need a different delimiter, encoding, or extra missing-value markers (e.g. `?, -999`), then click **Open CSV / Parquet**.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.
 3. Choose the target and features. Decision trees, random forests, SVMs, and neural networks pick classification or regression from the target (a numeric target with more than 20 values means regression) and let you switch. Classification works with 2 to 20 classes: two classes let you pick the positive class; more run as multiclass.
-4. Adjust **model settings** (penalty, depth, trees, k, ...) and **Preprocessing & validation** (imputation, scaling, encoding, rare levels, missing flags, CV folds).
-5. Click **Run Analysis**. Import and training run in background threads; reports show the dataset, target, features, and settings used.
+4. Expand **Model & validation settings** to adjust model settings (penalty, depth, trees, k, ...) or open **Preprocessing & validation** (imputation, scaling, encoding, rare levels, missing flags, CV folds).
+5. Click **Run Analysis** in the fixed bottom action bar. Progress and errors stay visible while the form and report scroll. Import and training run in background threads; reports show the dataset, target, features, and settings used. A banner marks results from previous settings until you rerun (or revert your changes).
 
-The loaded dataset stays available when switching recipes during the session; each screen asks for its selections again. Nothing is saved across app restarts. Import errors preserve the previous dataset; failed runs show an error and keep the previous report.
+The loaded dataset stays available when switching recipes. Each recipe remembers its selections, all model parameters, preprocessing, import options, expanded controls, scroll positions, and last report for the session. Returning restores the report without retraining, including any unrun changes and their stale-result banner. A successful file replacement clears all previous recipe sessions; a failed import preserves them. Nothing is saved across app restarts. Failed runs show an error and keep the previous report and the settings that produced it.
+
+**Data checks** remains accessible after a run. **About this recipe** contains the Python callable and signature. Recipe cards support Tab navigation and Enter/Space activation.
 
 Import rules: CSV files need a header with unique, non-empty column names. Numeric-looking CSV columns with leading zeros (`01234`) stay text; text columns whose every value is an ISO-8601 date/time are parsed as dates (offsets converted to UTC); ambiguous formats such as `05/06/2024` stay text. Parquet preserves stored types; nested list/struct columns must be flattened. Files are loaded into memory, so datasets must fit in RAM.
 

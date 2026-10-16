@@ -26,6 +26,9 @@ class RecipeCard(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         if recipe.variant == "ready":
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.setAccessibleName(recipe.title)
+            self.setAccessibleDescription(recipe.description)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*(theme.CARD_PADDING,) * 4)
@@ -66,3 +69,11 @@ class RecipeCard(QFrame):
         ):
             self.clicked.emit(self.recipe)
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if self.recipe.variant == "ready" and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            if not event.isAutoRepeat():
+                self.clicked.emit(self.recipe)
+            event.accept()
+            return
+        super().keyPressEvent(event)

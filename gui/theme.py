@@ -106,7 +106,7 @@ def stylesheet() -> str:
         border: 1px solid {BORDER};
         border-radius: {CARD_RADIUS}px;
     }}
-    QFrame#RecipeCard:hover {{
+    QFrame#RecipeCard:hover, QFrame#RecipeCard:focus {{
         background-color: {CARD_HOVER};
         border: 1px solid {BORDER_ACCENT};
     }}
@@ -181,9 +181,53 @@ def stylesheet() -> str:
         border-bottom: 1px solid {BORDER};
     }}
     QLabel#FieldLabel {{
-        font-size: 10px;
-        letter-spacing: 2px;
+        font-size: 11px;
+        letter-spacing: 1px;
+        color: {TEXT_MUTED};
+    }}
+    QLabel#HelpText {{
+        font-size: 12px;
+        color: {TEXT_MUTED};
+    }}
+    QFrame#ActionBar {{
+        border-top: 1px solid {BORDER};
+    }}
+    QLabel#ResultState {{
+        color: {ACCENT_SOFT};
+        font-size: 12px;
+    }}
+    QLabel#ResultSummary {{
+        background-color: {SURFACE};
+        padding: 10px 12px;
+        border-left: 2px solid {ACCENT};
+    }}
+    QPushButton {{
+        border: 1px solid {BORDER};
+        border-radius: 6px;
+        padding: 6px 10px;
+        background-color: {CARD};
+    }}
+    QPushButton:hover, QPushButton:focus {{
+        border-color: {ACCENT_SOFT};
+    }}
+    QPushButton:disabled {{
         color: {TEXT_FAINT};
+    }}
+    QPushButton#SectionToggle {{
+        text-align: left;
+        color: {ACCENT_SOFT};
+    }}
+    QPushButton#WarningSummary {{
+        text-align: left;
+        color: {ACCENT_SOFT};
+        border-color: {BORDER_ACCENT};
+    }}
+    QProgressBar {{
+        border: none;
+        background-color: {CARD};
+    }}
+    QProgressBar::chunk {{
+        background-color: {ACCENT};
     }}
     QComboBox {{
         background-color: {CARD};
