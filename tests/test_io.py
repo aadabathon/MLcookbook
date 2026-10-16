@@ -133,8 +133,12 @@ def test_iso_dates_are_parsed_and_ambiguous_dates_are_not(tmp_path):
     assert data.df["day"].isna().tolist() == [False, False, True]
     assert str(data.df["stamp"].dt.tz) == "UTC"
     assert data.df["stamp"].iloc[0] == pd.Timestamp("2024-01-31T08:00:00Z")
-    assert data.df["us_style"].dtype == object and data.df["mixed_zone"].dtype == object
-    assert load_dataset(path, parse_dates=False).df["day"].dtype == object
+    assert data.df["us_style"].tolist() == ["01/31/2024", "02/29/2024", "03/01/2024"]
+    assert data.df["mixed_zone"].dropna().tolist() == ["2024-01-31T10:00:00Z", "2024-02-29T10:00:00"]
+    assert data.df["mixed_zone"].isna().tolist() == [False, False, True]
+    unparsed = load_dataset(path, parse_dates=False).df["day"]
+    assert unparsed.dropna().tolist() == ["2024-01-31", "2024-02-29"]
+    assert unparsed.isna().tolist() == [False, False, True]
     json.dumps(report.to_dict())
 
 
