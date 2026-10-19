@@ -45,11 +45,13 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -81,6 +83,7 @@ class ReportScreen(QWidget):
     back_requested = Signal()
     load_requested = Signal(str, str, str, str)  # path, delimiter, encoding, extra missing markers
     run_requested = Signal(dict)
+    cancel_requested = Signal()
 
     def __init__(
         self,
@@ -96,6 +99,7 @@ class ReportScreen(QWidget):
         min_features: int = 1,
         cross_validation: bool = True,
         preprocessing: bool = True,
+        settings_title: str = "Model & validation settings",
     ) -> None:
         super().__init__(parent)
         self._fixed_task = task
@@ -103,6 +107,7 @@ class ReportScreen(QWidget):
         self._params = params or []
         self._feature_roles = feature_roles
         self._min_features = min_features
+        self._settings_title = settings_title
         self.preprocessing = default_preprocessing() if preprocessing else None
         self.cv_folds = DEFAULT_CV_FOLDS if cross_validation else None
         self._report = {}
@@ -190,6 +195,10 @@ class ReportScreen(QWidget):
         self.progress.setFixedSize(90, 6)
         self.progress.hide()
         row.addWidget(self.progress)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.cancel_requested)
+        self.cancel_button.hide()
+        row.addWidget(self.cancel_button)
         self.run_button = QPushButton("Run Analysis")
         self.run_button.setObjectName("PrimaryButton")
         self.run_button.setMinimumWidth(180)
@@ -317,12 +326,14 @@ class ReportScreen(QWidget):
         self.positive.currentIndexChanged.connect(self._configuration_changed)
         form.addWidget(self.positive)
 
-        form.addWidget(self._section_label("Features and column types" if supervised else "Columns and types"))
+        self.columns_label = self._section_label("Features and column types" if supervised else "Columns and types")
+        form.addWidget(self.columns_label)
         help_label = QLabel(
             "Check input features. Uncheck IDs or columns that reveal the answer. Types describe roles; values are not converted."
             if supervised else "Check the columns to analyze. Types describe roles; values are not converted."
         )
         help_label.setWordWrap(True)
+        self.columns_help = help_label
         form.addWidget(help_label)
         self.columns = QTableWidget(0, 3)
         self.columns.setHorizontalHeaderLabels(["USE / COLUMN", "TYPE", "MISSING"])
@@ -366,7 +377,7 @@ class ReportScreen(QWidget):
             settings_layout.addWidget(self.preprocessing_summary)
             self._update_preprocessing_summary()
         if self._params or self.preprocessing is not None:
-            form.addWidget(self._expandable("settings", "Model & validation settings", settings))
+            form.addWidget(self._expandable("settings", self._settings_title, settings))
         else:
             settings.deleteLater()
 
@@ -380,7 +391,28 @@ class ReportScreen(QWidget):
 
     def _param_widget(self, spec: dict) -> QWidget:
         kind = spec["kind"]
-        if kind == "int":
+        if kind in ("text", "path"):
+            widget = QLineEdit(spec.get("value", ""))
+            widget.setMaxLength(spec.get("max_length", 4096))
+            widget.textChanged.connect(self._configuration_changed)
+            if kind == "path":
+                action = widget.addAction(widget.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
+                                          QLineEdit.ActionPosition.TrailingPosition)
+                action.setToolTip("Choose local model folder")
+
+                def choose_directory():
+                    path = QFileDialog.getExistingDirectory(self, "Choose local Hugging Face model folder", widget.text())
+                    if path:
+                        widget.setText(path)
+
+                action.triggered.connect(choose_directory)
+        elif kind == "multiline":
+            widget = QPlainTextEdit(spec.get("value", ""))
+            widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            widget.setMinimumHeight(105)
+            widget.setMaximumHeight(150)
+            widget.textChanged.connect(self._configuration_changed)
+        elif kind == "int":
             widget = QSpinBox()
             widget.setRange(spec["min"], spec["max"])
             widget.setValue(spec["value"])
@@ -405,6 +437,10 @@ class ReportScreen(QWidget):
         widget = self.param_widgets[spec["key"]]
         if spec["kind"] == "choice":
             return widget.currentData()
+        if spec["kind"] in ("text", "path"):
+            return widget.text()
+        if spec["kind"] == "multiline":
+            return widget.toPlainText()
         if spec.get("none_at_min") and widget.value() == widget.minimum():
             return None
         return widget.value()
@@ -629,7 +665,13 @@ class ReportScreen(QWidget):
         self.form_panel.setEnabled(not busy)
         self.back_button.setEnabled(not busy)
         self.progress.setVisible(busy)
+        if not busy:
+            self.cancel_button.hide()
         self._update_run()
+
+    def set_cancellable(self, cancellable: bool):
+        self.cancel_button.setEnabled(cancellable)
+        self.cancel_button.setVisible(cancellable)
 
     def set_status(self, message: str):
         self._status_message = message
@@ -683,6 +725,10 @@ class ReportScreen(QWidget):
             widget = self.param_widgets[spec["key"]]
             if spec["kind"] == "choice":
                 widget.setCurrentIndex(widget.findData(value))
+            elif spec["kind"] in ("text", "path"):
+                widget.setText(value)
+            elif spec["kind"] == "multiline":
+                widget.setPlainText(value)
             else:
                 widget.setValue(widget.minimum() if value is None else value)
         if self.preprocessing is not None:
@@ -711,6 +757,8 @@ class ReportScreen(QWidget):
                 value = values[spec["key"]]
                 if spec["kind"] == "choice":
                     require(value in [item[1] for item in spec["options"]])
+                elif spec["kind"] in ("text", "path", "multiline"):
+                    require(isinstance(value, str) and len(value) <= spec.get("max_length", 4096))
                 elif value is None:
                     require(bool(spec.get("none_at_min")))
                 else:
@@ -800,6 +848,15 @@ class ReportScreen(QWidget):
                 summary.setTextFormat(Qt.TextFormat.PlainText)
                 summary.setWordWrap(True)
                 column.addWidget(summary)
+        for section in report.get("text_sections", []):
+            column.addWidget(self._section_label(section["title"]))
+            text = QPlainTextEdit()
+            text.setPlainText(section["text"])
+            text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            text.setReadOnly(True)
+            text.setMinimumHeight(140)
+            text.setMaximumHeight(280)
+            column.addWidget(text)
         if "tree" in report:  # the diagram leads the report, in its own horizontal scroller
             column.addWidget(self._tree_view(report["tree"]))
         for spec in report.get("plots", []):  # graphs next

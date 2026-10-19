@@ -253,7 +253,7 @@ def stylesheet() -> str:
         color: {TEXT};
         selection-background-color: {ACCENT_DIM};
     }}
-    QLineEdit {{
+    QLineEdit, QPlainTextEdit {{
         background-color: {CARD};
         border: 1px solid {BORDER};
         border-radius: 8px;
@@ -262,7 +262,7 @@ def stylesheet() -> str:
         font-size: 12px;
         selection-background-color: {ACCENT_DIM};
     }}
-    QLineEdit:focus {{
+    QLineEdit:focus, QPlainTextEdit:focus {{
         border: 1px solid {BORDER_ACCENT};
     }}
     QLineEdit::placeholder {{

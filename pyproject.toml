@@ -25,6 +25,10 @@ dev = [
 gui = [
     "PySide6>=6.6",
 ]
+llm = [
+    "torch>=2.6,<3",
+    "transformers>=4.57,<5",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlcookbook"]

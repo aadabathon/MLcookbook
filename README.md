@@ -97,6 +97,7 @@ pytest
 | `classification` | `logistic_regression`, `decision_tree`, `random_forest`, `svm`, `neural_network` — binary or multiclass; shared validation in `_problem.py` |
 | `clustering` | `kmeans` |
 | `dimensionality` | `pca` |
+| `llm` | `generate_text`, optional PyTorch/Transformers inference from local GPT-2/Llama/Qwen2/Qwen3 checkpoints, frozen text-generation results |
 | `visualization` | 🚧 skeletal — the desktop app draws its own charts from result data |
 
 ### Design rules
@@ -105,12 +106,12 @@ pytest
 2. **Results are data.** Every analysis returns a frozen dataclass mixing in `Result`, which provides `to_dict()` via a recursive serializer (`core/results.py`) that handles nested dataclasses, numpy scalars/arrays, enums, and NaN → `null`. No analysis prints or plots.
 3. **Warnings are part of the result.** Dropped rows, skipped columns, constant/ID-like/mostly-missing features, class imbalance, overfitting, and failed assumptions are surfaced in `result.warnings`, not swallowed.
 4. **No leakage.** Preprocessors are returned unfitted and are fitted inside a `Pipeline` on training data only. Cross-validation runs on the training rows and refits the whole pipeline, preprocessing included, inside every fold; the test split is touched once.
-5. **sklearn/scipy do the math.** This library orchestrates and validates; it does not reimplement numerical algorithms.
+5. **Libraries do the math.** Classical workflows use sklearn/scipy; the optional LLM recipe uses PyTorch and Transformers. This library orchestrates and validates.
 6. **Small public API.** The workflows, their result types, `Dataset`, `VarType`, `PreprocessingConfig`, and `load_dataset` are exported at the top level; everything else is imported from submodules.
 
 ### The data pipeline
 
-`PreprocessingConfig` chooses how each column type is prepared; every workflow takes one as `preprocessing=`:
+`PreprocessingConfig` chooses how each column type is prepared for classical ML workflows via `preprocessing=`. LLM generation instead uses the chosen model's tokenizer and chat template:
 
 | Option | Choices (default first) |
 |---|---|
@@ -148,10 +149,11 @@ Three layers, one seam:
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window, navigation, background jobs, the built-in demo datasets (`DEMOS`), and the report builders (`REPORT_BUILDERS`) that turn core results into plain report dicts.
 
-Ten recipes are ready. Each opens on a built-in scikit-learn dataset, then accepts your own CSV/Parquet file:
+Eleven recipes are ready. The ten classical recipes open on built-in scikit-learn datasets, then accept your own CSV/Parquet file. The LLM recipe opens a setup screen and waits for an explicitly chosen local model:
 
 | Recipe | Demo data | Report |
 |---|---|---|
+| Local LLM · PyTorch | typed prompt or example question rows; local model required | generated text, token counts, throughput, stop reasons, model fingerprint, and runtime versions |
 | Model Comparison | diabetes | ridge vs random forest regression on identical training folds, selected model's final test metrics, exact row/fold membership saved with the report |
 | Linear Regression | diabetes | actual vs predicted, residual plot, test/train/CV metrics, residual checks, coefficients (OLS, ridge, or lasso) |
 | Logistic Regression | breast cancer | fitted sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, odds ratios or softmax coefficients |
@@ -203,7 +205,52 @@ A standalone Windows build (PyInstaller) is produced into `dist/MLcookbook/MLcoo
 
 Saving is explicit and captures **one recipe**, not every open recipe session. It also works for all other recipes and for configurations that have not been run yet. Files use a versioned ZIP containing JSON metadata/results and a typed Parquet snapshot; no fitted model objects or executable Python are stored. Saves replace existing files atomically. Failed opens leave your current dataset and report intact. Successfully opening an experiment clears previous in-memory recipe sessions and makes its dataset available to the other recipes. A saved file contains the dataset itself, so its size and contents follow your data.
 
-The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Classification comparison, arbitrary workflow graphs, PyTorch, fitted-model persistence, and CSV result export remain future work.
+The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Classification comparison, arbitrary workflow graphs, fitted-model persistence, and CSV result export remain future work.
+
+### Local LLM generation with PyTorch
+
+This optional recipe runs pretrained causal language models locally. Install the runtime in your project environment; for a CPU-only Windows build:
+
+```powershell
+py -3.12 -m venv .venv
+.venv/Scripts/python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
+.venv/Scripts/python.exe -m pip install -e ".[dev,gui,llm]"
+.venv/Scripts/python.exe -m mlcookbook
+```
+
+For CUDA, install the appropriate PyTorch build using the [official installation selector](https://pytorch.org/get-started/locally/). The portable build produced by `build_windows.ps1` includes the runtime installed in `.venv`; the tested build uses CPU PyTorch.
+
+Choose a local Hugging Face model folder with `config.json`, tokenizer files, and `model.safetensors` (or a sharded safetensors index). Supported `model_type` values are `gpt2`, `llama`, `qwen2`, and `qwen3`; checkpoints must be unquantized. A small starting model is [HuggingFaceTB/SmolLM2-135M-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct), which uses the Llama architecture. To download that specific snapshot once, separately from app generation:
+
+```powershell
+.venv/Scripts/python.exe -c "from huggingface_hub import snapshot_download; snapshot_download('HuggingFaceTB/SmolLM2-135M-Instruct', revision='12fd25f77366fa6b3b4b768ec3050bf629380bac', local_dir='models/SmolLM2-135M-Instruct', allow_patterns=['config.json','generation_config.json','tokenizer*','special_tokens_map.json','vocab.json','merges.txt','model.safetensors'])"
+```
+
+The `models/` directory is gitignored. Opening the recipe never downloads or loads weights automatically. The app loads local files only, uses safetensors, and does not execute model-provided Python. GGUF files and Hub IDs are not model-folder inputs.
+
+1. Open **Local LLM · PyTorch**, choose the model folder, and edit **Prompt**. **Auto** applies the tokenizer's chat template if present; **Plain text** sends the raw prompt.
+2. Choose an output token limit, temperature (zero means greedy decoding), sampling top-p/seed, input token limit, and device. Oversized inputs fail with an explicit message; they are never silently truncated. Input plus output tokens must fit the model's context window.
+3. Click **Generate text**. The report contains selectable/copyable output text, token counts, generation throughput, model load time, stop reasons, and the model fingerprint and runtime versions. **Cancel** stops after loading or at a decoding step and preserves the previous report. The time limit is checked between decoding steps; it cannot interrupt loading or a single forward pass.
+4. For row-wise generation, select **Dataset rows**, import CSV/Parquet, and check exactly one string-valued text/categorical column. **Prompt** becomes an instruction prepended to each row. Blank/missing rows are skipped with warnings; at most ten rows are processed per run, with zero-based source positions recorded independently of dataframe index labels.
+5. **Save experiment** retains the prompt, generated text, settings, typed dataset, exact formatted prompts, model fingerprint, and package versions. Reopening displays the saved output without loading weights. Reruns require the local model folder; weights are not embedded in `.mlcb` files.
+
+```python
+from mlcookbook import generate_text
+
+result = generate_text(
+    model_path="models/SmolLM2-135M-Instruct",
+    prompt="Explain training-only preprocessing in one sentence.",
+    max_new_tokens=64, temperature=0.0, random_state=0,
+)
+result.outputs[0].text
+result.to_dict()  # JSON-safe data; no tensors or fitted model objects
+
+# Optional row-wise generation; data is a Dataset with a string-valued column.
+result = generate_text(data, model_path="models/SmolLM2-135M-Instruct",
+                       prompt="Summarize:", text_column="notes", max_rows=3)
+```
+
+This is an inference workflow: no sklearn preprocessing, train/test split, cross-validation, training, or accuracy evaluation is performed. Generated text can be wrong. CPU uses float32 and CUDA uses float16; hardware/software changes and time limits can affect repeatability even with a recorded seed. Training/fine-tuning, embeddings, quantized runtimes, and graph composition remain separate future work. The existing Neural Networks recipe continues to use scikit-learn's MLP.
 
 ```python
 from mlcookbook import compare_regressors

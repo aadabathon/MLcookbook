@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Local LLM · PyTorch recipe with offline Hugging Face GPT-2/Llama/Qwen2/Qwen3 generation, prompt/chat controls, bounded row generation, cancellation, model/runtime provenance, and saved outputs.
+- Optional `llm` dependencies, offline checkpoint tests/CI, and `build_windows.ps1` for the Windows bundle with the CPU LLM runtime.
+
 ## 1.0.0 - 2026-10-19
 
 First tagged release of ML Cookbook, with a Python library and a portable Windows desktop app.

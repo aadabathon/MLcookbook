@@ -116,6 +116,137 @@ def labels_text(widget):
     return "\n".join(label.text() for label in widget.findChildren(QLabel))
 
 
+def test_llm_opens_setup_without_loading_a_model(controller, monkeypatch):
+    import mlcookbook.llm as llm
+
+    monkeypatch.setattr(llm, "_load_model", lambda *args: pytest.fail("Opening the card must not load a model"))
+    controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "llm"))
+    screen = controller.screen
+    assert controller.job is None and not screen.run_button.isEnabled()
+    assert "Choose a local" in labels_text(screen.report_widget)
+    assert screen.preprocessing is None and screen.cv_folds is None
+    assert screen.columns.isHidden()
+    screen.param_widgets["input_mode"].setCurrentIndex(1)
+    assert not screen.columns.isHidden()
+    screen.param_widgets["model_path"].setText("local-model")
+    screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    assert screen.run_button.isEnabled()
+
+
+def test_llm_run_save_restore_unrun_prompt_and_failed_rerun(controller, qt, tiny_llm, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    import mlcookbook.llm as llm
+    from mlcookbook.core.results import to_jsonable
+
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["model_path"].setText(str(tiny_llm))
+    screen.param_widgets["prompt"].setPlainText("hello world")
+    screen.param_widgets["max_new_tokens"].setValue(4)
+    screen.run_button.click()
+    assert not screen.run_button.isEnabled()
+    finish(controller, qt)
+    report = to_jsonable(screen.session_state()["report"])
+    assert report["generation"]["outputs"][0]["input_text"] == "hello world"
+    assert report["provenance"]["versions"]["torch"] != "unavailable"
+    assert screen.report_widget.findChildren(QPlainTextEdit)[0].isReadOnly()
+    screen.param_widgets["prompt"].setPlainText("hello data")
+    assert "previous result" in screen.result_state.text()
+    path = tmp_path / "generation.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    controller.show_front_page()
+    with monkeypatch.context() as patch:
+        patch.setattr(llm, "_load_model", lambda *args: pytest.fail("Reopening must not load weights"))
+        controller.open_experiment(str(path))
+        finish(controller, qt)
+    assert controller.key == "llm"
+    screen = controller.screen
+    assert screen.request()["params"]["prompt"] == "hello data"
+    assert screen.session_state()["report"] == report
+    assert "previous result" in screen.result_state.text()
+    screen.param_widgets["model_path"].setText(str(tmp_path / "missing-model"))
+    screen.run_button.click()
+    finish(controller, qt)
+    assert "Unable to complete" in screen.status.text()
+    assert screen.session_state()["report"] == report
+    assert screen.run_button.isEnabled()
+
+
+def test_llm_batch_column_controls_reach_generation(controller, qt, tiny_llm):
+    import pandas as pd
+
+    open_recipe(controller, "llm")
+    screen = use_frame(controller, pd.DataFrame({"question": ["hello", "world", "data"], "number": [1, 2, 3]}))
+    screen.param_widgets["input_mode"].setCurrentIndex(1)
+    screen.param_widgets["model_path"].setText(str(tiny_llm))
+    screen.param_widgets["prompt"].setPlainText("answer")
+    screen.param_widgets["max_new_tokens"].setValue(2)
+    screen.param_widgets["max_rows"].setValue(2)
+    screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    screen.columns.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+    screen.run_button.click()
+    finish(controller, qt)
+    result = screen.session_state()["report"]["generation"]
+    assert result["text_column"] == "question"
+    assert [output["row_position"] for output in result["outputs"]] == [0, 1]
+    assert "answer" in result["outputs"][0]["formatted_prompt"]
+    screen.columns.item(1, 0).setCheckState(Qt.CheckState.Checked)
+    assert not screen.run_button.isEnabled()
+
+
+def test_llm_invalid_saved_prompt_is_rejected(controller, qt, tmp_path):
+    from mlcookbook.experiments import save_experiment
+
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    state = screen.session_state()
+    state["params"]["prompt"] = ["invalid"]
+    path = tmp_path / "invalid-llm.mlcb"
+    save_experiment(path, screen.dataset, recipe="llm", name="invalid", state=state)
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    assert controller.screen is screen
+    assert "incompatible" in screen.status.text()
+
+
+def test_llm_cancel_keeps_previous_report(controller, qt, tiny_llm, monkeypatch):
+    import threading
+
+    import mlcookbook.llm as llm
+
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["model_path"].setText(str(tiny_llm))
+    screen.param_widgets["max_new_tokens"].setValue(2)
+    screen.param_widgets["prompt"].setPlainText("hello")
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = screen.session_state()["report"]
+    loader = llm._load_model
+    loading, release = threading.Event(), threading.Event()
+
+    def slow_load(*args):
+        loading.set()
+        assert release.wait(5)
+        return loader(*args)
+
+    monkeypatch.setattr(llm, "_load_model", slow_load)
+    screen.run_button.click()
+    try:
+        assert loading.wait(5)
+        assert not screen.cancel_button.isHidden()
+        screen.cancel_button.click()
+    finally:
+        release.set()
+    finish(controller, qt)
+    assert "cancelled" in screen.status.text()
+    assert screen.cancel_button.isHidden()
+    assert screen.session_state()["report"] == previous
+    assert screen.run_button.isEnabled()
+
+
 def table_texts(widget):
     from PySide6.QtWidgets import QTableWidget
     return [table.item(r, c).text() for table in widget.findChildren(QTableWidget)
@@ -158,7 +289,7 @@ def test_binary_positive_class_defaults_like_the_core(controller, logistic_df):
     assert screen.request()["positive_class"] == "yes"
 
 
-@pytest.mark.parametrize("key", list(app.SCREEN_FACTORIES))
+@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key != "llm"])
 def test_every_recipe_renders_its_demo(qt, key):
     screen = app.SCREEN_FACTORIES[key]()
     assert "Dataset: " in labels_text(screen.report_widget)
@@ -268,7 +399,7 @@ def test_imported_navigation_does_not_run_demo(controller, linear_df, monkeypatc
     assert controller.screen.dataset is data
 
 
-@pytest.mark.parametrize("key", list(app.SCREEN_FACTORIES))
+@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key != "llm"])
 def test_session_preserves_settings_and_previous_result(controller, qt, key, monkeypatch):
     open_recipe(controller, key)
     screen = controller.screen

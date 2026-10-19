@@ -43,6 +43,7 @@ from gui.screens.association_scan import AssociationScanScreen
 from gui.screens.decision_tree import DecisionTreeScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
+from gui.screens.llm import LLMScreen
 from gui.screens.logistic_regression import LogisticRegressionScreen
 from gui.screens.model_comparison import ModelComparisonScreen
 from gui.screens.neural_network import NeuralNetworkScreen
@@ -91,8 +92,19 @@ def _wine_labeled_frame():
     return bunch.data.assign(cultivar=bunch.target.map({0: "barolo", 1: "grignolino", 2: "barbera"}))
 
 
+def _prompt_frame():
+    import pandas as pd
+
+    return pd.DataFrame({"question": [
+        "Why should preprocessing be fitted only on training data?",
+        "What is the difference between cross-validation and a test holdout?",
+        "When would you choose ridge regression over a random forest?",
+    ]})
+
+
 # key -> (frame factory, display name, target, positive class)
 DEMOS = {
+    "llm": (_prompt_frame, "Example prompts", None, None),
     "model-comparison": (_diabetes_frame, "Diabetes", "progression", None),
     "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
     "logistic-regression": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
@@ -845,7 +857,45 @@ def _comparison_report(dataset, request, name):
     }
 
 
+def _llm_report(dataset, request, name, *, stop_requested=None):
+    from mlcookbook import generate_text
+
+    params = dict(request["params"])
+    mode = params.pop("input_mode")
+    if mode == "rows" and len(request["features"]) != 1:
+        raise ValueError("Select exactly one input text column for dataset rows.")
+    column = request["features"][0] if mode == "rows" else None
+    result = generate_text(dataset, text_column=column, stop_requested=stop_requested, **params)
+    seconds = sum(output.seconds for output in result.outputs)
+    count = sum(output.generated_tokens for output in result.outputs)
+    return {
+        "dataset": f"{name} · {len(dataset.df)} rows" if column else "Typed prompt",
+        "features": column or "Prompt text",
+        "settings": f"{result.model_type} · {result.device} · {result.prompt_format} prompt · "
+                    f"temperature {params['temperature']:g} · seed {params['random_state']}",
+        "summary": f"Generated {count} tokens across {len(result.outputs)} output(s). "
+                   "These are language-model outputs; no predictive accuracy was measured.",
+        "text_sections": [{"title": "Generated text" + (f" · source row {output.row_position}" if column else ""),
+                           "text": output.text or "[The model returned only special tokens; no visible text. Try a different prompt.]"}
+                          for output in result.outputs],
+        "metric_groups": [{"title": "Generation", "items": [
+            ("OUTPUT TOKENS", str(count)), ("TOKENS / SECOND", _num(count / seconds if seconds else 0, 1)),
+            ("MODEL LOAD", f"{result.load_seconds:.1f} s"), ("PARAMETERS", f"{result.parameter_count:,}")]}],
+        "tables": [{"title": "Output details", "headers": ["SOURCE ROW", "INPUT TOKENS", "OUTPUT TOKENS", "SECONDS", "STOP"],
+                    "rows": [[str(output.row_position) if column else "Prompt", str(output.input_tokens),
+                              str(output.generated_tokens), _num(output.seconds, 2), output.finish_reason]
+                             for output in result.outputs]},
+                   {"title": "Model and runtime", "headers": ["SETTING", "VALUE"], "rows": [
+                       ["Model folder", result.model_path], ["Model fingerprint (SHA-256)", result.model_sha256],
+                       ["Context window", str(result.context_window)], ["Precision", result.dtype],
+                       *[[key, value] for key, value in result.versions.items()]]}],
+        "warnings": result.warnings,
+        "generation": result.to_dict(),
+    }
+
+
 REPORT_BUILDERS = {
+    "llm": _llm_report,
     "model-comparison": _comparison_report,
     "linear-regression": _linear_regression_report,
     "logistic-regression": _logistic_regression_report,
@@ -869,6 +919,7 @@ def _screens():
         association_scan,
         compare_regressors,
         decision_tree,
+        generate_text,
         kmeans,
         linear_regression,
         logistic_regression,
@@ -879,6 +930,7 @@ def _screens():
     )
 
     return {
+        "llm": (generate_text, LLMScreen),
         "model-comparison": (compare_regressors, ModelComparisonScreen),
         "linear-regression": (linear_regression, LinearRegressionScreen),
         "logistic-regression": (logistic_regression, LogisticRegressionScreen),
@@ -904,16 +956,17 @@ def _default_screen(key, demo=True):
         engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
                              + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
     screen = screen_class(engine, {})
-    screen.is_example = True
+    screen.is_example = key != "llm"
     screen.set_dataset(_dataset_view(dataset, name), target=target)
     if positive is not None:
         screen.positive.setCurrentText(positive)
     screen.dataset = dataset
     screen.dataset_name = name
     screen.source = {"kind": "demo", "recipe": key}
-    if demo:
+    if demo and getattr(screen, "auto_run_demo", True):
         screen.show_report(_run_report(key, dataset, name, screen.request()))
-    screen.set_status("Built-in example. Open your own file or adjust the selections and run.")
+    screen.set_status("Choose a local model folder, write a prompt, and generate text." if key == "llm" else
+                      "Built-in example. Open your own file or adjust the selections and run.")
     return screen
 
 
@@ -955,7 +1008,7 @@ def _dataset_view(dataset, name, import_report=None):
     }
 
 
-def _run_report(key, dataset, name, request):
+def _run_report(key, dataset, name, request, *, stop_requested=None):
     import pandas as pd
 
     from mlcookbook import Dataset
@@ -971,8 +1024,9 @@ def _run_report(key, dataset, name, request):
         if role == "datetime" and not pd.api.types.is_datetime64_any_dtype(values):
             raise ValueError(f"{column!r} is not stored as dates. ISO-8601 dates (2024-05-31) are parsed on import.")
     configured = Dataset(dataset.df, overrides=request["overrides"])
-    report = REPORT_BUILDERS[key](configured, request, name)
-    report["provenance"] = {"versions": runtime_versions(), "created_utc": datetime.now(UTC).isoformat(),
+    report = (REPORT_BUILDERS[key](configured, request, name, stop_requested=stop_requested) if key == "llm" else
+              REPORT_BUILDERS[key](configured, request, name))
+    report["provenance"] = {"versions": runtime_versions(include_llm=key == "llm"), "created_utc": datetime.now(UTC).isoformat(),
                             "random_state": request.get("params", {}).get("random_state", 0)}
     return report
 
@@ -1042,13 +1096,14 @@ class MLCookbookApp:
         self.window.show_screen(screen)
         if saved is not None:
             screen.restore_session(saved["state"])
-        elif self.imported is None:
+        elif self.imported is None and getattr(screen, "auto_run_demo", True):
             self.run_analysis(screen.request())
 
     def _connect_screen(self, screen):
         screen.back_requested.connect(self.show_front_page)
         screen.load_requested.connect(self.load_file)
         screen.run_requested.connect(self.run_analysis)
+        screen.cancel_requested.connect(self.cancel_analysis)
         self.window.set_experiment_actions(can_save=True, busy=self.job is not None)
         self.window.set_status("")
 
@@ -1060,12 +1115,13 @@ class MLCookbookApp:
                 "source": deepcopy(self.screen.source),
             }
 
-    def _start_job(self, operation, accept, message):
+    def _start_job(self, operation, accept, message, *, cancellable=False):
         if self.job is not None:
             return
         screen = self.screen
         if screen is not None:
             screen.set_busy(True)
+            screen.set_cancellable(cancellable)
         else:
             self.window._screen.setEnabled(False)
         self._set_status(message)
@@ -1104,6 +1160,11 @@ class MLCookbookApp:
             return
         screen = self.screen
         state = screen.session_state()
+        try:
+            screen.validate_session(state)
+        except ValueError as exc:
+            self._set_status("Unable to save experiment: " + str(exc))
+            return
         source = deepcopy(screen.source)
         source.setdefault("import_notes", list(screen.view.get("notes", [])))
         self._start_job(lambda: save_experiment(path, screen.dataset, recipe=self.key,
@@ -1189,9 +1250,24 @@ class MLCookbookApp:
     def run_analysis(self, request):
         screen = self.screen
         key = self.key
-        self._start_job(lambda: _run_report(key, screen.dataset, screen.dataset_name, request),
+
+        def run():
+            if key == "llm":
+                return _run_report(key, screen.dataset, screen.dataset_name, request,
+                                   stop_requested=QThread.currentThread().isInterruptionRequested)
+            return _run_report(key, screen.dataset, screen.dataset_name, request)
+
+        self._start_job(run,
                         lambda report: self._show_result(report, request),
-                        "Running built-in example..." if screen.is_example else "Running analysis...")
+                        "Loading local model and generating text…" if key == "llm" else
+                        "Running built-in example..." if screen.is_example else "Running analysis...",
+                        cancellable=key == "llm")
+
+    def cancel_analysis(self):
+        if self.job is not None:
+            self.job.requestInterruption()
+            self.screen.set_cancellable(False)
+            self._set_status("Stopping after the current model operation…")
 
     def _show_result(self, report, request):
         self.screen.show_report(report, request=request)

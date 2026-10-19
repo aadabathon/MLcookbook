@@ -1,4 +1,4 @@
-"""ML Cookbook: a statistics and classical-ML workbench for tabular data.
+"""ML Cookbook: statistics, classical ML, and optional local LLM generation.
 
 Public API:
 
@@ -17,6 +17,9 @@ Public API:
     # shared-fold regression comparison
     compare_regressors
 
+    # optional local PyTorch / Transformers inference
+    generate_text
+
 Everything else lives in submodules (mlcookbook.preprocessing,
 mlcookbook.evaluation, ...) and is imported explicitly.
 """
@@ -32,6 +35,7 @@ from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.schema import VarType
 from mlcookbook.dimensionality.pca import PCAResult, pca
 from mlcookbook.io import load_dataset
+from mlcookbook.llm import TextGenerationResult, generate_text
 from mlcookbook.preprocessing.config import PreprocessingConfig
 from mlcookbook.regression.forest import RandomForestRegressionResult, random_forest_regression
 from mlcookbook.regression.linear import LinearRegressionResult, linear_regression
@@ -66,10 +70,12 @@ __all__ = [
     "SVMRegressionResult",
     "SVMResult",
     "VarType",
+    "TextGenerationResult",
     "anova",
     "association_scan",
     "chi_square",
     "correlation",
+    "generate_text",
     "compare_regressors",
     "decision_tree",
     "decision_tree_regression",

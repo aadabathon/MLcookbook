@@ -25,6 +25,7 @@ Originally features left for hands-on implementation; most were built at Adam's 
 - [ ] **Hyperparameter search** (e.g. choose alpha or max_depth by cross-validation, reported as a curve).
 - [x] **Fair model comparison, first scope**: ridge and random forest regression on the same materialized split and training folds, one CV comparison table/curve; select by mean CV RMSE and evaluate only the selected model on the test rows. Exact row/fold membership is retained. Built at Adam's request on 2026-10-17; other algorithms and classification comparison remain future extensions.
 - [x] **SVM and neural-network recipes**: `svm`/`svm_regression` (kernels, support vectors, standardized SVR target) and `neural_network`/`neural_network_regression` (scikit-learn MLP with loss and early-stopping validation curves).
+- [x] **Local LLM inference, first scope**: PyTorch + Transformers generation from local GPT-2/Llama/Qwen2/Qwen3 safetensors checkpoints, typed prompts or bounded text-column rows, chat templates, decoding controls/cancellation, model/runtime provenance, and saved outputs. Built at Adam's request on 2026-10-19 with explicitly approved optional dependencies. Training/fine-tuning, embeddings, quantized inference, and model graphs remain future scopes.
 
 ## Infrastructure
 
@@ -74,6 +75,8 @@ A possible product direction is a local analysis workbench where users can inspe
 Saved configurations and reports deserve consideration alongside new formats: importing more files is most useful when users can retain and compare the analyses they run.
 
 ### Later model-inference workflows
+
+Local unquantized Hugging Face causal-model generation is now implemented in `llm.py` and the eleventh desktop recipe. It loads local files only and saves prompts, outputs, settings, runtime versions, and model fingerprints. The following GGUF, labeling, extraction, embedding, and training directions remain proposals.
 
 GGUF stores model tensors and metadata for inference ([Hugging Face GGUF documentation](https://huggingface.co/docs/hub/gguf)). It belongs to a future model-loading workflow alongside a dataset input, with its own runtime and resource requirements.
 

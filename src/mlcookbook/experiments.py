@@ -26,7 +26,7 @@ FORMAT = "mlcookbook-experiment"
 FORMAT_VERSION = 1
 
 
-def runtime_versions() -> dict[str, str]:
+def runtime_versions(*, include_llm: bool = False) -> dict[str, str]:
     import numpy
     import pyarrow
     import scipy
@@ -35,9 +35,18 @@ def runtime_versions() -> dict[str, str]:
     from mlcookbook import __version__
 
     # Module versions also work in the frozen app, without distribution metadata.
-    return {"python": platform.python_version(), "mlcookbook": __version__, "pandas": pd.__version__,
-            "numpy": numpy.__version__, "scipy": scipy.__version__, "scikit-learn": sklearn.__version__,
-            "pyarrow": pyarrow.__version__}
+    versions = {"python": platform.python_version(), "mlcookbook": __version__, "pandas": pd.__version__,
+                "numpy": numpy.__version__, "scipy": scipy.__version__, "scikit-learn": sklearn.__version__,
+                "pyarrow": pyarrow.__version__}
+    if include_llm:
+        from importlib.metadata import PackageNotFoundError, version
+
+        for name in ("torch", "transformers"):
+            try:
+                versions[name] = version(name)
+            except PackageNotFoundError:
+                versions[name] = "unavailable"
+    return versions
 
 
 @dataclass(frozen=True)
@@ -67,7 +76,7 @@ def save_experiment(path: str | Path, dataset: Dataset, *, recipe: str, name: st
         "created_utc": datetime.now(UTC).isoformat(),
         "recipe": recipe, "name": name, "state": state, "source": source or {},
         "roles": {col.name: col.var_type.value for col in dataset.schema().columns},
-        "versions": runtime_versions(), "snapshot_sha256": fingerprint,
+        "versions": runtime_versions(include_llm=recipe == "llm"), "snapshot_sha256": fingerprint,
     }
     metadata = json.dumps(to_jsonable(manifest), ensure_ascii=False, allow_nan=False).encode("utf-8")
     temporary = None
@@ -111,7 +120,7 @@ def load_experiment(path: str | Path) -> LoadedExperiment:
         dataset = Dataset(frame, overrides=manifest["roles"])
     except (zipfile.BadZipFile, KeyError, TypeError, UnicodeError, OSError) as exc:
         raise ValueError(f"Could not open the experiment: {exc}") from exc
-    current = runtime_versions()
+    current = runtime_versions(include_llm=manifest["recipe"] == "llm")
     warnings = [f"Saved with {name} {saved}; installed version is {current.get(name, 'unavailable')}. "
                 "Rerun results may differ."
                 for name, saved in manifest["versions"].items() if saved != current.get(name)]

@@ -2,6 +2,18 @@
 
 Personal notes for the author. The scaffold is done — from here on, this project is yours. This file is your map: where things are, how to work, and what to build in what order. Edit it freely; it's a living document.
 
+## Local LLM / PyTorch recipe - 2026-10-19
+
+Implemented at my request, with explicit approval for optional `torch` and `transformers` dependencies. **Local LLM · PyTorch** is the eleventh recipe. Choose a local Hugging Face safetensors model, edit a prompt, and generate; **Dataset rows** prepends the instruction to one selected string-valued column. Prompt format, token limits, temperature/top-p, seed, CPU/CUDA, row limit, and decoding time are visible controls. Cancel/failure keeps the previous report. Opening the recipe does not load or download a model.
+
+Start with the local folder `models/SmolLM2-135M-Instruct` (gitignored), downloaded from revision `12fd25f77366fa6b3b4b768ec3050bf629380bac`. The real model generated 23 tokens in about 1.3 seconds on CPU in the initial check; that is a local observation, not a general performance guarantee. The frozen build includes CPU PyTorch, so use CPU there. A CUDA-enabled source environment can select CUDA.
+
+`llm.py` returns frozen JSON-safe `TextGenerationResult` data: generated and formatted prompt text, input/output token counts, source row positions, stop reasons, timing, model fingerprint, parameter/context size, precision/device, settings, and runtime versions. Save/Open retains outputs and unrun edits without loading weights; reruns require the external model folder. Generated answers are not evaluated analytical results. The existing MLP recipe is unchanged.
+
+Learning points: a tokenizer maps text to token IDs; chat templates add the model's expected role/special-token format; causal decoding appends one token at a time; `eval()` and `torch.inference_mode()` select inference behavior; temperature zero is greedy, while temperature/top-p sample from next-token probabilities. The model context holds both input and generated tokens. A seed helps reproduce sampling on the same runtime, but hardware and decoding time limits matter. Training/fine-tuning, embeddings, quantized inference, and graph composition are separate learning tasks.
+
+The isolated `.venv` has the LLM, dev, GUI, and packaging dependencies. Use `.venv/Scripts/python.exe -m mlcookbook` / `-m pytest`. The optional extra is lazy: classical imports and the setup screen do not initialize PyTorch. Offline tests construct tiny real checkpoints; the separate LLM CI job needs no pretrained-model download. Build with `build_windows.ps1`, as described below. This feature has not been committed or added to the published v1.0.0 download.
+
 ## v1.0.0 release - 2026-10-19
 
 The first tagged release packages all ten recipes, the usability improvements, saved experiments, and regression model comparison. The package and experiment provenance now report **1.0.0**. [Release notes](CHANGELOG.md) define the scope; the [GitHub release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0) hosts the portable Windows x64 ZIP and its SHA-256 checksum. Extract the entire ZIP and keep `_internal` beside `MLcookbook.exe`. The local shortcut continues to use `dist/MLcookbook/MLcookbook.exe`.
@@ -66,21 +78,18 @@ App architecture: `gui/` is dumb (widgets + signals), `src/mlcookbook` is UI-fre
 Packaging: close the app, then run this from the repository root in PowerShell. Use an isolated `PATH` for the build so PyInstaller cannot collect incompatible DLLs from other tools. A Poppler `icuuc.dll` on the tooling `PATH` caused the QtCore "specified procedure could not be found" startup error; a clean build with only Python and Windows directories fixes that collision.
 
 ```powershell
-$buildPython = (& py -3.12 -c "import sys; print(sys.executable)")
-if ($LASTEXITCODE -ne 0 -or -not $buildPython) { throw "Python 3.12 is unavailable." }
-$buildPython = $buildPython.Trim()
-$buildPythonDir = Split-Path -Parent $buildPython
-$savedBuildPath = $env:PATH
-try {
-    $env:PATH = "$buildPythonDir;$buildPythonDir\Scripts;$env:SystemRoot\System32;$env:SystemRoot"
-    & $buildPython -m PyInstaller --clean --noconfirm --windowed --name MLcookbook --icon gui\assets\mlcookbook.ico --add-data "gui/assets;gui/assets" --paths . --paths src --collect-all pyarrow --exclude-module torch --exclude-module torchvision --exclude-module tensorflow --exclude-module keras app.py
-    if ($LASTEXITCODE -ne 0) { throw "Packaging failed; inspect the build output." }
-} finally {
-    $env:PATH = $savedBuildPath
-}
+# First-time setup only; this session's .venv already has these dependencies.
+py -3.12 -m venv .venv
+.venv/Scripts/python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
+.venv/Scripts/python.exe -m pip install -e ".[dev,gui,llm]" pyinstaller
+
+# Rebuild after source changes, with the app closed.
+./build_windows.ps1
 ```
 
-The output is `dist/MLcookbook/MLcookbook.exe`; launch it once after each build. If the Python launcher is unavailable, assign the installed Python 3.12 executable's absolute path to `$buildPython` instead of using the first three lines. **The exe is a frozen snapshot**: editing `.py` files never changes it. If your shortcut shows old behavior (e.g. a card still says "Planned"), it needs a rebuild — or run from source with `py -3.12 -m mlcookbook`. Rebuild after significant changes; the desktop/Start Menu shortcuts point at that exe, so keep the path stable. `dist/` and `build/` are gitignored. The build restores the shell's original `PATH` afterward.
+The script verifies build targets, isolates `PATH`, includes the supported causal-model implementations/fast tokenizers and runtime metadata, then restores the environment. The older `--exclude-module torch` command would omit the LLM runtime; use the script now. Model weights remain in external folders, outside the bundle.
+
+The output is `dist/MLcookbook/MLcookbook.exe`; launch it once after each build and verify generation with a local model. **The exe is a frozen snapshot**: editing `.py` files never changes it. If your shortcut shows old behavior, rebuild — or run from source with `.venv/Scripts/python.exe -m mlcookbook`. The desktop/Start Menu shortcuts point at that exe, so keep the path stable. `dist/`, `build/`, `.venv/`, and `models/` are gitignored.
 
 Work in small loops: write the test first (or alongside), run it red, make it green, run the full suite, commit.
 
@@ -88,6 +97,7 @@ Work in small loops: write the test first (or alongside), run it red, make it gr
 
 | Recipe | Core | GUI report (built-in example until user data is imported) |
 |---|---|---|
+| Local LLM · PyTorch | `llm.py` | local prompt or text-column generation, decoded text, timing/tokens, model/runtime provenance; explicit model setup |
 | Linear Regression | `regression/linear.py`, `regression/diagnostics.py` | actual vs predicted, residuals, CV, residual checks, coefficients; OLS/ridge/lasso (diabetes) |
 | Logistic Regression | `classification/logistic.py` | sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, coefficients (breast cancer) |
 | Decision Trees | `classification/tree.py`, `regression/tree.py` | drawn tree, depth curve, importances, rules; classification or regression (breast cancer) |

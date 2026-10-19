@@ -3,6 +3,34 @@ import pandas as pd
 import pytest
 
 
+@pytest.fixture(scope="session")
+def tiny_llm(tmp_path_factory):
+    """A real, random, tiny local checkpoint: tests never download model weights."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+    from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
+
+    directory = tmp_path_factory.mktemp("tiny-llm")
+    vocabulary = {word: i for i, word in enumerate([
+        "[PAD]", "[UNK]", "[EOS]", "hello", "world", "answer", "question", "explain", "data", "training",
+        "one", "two", "three", "four", "five", "user", "assistant", "why", "is", "a",
+    ])}
+    backend = Tokenizer(WordLevel(vocabulary, unk_token="[UNK]"))
+    backend.pre_tokenizer = Whitespace()
+    tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend, pad_token="[PAD]", unk_token="[UNK]", eos_token="[EOS]")
+    tokenizer.chat_template = "{% for message in messages %}{{ message['role'] + ' ' + message['content'] + ' ' }}{% endfor %}{% if add_generation_prompt %}assistant {% endif %}"
+    tokenizer.save_pretrained(directory)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(11)
+        model = GPT2LMHeadModel(GPT2Config(vocab_size=len(vocabulary), n_positions=64,
+                                         n_layer=1, n_head=2, n_embd=16, eos_token_id=2, pad_token_id=0))
+        model.save_pretrained(directory, safe_serialization=True)
+    return directory
+
+
 @pytest.fixture
 def mixed_df() -> pd.DataFrame:
     """Small frame covering every VarType, with missing values and a constant."""
