@@ -857,14 +857,45 @@ def _comparison_report(dataset, request, name):
     }
 
 
-def _llm_report(dataset, request, name, *, stop_requested=None):
+def _llm_report(dataset, request, name, *, stop_requested=None, on_progress=None):
     from mlcookbook import generate_text
 
     params = dict(request["params"])
+    workflow = params.pop("workflow", "generate")
+    for key in ("template", "field_spec", "references"):
+        params.pop(key, None)
+    if workflow != "generate":
+        return _run_llm_workflow(dataset, request, name, stop_requested=stop_requested, on_progress=on_progress)
+    backend = params.pop("backend", "pytorch")
+    ollama_params = {key: params.pop(key, default) for key, default in (
+        ("ollama_url", "http://127.0.0.1:11434"), ("ollama_model", ""),
+        ("context_tokens", 4096), ("thinking", "off"))}
+    cpp_params = {key: params.pop(key, default) for key, default in (
+        ("llamacpp_url", "http://127.0.0.1:8080"), ("llamacpp_model", ""), ("gguf_path", ""))}
     mode = params.pop("input_mode")
     if mode == "rows" and len(request["features"]) != 1:
         raise ValueError("Select exactly one input text column for dataset rows.")
     column = request["features"][0] if mode == "rows" else None
+    if backend == "llamacpp":
+        from mlcookbook.llamacpp import generate_llamacpp
+
+        for key in ("model_path", "device", "max_input_tokens", "prompt_format"):
+            params.pop(key)
+        result = generate_llamacpp(dataset, text_column=column, stop_requested=stop_requested, on_progress=on_progress,
+                                   model=cpp_params["llamacpp_model"], base_url=cpp_params["llamacpp_url"],
+                                   gguf_path=cpp_params["gguf_path"] or None, **params)
+        return _llamacpp_report(result, dataset, column, name)
+    if backend == "ollama":
+        from mlcookbook.ollama import generate_ollama
+
+        for key in ("model_path", "device", "max_input_tokens"):
+            params.pop(key)
+        result = generate_ollama(dataset, text_column=column, stop_requested=stop_requested, on_progress=on_progress,
+                                 base_url=ollama_params["ollama_url"], model=ollama_params["ollama_model"],
+                                 context_tokens=ollama_params["context_tokens"], thinking=ollama_params["thinking"], **params)
+        return _ollama_report(result, dataset, column, name)
+    if backend != "pytorch":
+        raise ValueError("Choose a supported inference engine.")
     result = generate_text(dataset, text_column=column, stop_requested=stop_requested, **params)
     seconds = sum(output.seconds for output in result.outputs)
     count = sum(output.generated_tokens for output in result.outputs)
@@ -891,6 +922,185 @@ def _llm_report(dataset, request, name, *, stop_requested=None):
                        *[[key, value] for key, value in result.versions.items()]]}],
         "warnings": result.warnings,
         "generation": result.to_dict(),
+    }
+
+
+def _run_llm_workflow(dataset, request, name, *, stop_requested=None, on_progress=None, previous=None, positions=None):
+    from mlcookbook.llm_workflow import run_workflow
+
+    params = request["params"]
+    backend = params["backend"]
+    settings = {key: params[key] for key in ("max_new_tokens", "temperature", "top_p", "random_state", "max_seconds")}
+    if backend == "ollama":
+        settings.update(context_tokens=params["context_tokens"], thinking=params["thinking"], prompt_format="chat")
+    elif backend == "llamacpp":
+        settings["gguf_path"] = params["gguf_path"] or None
+    run = run_workflow(dataset, backend=backend, model=params.get(backend + "_model", ""),
+                       base_url=params.get(backend + "_url", ""), template=params["template"],
+                       field_spec=params["field_spec"], references=params["references"], bindings=request["features"],
+                       max_rows=params["max_rows"], settings=settings, previous=previous, positions=positions,
+                       stop_requested=stop_requested, on_progress=on_progress).to_dict()
+    return _workflow_report(run, dataset, name)
+
+
+def _workflow_report(run, dataset, name, *, history=None, compare=False):
+    from mlcookbook.llm_workflow import compare_runs, run_metrics
+
+    metrics = run_metrics(dataset, run)
+    fields = run["config"]["fields"]
+    def shown(value, digits=2):
+        return "Unavailable" if value is None else _num(value, digits)
+    report = {
+        "dataset": f"{name} · {len(dataset.df)} rows", "features": ", ".join(run["config"]["bindings"]),
+        "settings": f"{run['config']['backend']} · {run['config']['model']} · run {run['run_id'][:8]}",
+        "summary": f"{metrics['valid']} of {metrics['rows']} source rows passed output validation. "
+                   "Review the generated fields before using them. Validation measures format and types, not factual accuracy.",
+        "metric_groups": [{"title": "Text workflow", "items": [
+            ("VALID ROWS", f"{metrics['valid']} / {metrics['rows']}"),
+            ("WALL TIME", f"{metrics['wall_seconds']:.2f} s"),
+            ("TOKENS / WALL SECOND", shown(metrics['tokens_per_second']))]}],
+        "tables": [{"title": "Generated fields beside source inputs · zero-based rows",
+                    "headers": ["ROW", "OUTCOME", *run["config"]["bindings"],
+                                *[f"{field['name']} ({field['role']})" for field in fields], "DETAILS"],
+                    "rows": [[str(row["position"]), row["status"],
+                              *[str(row["inputs"].get(column) or "[missing]") for column in run["config"]["bindings"]],
+                              *[str(row["values"][field["name"]]) if row["values"] and row["values"][field["name"]] is not None else "null" for field in fields],
+                              "; ".join(row["errors"])] for row in run["rows"]]},
+                   {"title": "Run identity", "headers": ["SETTING", "VALUE"], "rows": [
+                       ["Run", run["run_id"]], ["Source fingerprint", run["dataset_fingerprint"]],
+                       ["Configuration fingerprint", run["config_fingerprint"]],
+                       ["Nullable output roles", ", ".join(f"{field['name']}: {field['role']}" for field in fields)],
+                       ["Parent run (retry)", run["parent_run_id"] or "None"]]}],
+        "warnings": list(run["warnings"]), "workflow_run": run, "workflow_history": history or [run],
+    }
+    from mlcookbook.experiments import runtime_versions
+
+    report["provenance"] = {"versions": runtime_versions(), "created_utc": run["created_utc"],
+                             "random_state": run["config"]["settings"].get("random_state", 0)}
+    if metrics["reference_agreement"]:
+        report["tables"].append({"title": "Reference agreement on valid, non-null pairs only",
+                                 "headers": ["FIELD", "REFERENCE", "EVALUATED ROWS", "EXACT AGREEMENT"],
+                                 "rows": [[field, value["reference_column"], str(value["evaluated_rows"]),
+                                           shown(value["agreement"])] for field, value in metrics["reference_agreement"].items()]})
+    if compare:
+        compared = compare_runs(dataset, history)
+        report["tables"].insert(0, {"title": "Saved run comparison · same source rows and output schema",
+                                    "headers": ["RUN", "MODEL", "VALID / ALL", "WALL s", "TOKENS / WALL s", "LOAD s", "DECODE s", "CHARACTERS"],
+                                    "rows": [[value["run_id"][:8], saved["config"]["model"],
+                                              f"{value['valid']} / {value['rows']}", shown(value["wall_seconds"]),
+                                              shown(value["tokens_per_second"]), shown(value["load_seconds"]),
+                                              shown(value["generation_seconds"]), str(value["output_characters"])]
+                                             for saved, value in zip(history, compared)]})
+        report["plots"] = [{"title": title + " · run order matches comparison table", "x_label": "Saved run number", "y_label": label,
+                            "series": [{"kind": "points", "color": "accent", "label": title,
+                                        "points": [(index + 1, value[key]) for index, value in enumerate(compared) if value[key] is not None]}]}
+                           for title, label, key in (("Output validation", "Valid rows / all source rows", "validation_rate"),
+                                                     ("Generation speed", "Tokens / wall second", "tokens_per_second"),
+                                                     ("Request duration", "Wall seconds", "wall_seconds"),
+                                                     ("Server model load", "Reported seconds", "load_seconds"),
+                                                     ("Server decode time", "Reported seconds", "generation_seconds"),
+                                                     ("Output length", "Characters", "output_characters"))]
+        report["warnings"].append("Timing includes runtime cache/load effects. Faster or schema-valid output does not establish better semantic quality.")
+    return report
+
+
+def _ollama_report(result, dataset, column, name):
+    """Format server-reported usage separately from locally measured wall time."""
+    def available(value, digits=None):
+        return "Unavailable" if value is None else _num(value, digits) if digits is not None else str(value)
+
+    tokens = [output.generated_tokens for output in result.outputs]
+    count = sum(tokens) if all(value is not None for value in tokens) else None
+    seconds = sum(output.seconds for output in result.outputs)
+    sections = []
+    for output in result.outputs:
+        suffix = f" · source row {output.row_position}" if column else ""
+        sections.append({"title": "Generated text" + suffix, "text": output.text or "[No visible answer returned.]"})
+        if output.thinking:
+            sections.append({"title": "Thinking" + suffix, "text": output.thinking})
+        sections.append({"title": "Submitted prompt" + suffix, "text": output.submitted_prompt})
+    details = result.model.details
+    return {
+        "dataset": f"{name} · {len(dataset.df)} rows" if column else "Typed prompt",
+        "features": column or "Prompt text",
+        "settings": f"Ollama · {result.model.name} · {result.prompt_format} · "
+                    f"temperature {result.settings['requested_options']['temperature']:g} · "
+                    f"seed {result.settings['requested_options']['seed']}",
+        "summary": f"Completed {len(result.outputs)} output(s) using a local Ollama model. "
+                   "Generated text has not been evaluated for accuracy.",
+        "text_sections": sections,
+        "metric_groups": [{"title": "Generation", "items": [
+            ("OUTPUT TOKENS", available(count)),
+            ("WALL TIME", f"{seconds:.2f} s"),
+            ("TOKENS / WALL SECOND", available(count / seconds if count is not None and seconds else None, 1)),
+            ("QUANTIZATION", str(details.get("quantization_level", "Unavailable")))]}],
+        "tables": [
+            {"title": "Output details", "headers": ["SOURCE ROW", "INPUT TOKENS", "OUTPUT TOKENS", "WALL (S)", "STOP"],
+             "rows": [[str(output.row_position) if column else "Prompt", available(output.input_tokens),
+                       available(output.generated_tokens), _num(output.seconds, 2), available(output.finish_reason)]
+                      for output in result.outputs]},
+            {"title": "Server timing", "headers": ["OUTPUT", "TOTAL (S)", "LOAD (S)", "DECODE (S)", "DECODE TOKENS/S"],
+             "rows": [[str(i + 1), available(output.server_seconds, 2), available(output.load_seconds, 2),
+                       available(output.generation_seconds, 2),
+                       available(output.generated_tokens / output.generation_seconds
+                                 if output.generated_tokens is not None and output.generation_seconds else None, 1)]
+                      for i, output in enumerate(result.outputs)]},
+            {"title": "Model and runtime", "headers": ["SETTING", "VALUE"], "rows": [
+                ["Backend", "Ollama"], ["Address", result.base_url], ["Model", result.model.name],
+                ["Model digest", available(result.model.digest)], ["Size (bytes)", available(result.model.size_bytes)],
+                ["Parameters", str(details.get("parameter_size", "Unavailable"))],
+                ["Requested context budget", str(result.settings["requested_options"]["num_ctx"])],
+                ["Thinking", result.settings["thinking"]], ["Ollama version", available(result.versions["ollama"])]]}],
+        "warnings": result.warnings,
+        "generation": result.to_dict(),
+    }
+
+
+def _llamacpp_report(result, dataset, column, name):
+    from mlcookbook.llamacpp import timing_seconds
+
+    def available(value, digits=None):
+        return "Unavailable" if value is None else _num(value, digits) if digits is not None else str(value)
+
+    tokens = [output.generated_tokens for output in result.outputs]
+    count = sum(tokens) if all(value is not None for value in tokens) else None
+    seconds = sum(output.seconds for output in result.outputs)
+    meta = result.model.metadata.get("meta") or {}
+    options = result.settings["requested_options"]
+    sections = []
+    for output in result.outputs:
+        suffix = f" · source row {output.row_position}" if column else ""
+        sections.append({"title": "Generated text" + suffix, "text": output.text or "[No visible answer returned.]"})
+        if output.thinking:
+            sections.append({"title": "Reasoning" + suffix, "text": output.thinking})
+        sections.append({"title": "Submitted user message" + suffix, "text": output.submitted_prompt})
+    identity = [["Backend", "llama.cpp"], ["Address", result.base_url], ["Model reference (unverified)", result.model.name],
+                ["Server model path (reference)", available(result.server_properties.get("model_path"))],
+                ["Runtime version (reported)", available(result.versions["llama.cpp"])],
+                ["GGUF type (reported)", available(meta.get("ftype"))],
+                ["Parameters (reported)", available(meta.get("n_params"))],
+                ["Context (server configured)", available(meta.get("n_ctx"))]]
+    if result.local_file:
+        identity += [["Selected local file", result.local_file["path"]], ["Selected file SHA-256", result.local_file["sha256"]],
+                     ["Fingerprint scope", result.local_file["scope"]]]
+    return {
+        "dataset": f"{name} · {len(dataset.df)} rows" if column else "Typed prompt", "features": column or "Prompt text",
+        "settings": f"llama.cpp · {result.model.name} · server chat template · temperature {options['temperature']:g} · seed {options['seed']}",
+        "summary": f"Completed {len(result.outputs)} output(s) using llama.cpp. Generated text has not been evaluated for accuracy.",
+        "text_sections": sections,
+        "metric_groups": [{"title": "Generation", "items": [
+            ("OUTPUT TOKENS", available(count)), ("WALL TIME", f"{seconds:.2f} s"),
+            ("TOKENS / WALL SECOND", available(count / seconds if count is not None and seconds else None, 1))]}],
+        "tables": [
+            {"title": "Output details", "headers": ["SOURCE ROW", "INPUT TOKENS", "OUTPUT TOKENS", "WALL (S)", "STOP"],
+             "rows": [[str(output.row_position) if column else "Prompt", available(output.input_tokens),
+                       available(output.generated_tokens), _num(output.seconds, 2), output.finish_reason] for output in result.outputs]},
+            {"title": "Server timing", "headers": ["OUTPUT", "PROMPT (S)", "DECODE (S)", "DECODE TOKENS/S"],
+             "rows": [[str(i + 1), available(timing_seconds(output.timings.get("prompt_ms")), 3),
+                       available(timing_seconds(output.timings.get("predicted_ms")), 3),
+                       available(output.timings.get("predicted_per_second"), 1)] for i, output in enumerate(result.outputs)]},
+            {"title": "Model and runtime", "headers": ["SETTING", "VALUE"], "rows": identity}],
+        "warnings": result.warnings, "generation": result.to_dict(),
     }
 
 
@@ -1008,7 +1218,7 @@ def _dataset_view(dataset, name, import_report=None):
     }
 
 
-def _run_report(key, dataset, name, request, *, stop_requested=None):
+def _run_report(key, dataset, name, request, *, stop_requested=None, on_progress=None):
     import pandas as pd
 
     from mlcookbook import Dataset
@@ -1024,9 +1234,10 @@ def _run_report(key, dataset, name, request, *, stop_requested=None):
         if role == "datetime" and not pd.api.types.is_datetime64_any_dtype(values):
             raise ValueError(f"{column!r} is not stored as dates. ISO-8601 dates (2024-05-31) are parsed on import.")
     configured = Dataset(dataset.df, overrides=request["overrides"])
-    report = (REPORT_BUILDERS[key](configured, request, name, stop_requested=stop_requested) if key == "llm" else
+    report = (REPORT_BUILDERS[key](configured, request, name, stop_requested=stop_requested, on_progress=on_progress) if key == "llm" else
               REPORT_BUILDERS[key](configured, request, name))
-    report["provenance"] = {"versions": runtime_versions(include_llm=key == "llm"), "created_utc": datetime.now(UTC).isoformat(),
+    report["provenance"] = {"versions": runtime_versions(include_llm=key == "llm" and request["params"].get("backend", "pytorch") == "pytorch"),
+                            "created_utc": datetime.now(UTC).isoformat(),
                             "random_state": request.get("params", {}).get("random_state", 0)}
     return report
 
@@ -1034,6 +1245,7 @@ def _run_report(key, dataset, name, request, *, stop_requested=None):
 class _Job(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
+    progress = Signal(object)
 
     def __init__(self, operation):
         super().__init__()
@@ -1104,6 +1316,9 @@ class MLCookbookApp:
         screen.load_requested.connect(self.load_file)
         screen.run_requested.connect(self.run_analysis)
         screen.cancel_requested.connect(self.cancel_analysis)
+        if isinstance(screen, LLMScreen):
+            screen.connection_requested.connect(self.connect_local_llm)
+            screen.workflow_requested.connect(self.workflow_action)
         self.window.set_experiment_actions(can_save=True, busy=self.job is not None)
         self.window.set_status("")
 
@@ -1115,7 +1330,7 @@ class MLCookbookApp:
                 "source": deepcopy(self.screen.source),
             }
 
-    def _start_job(self, operation, accept, message, *, cancellable=False):
+    def _start_job(self, operation, accept, message, *, cancellable=False, on_progress=None):
         if self.job is not None:
             return
         screen = self.screen
@@ -1136,6 +1351,8 @@ class MLCookbookApp:
         self.job = _Job(operation)
         self.job.succeeded.connect(accepted)
         self.job.failed.connect(lambda error: self._set_status("Unable to complete: " + error))
+        if on_progress is not None:
+            self.job.progress.connect(on_progress)
         self.job.finished.connect(self._job_finished)
         self.job.start()
 
@@ -1196,9 +1413,21 @@ class MLCookbookApp:
             screen.dataset, screen.dataset_name = loaded.dataset, loaded.name
             screen.source = loaded.source
             screen.set_dataset(view)
-            screen.validate_session(loaded.state)
-            screen.restore_session(loaded.state)
-            if screen.request() != loaded.state["request"]:
+            state = screen.prepare_session(loaded.state)
+            screen.validate_session(state)
+            if loaded.recipe == "llm":
+                from mlcookbook.core.dataset import Dataset
+                from mlcookbook.llm_workflow import check_source
+
+                runs = list(state["report"].get("workflow_history", []))
+                if state["report"].get("workflow_run"):
+                    runs.append(state["report"]["workflow_run"])
+                for run in runs:
+                    # Role overrides belong to the original run, not to unrun edits.
+                    roles = state["report_request"]["overrides"]
+                    check_source(Dataset(loaded.dataset.df, overrides=roles), run)
+            screen.restore_session(state)
+            if screen.request() != state["request"]:
                 raise ValueError("Saved selections cannot be restored exactly with this recipe.")
         except Exception:
             screen.deleteLater()
@@ -1209,7 +1438,7 @@ class MLCookbookApp:
         self.screen, self.key = screen, loaded.recipe
         self._connect_screen(screen)
         self.window.show_screen(screen)
-        screen.restore_session(loaded.state)  # scroll positions require the attached layout
+        screen.restore_session(state)  # scroll positions require the attached layout
         message = f"Opened {loaded.name} from its saved snapshot. Results restored without retraining."
         if loaded.warnings:
             message += " Package versions differ; see Data checks before rerunning."
@@ -1247,6 +1476,45 @@ class MLCookbookApp:
         self.screen.show_report({})
         self.screen.set_status("File loaded. Review the data checks and column types, choose your columns, then run.")
 
+    def connect_local_llm(self, backend, base_url, selected):
+        if backend == "ollama":
+            return self.connect_ollama(base_url, selected)
+        if backend != "llamacpp":
+            return
+        from mlcookbook.llamacpp import llamacpp_models
+
+        def connect():
+            return llamacpp_models(base_url, stop_requested=QThread.currentThread().isInterruptionRequested).to_dict()
+
+        def accept(result):
+            self.screen.show_llamacpp_connection(result)
+            self._set_status("llama.cpp is loading its model. Refresh when ready." if result["status"] == "loading" else
+                             "llama.cpp connection checked. Review the loaded model, then generate.")
+
+        self._start_job(connect, accept, "Checking the local llama.cpp server…", cancellable=True)
+
+    def connect_ollama(self, base_url, selected):
+        from mlcookbook.ollama import describe_ollama_model, ollama_models
+
+        def connect():
+            stopped = QThread.currentThread().isInterruptionRequested
+            connection = ollama_models(base_url, stop_requested=stopped)
+            chosen = selected or (connection.models[0].name if connection.models else "")
+            result = connection.to_dict()
+            result["selected"] = None
+            if any(model.name == chosen for model in connection.models):
+                result["selected"] = describe_ollama_model(base_url, chosen, connection=connection,
+                                                           stop_requested=stopped).to_dict()
+            elif chosen:
+                result["warnings"].append(f"Previously selected model {chosen!r} is no longer installed. Choose another model.")
+            return result
+
+        def accept(result):
+            self.screen.show_connection(result)
+            self._set_status("Ollama connection checked. Choose an installed local model, then generate.")
+
+        self._start_job(connect, accept, "Checking the local Ollama server…", cancellable=True)
+
     def run_analysis(self, request):
         screen = self.screen
         key = self.key
@@ -1254,14 +1522,15 @@ class MLCookbookApp:
         def run():
             if key == "llm":
                 return _run_report(key, screen.dataset, screen.dataset_name, request,
-                                   stop_requested=QThread.currentThread().isInterruptionRequested)
+                                   stop_requested=QThread.currentThread().isInterruptionRequested,
+                                   on_progress=lambda event: QThread.currentThread().progress.emit(event))
             return _run_report(key, screen.dataset, screen.dataset_name, request)
 
         self._start_job(run,
                         lambda report: self._show_result(report, request),
                         "Loading local model and generating text…" if key == "llm" else
                         "Running built-in example..." if screen.is_example else "Running analysis...",
-                        cancellable=key == "llm")
+                        cancellable=key == "llm", on_progress=screen.show_progress if key == "llm" else None)
 
     def cancel_analysis(self):
         if self.job is not None:
@@ -1270,9 +1539,86 @@ class MLCookbookApp:
             self._set_status("Stopping after the current model operation…")
 
     def _show_result(self, report, request):
+        if "workflow_run" in report:
+            history = list(self.screen._report.get("workflow_history", []))
+            if any(saved["dataset_fingerprint"] != report["workflow_run"]["dataset_fingerprint"] for saved in history):
+                history = []
+                report["warnings"].append("Dataset values or roles changed; the run history now starts from this source snapshot.")
+            history.append(report["workflow_run"])
+            report["workflow_history"] = history[-10:]
+            if len(history) > 10:
+                report["warnings"].append("Keeping the ten most recent runs in this experiment. Export runs you want to archive separately.")
         self.screen.show_report(report, request=request)
         prefix = "Built-in example. " if self.screen.is_example else ""
-        self.screen.set_status(prefix + "Analysis complete. Results reflect the settings used for this run.")
+        if "workflow_run" in report:
+            rows = report["workflow_run"]["rows"]
+            valid = sum(row["status"] == "valid" for row in rows)
+            cancelled = any(row["status"] == "cancelled" for row in rows)
+            self.screen.set_status(("Batch cancelled; completed rows retained. " if cancelled else "Text workflow complete. ") +
+                                   f"{valid} of {len(rows)} source rows validated. Review row outcomes before accepting columns.")
+        else:
+            self.screen.set_status(prefix + "Analysis complete. Results reflect the settings used for this run.")
+
+    def workflow_action(self, action, payload):
+        from mlcookbook.core.dataset import Dataset
+        from mlcookbook.llm_workflow import derive_dataset, export_workflow
+
+        screen = self.screen
+        if self.job is not None or not isinstance(screen, LLMScreen):
+            return
+        report = screen._report
+        run = report.get("workflow_run")
+        if not run:
+            return
+        request = deepcopy(screen._report_request)
+        dataset = Dataset(screen.dataset.df, overrides=request["overrides"])
+        if action in ("retry", "derive") and screen.request() != request:
+            self._set_status("Settings changed. Run the full workflow before retrying or accepting fields.")
+            return
+        if action == "retry":
+            def retry():
+                return _run_llm_workflow(dataset, request, screen.dataset_name, previous=run, positions=payload,
+                                         stop_requested=QThread.currentThread().isInterruptionRequested,
+                                         on_progress=lambda event: QThread.currentThread().progress.emit(event))
+            self._start_job(retry, lambda result: self._show_result(result, request), "Retrying selected source rows…",
+                            cancellable=True, on_progress=screen.show_progress)
+        elif action == "export":
+            self._start_job(lambda: export_workflow(payload, dataset, run),
+                            lambda _: self._set_status(f"Exported {Path(payload).name} with source rows, outcomes and run metadata."),
+                            "Exporting LLM workflow…")
+        elif action == "compare":
+            history = report["workflow_history"]
+            selected = [saved for saved in history if payload is None or saved["run_id"] in payload]
+            def compare():
+                result = _workflow_report(run, dataset, screen.dataset_name, history=selected, compare=True)
+                result["workflow_history"] = history
+                result["comparison_run_ids"] = [saved["run_id"] for saved in selected]
+                return result
+            def compared(result):
+                screen.show_report(result, request=request)
+                self._set_status(f"Compared {len(selected)} saved runs on the same source rows. Inspect validation, reference coverage and timings.")
+            self._start_job(compare,
+                            compared, "Comparing saved runs…")
+        elif action == "derive":
+            if not any(row["status"] == "valid" for row in run["rows"]):
+                self._set_status("No validated rows are available to accept.")
+                return
+            def derive():
+                derived, lineage = derive_dataset(dataset, run)
+                name = screen.dataset_name + " · generated fields"
+                view = _dataset_view(derived, name)
+                view["source"] = {**lineage, "original_source": deepcopy(screen.source)}
+                view["notes"].append("Accepted LLM-derived columns. Invalid/skipped/unprocessed rows remain missing. Run " + run["run_id"])
+                return derived, name, view
+            def accept(loaded):
+                self._remember_screen()
+                saved = self.sessions["llm"]
+                self.sessions.clear()
+                self.sessions["llm"] = saved
+                self.imported = loaded
+                self._set_status("Derived dataset ready. Click Back and open an analysis recipe to use the generated columns. "
+                                 "Local LLMs retains this source run; Save experiment keeps it for later.")
+            self._start_job(derive, accept, "Creating a typed derived dataset…")
 
 
 def main() -> int:

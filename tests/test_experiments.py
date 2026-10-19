@@ -40,6 +40,17 @@ def test_round_trip_keeps_typed_snapshot_roles_and_state(tmp_path):
     assert loaded.versions == runtime_versions() and not loaded.warnings
 
 
+def test_ollama_unrun_engine_change_keeps_pytorch_report_versions(tmp_path):
+    """Switching engine without rerunning must not invent version mismatches."""
+    state = {"params": {"backend": "ollama"},
+             "report": {"provenance": {"versions": runtime_versions(include_llm=True)}}}
+    path = tmp_path / "changed-engine.mlcb"
+    save_experiment(path, Dataset(pd.DataFrame({"x": [1, 2]})), recipe="llm", name="Changed engine", state=state)
+    loaded = load_experiment(path)
+    assert not loaded.warnings
+    assert loaded.state == state
+
+
 @pytest.mark.parametrize("change,match", [
     (lambda m: m.update(version=999), "unsupported format"),
     (lambda m: m.update(format="other"), "not an MLcookbook"),

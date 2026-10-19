@@ -26,16 +26,6 @@ class Recipe:
 
 RECIPES: list[Recipe] = [
     Recipe(
-        title="Local LLM · PyTorch",
-        description="Generate text with a local language model; record prompts, outputs, settings, and model provenance.",
-        icon="φ", status="Ready", variant="ready", key="llm",
-    ),
-    Recipe(
-        title="Model Comparison",
-        description="Compare ridge and random forest regression on shared folds, with a final held-out evaluation.",
-        icon="⇄", status="Ready", variant="ready", key="model-comparison",
-    ),
-    Recipe(
         title="Linear Regression",
         description="Least squares, ridge, or lasso, with residual checks and cross-validated error.",
         icon="β",  # β
@@ -106,5 +96,15 @@ RECIPES: list[Recipe] = [
         status="Ready",
         variant="ready",
         key="neural-network",
+    ),
+    Recipe(
+        title="Local LLMs",
+        description="Generate text or extract validated dataset columns with local models; compare and save research runs.",
+        icon="φ", status="Ready", variant="ready", key="llm",
+    ),
+    Recipe(
+        title="Model Comparison",
+        description="Compare ridge and random forest regression on shared folds, with a final held-out evaluation.",
+        icon="⇄", status="Ready", variant="ready", key="model-comparison",
     ),
 ]

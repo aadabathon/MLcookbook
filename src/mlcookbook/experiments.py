@@ -76,7 +76,8 @@ def save_experiment(path: str | Path, dataset: Dataset, *, recipe: str, name: st
         "created_utc": datetime.now(UTC).isoformat(),
         "recipe": recipe, "name": name, "state": state, "source": source or {},
         "roles": {col.name: col.var_type.value for col in dataset.schema().columns},
-        "versions": runtime_versions(include_llm=recipe == "llm"), "snapshot_sha256": fingerprint,
+        "versions": runtime_versions(include_llm=recipe == "llm" and state.get("params", {}).get("backend", "pytorch") == "pytorch"),
+        "snapshot_sha256": fingerprint,
     }
     metadata = json.dumps(to_jsonable(manifest), ensure_ascii=False, allow_nan=False).encode("utf-8")
     temporary = None
@@ -120,15 +121,18 @@ def load_experiment(path: str | Path) -> LoadedExperiment:
         dataset = Dataset(frame, overrides=manifest["roles"])
     except (zipfile.BadZipFile, KeyError, TypeError, UnicodeError, OSError) as exc:
         raise ValueError(f"Could not open the experiment: {exc}") from exc
-    current = runtime_versions(include_llm=manifest["recipe"] == "llm")
+    report = manifest["state"].get("report", {})
+    provenance = report.get("provenance", {}) if isinstance(report, dict) else {}
+    run_versions = provenance.get("versions", {}) if isinstance(provenance, dict) else {}
+    run_versions = run_versions if isinstance(run_versions, dict) else {}
+    # Unrun engine edits may leave a PyTorch report beside current Ollama controls.
+    # Read installed metadata for either version record, without importing an engine.
+    current = runtime_versions(include_llm="torch" in manifest["versions"] or "torch" in run_versions)
     warnings = [f"Saved with {name} {saved}; installed version is {current.get(name, 'unavailable')}. "
                 "Rerun results may differ."
                 for name, saved in manifest["versions"].items() if saved != current.get(name)]
-    report = manifest["state"].get("report", {})
-    if isinstance(report, dict) and isinstance(report.get("provenance"), dict):
-        run_versions = report["provenance"].get("versions", {})
-        if isinstance(run_versions, dict) and run_versions != manifest["versions"]:
-            warnings.extend(f"Displayed result used {name} {saved}; installed version is {current.get(name, 'unavailable')}."
-                            for name, saved in run_versions.items() if saved != current.get(name))
+    if run_versions != manifest["versions"]:
+        warnings.extend(f"Displayed result used {name} {saved}; installed version is {current.get(name, 'unavailable')}."
+                        for name, saved in run_versions.items() if saved != current.get(name))
     return LoadedExperiment(dataset, manifest["recipe"], manifest["name"], manifest["state"],
                             manifest["source"], manifest["versions"], fingerprint, warnings)

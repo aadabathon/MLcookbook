@@ -2,6 +2,8 @@
 
 A statistics, data science, and classical machine-learning workbench for arbitrary tabular datasets — and a learning environment for building one deliberately.
 
+**New to the app? Start with the [recipe tutorial](TUTORIAL.md):** all eleven recipes, one reusable practice CSV, how to read results, all three local LLM engines, and a repeatable prompt-research walkthrough.
+
 The core idea: you hand the library a pandas DataFrame, it gives you a typed `Dataset`, and every analysis returns a **structured, JSON-serializable result object** instead of printing or plotting. That keeps the analytical core independent of notebooks, CLIs, and web frontends, so it can later sit unchanged behind a FastAPI service.
 
 ```text
@@ -98,6 +100,9 @@ pytest
 | `clustering` | `kmeans` |
 | `dimensionality` | `pca` |
 | `llm` | `generate_text`, optional PyTorch/Transformers inference from local GPT-2/Llama/Qwen2/Qwen3 checkpoints, frozen text-generation results |
+| `ollama` | `ollama_models`, `describe_ollama_model`, `generate_ollama`: installed local model discovery and streamed generation via standard-library HTTP; no PyTorch required |
+| `llamacpp` | `llamacpp_models`, `generate_llamacpp`: direct local llama-server discovery and chat generation over SSE, optional explicitly selected GGUF file hashing; no PyTorch required |
+| `llm_workflow` | `run_workflow`, `derive_dataset`, `compare_runs`, `export_workflow`: bound templates, strict JSON validation, row lineage, typed derived columns and repeatable server-backed research runs |
 | `visualization` | 🚧 skeletal — the desktop app draws its own charts from result data |
 
 ### Design rules
@@ -153,7 +158,7 @@ Eleven recipes are ready. The ten classical recipes open on built-in scikit-lear
 
 | Recipe | Demo data | Report |
 |---|---|---|
-| Local LLM · PyTorch | typed prompt or example question rows; local model required | generated text, token counts, throughput, stop reasons, model fingerprint, and runtime versions |
+| Local LLMs | typed prompt or text rows; PyTorch model folder, Ollama or llama.cpp server | free text or validated nullable fields, derived datasets, saved-run comparisons, usage/timings, model provenance and export |
 | Model Comparison | diabetes | ridge vs random forest regression on identical training folds, selected model's final test metrics, exact row/fold membership saved with the report |
 | Linear Regression | diabetes | actual vs predicted, residual plot, test/train/CV metrics, residual checks, coefficients (OLS, ridge, or lasso) |
 | Logistic Regression | breast cancer | fitted sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, odds ratios or softmax coefficients |
@@ -207,7 +212,20 @@ Saving is explicit and captures **one recipe**, not every open recipe session. I
 
 The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Classification comparison, arbitrary workflow graphs, fitted-model persistence, and CSV result export remain future work.
 
+```python
+from mlcookbook import compare_regressors
+
+comparison = compare_regressors(data, target="y", random_state=17, cv_folds=5)
+comparison.selected_model, comparison.test_metrics
+comparison.train_rows, comparison.test_rows, comparison.folds
+comparison.to_dict()  # JSON-safe, including both candidates' CV metrics
+```
+
+`mlcookbook.comparison` owns shared-fold comparison and its frozen results. `mlcookbook.experiments.save_experiment` / `load_experiment` handle the snapshot format without importing GUI code; the coordinator supplies and restores the plain screen state. The shared CV helper accepts explicit positional splits for comparison and rejects overlapping training/validation rows.
+
 ### Local LLM generation with PyTorch
+
+This recipe is available in current source/local builds. The published v1.0.0 Windows download contains the ten classical recipes.
 
 This optional recipe runs pretrained causal language models locally. Install the runtime in your project environment; for a CPU-only Windows build:
 
@@ -228,7 +246,7 @@ Choose a local Hugging Face model folder with `config.json`, tokenizer files, an
 
 The `models/` directory is gitignored. Opening the recipe never downloads or loads weights automatically. The app loads local files only, uses safetensors, and does not execute model-provided Python. GGUF files and Hub IDs are not model-folder inputs.
 
-1. Open **Local LLM · PyTorch**, choose the model folder, and edit **Prompt**. **Auto** applies the tokenizer's chat template if present; **Plain text** sends the raw prompt.
+1. Open **Local LLMs**, select **PyTorch / Transformers**, choose the model folder, and edit **Prompt**. **Auto** applies the tokenizer's chat template if present; **Plain text** sends the raw prompt.
 2. Choose an output token limit, temperature (zero means greedy decoding), sampling top-p/seed, input token limit, and device. Oversized inputs fail with an explicit message; they are never silently truncated. Input plus output tokens must fit the model's context window.
 3. Click **Generate text**. The report contains selectable/copyable output text, token counts, generation throughput, model load time, stop reasons, and the model fingerprint and runtime versions. **Cancel** stops after loading or at a decoding step and preserves the previous report. The time limit is checked between decoding steps; it cannot interrupt loading or a single forward pass.
 4. For row-wise generation, select **Dataset rows**, import CSV/Parquet, and check exactly one string-valued text/categorical column. **Prompt** becomes an instruction prepended to each row. Blank/missing rows are skipped with warnings; at most ten rows are processed per run, with zero-based source positions recorded independently of dataframe index labels.
@@ -250,22 +268,108 @@ result = generate_text(data, model_path="models/SmolLM2-135M-Instruct",
                        prompt="Summarize:", text_column="notes", max_rows=3)
 ```
 
-This is an inference workflow: no sklearn preprocessing, train/test split, cross-validation, training, or accuracy evaluation is performed. Generated text can be wrong. CPU uses float32 and CUDA uses float16; hardware/software changes and time limits can affect repeatability even with a recorded seed. Training/fine-tuning, embeddings, quantized runtimes, and graph composition remain separate future work. The existing Neural Networks recipe continues to use scikit-learn's MLP.
+This is an inference workflow: no sklearn preprocessing, train/test split, cross-validation, training, or accuracy evaluation is performed. Generated text can be wrong. PyTorch uses float32 on CPU and float16 on CUDA; hardware/software changes and time limits can affect repeatability even with a recorded seed. Training/fine-tuning, embeddings, and graph composition remain separate future work. The existing Neural Networks recipe continues to use scikit-learn's MLP.
+
+### Local LLM generation with Ollama
+
+The same **Local LLMs** screen also connects to an existing local [Ollama server](https://docs.ollama.com/api/introduction). This connector uses Python's standard library and needs neither the `llm` extra nor a browser. Ollama itself and its models are installed separately.
+
+1. Start Ollama and choose **Inference engine → Ollama**. Keep `http://127.0.0.1:11434` unless your local server uses a different port.
+2. Click **Test / refresh models**, then select an installed model. The connection panel shows runtime version, model size, quantization, and model context when supplied. Only loopback HTTP endpoints and installed local models are accepted; cloud references are excluded. The app never pulls models or manages the server process.
+3. Write a prompt and click **Generate text**. **Auto** and **Chat template** submit a user message for the server to format; **Plain text** requests raw generation. Output tokens, temperature/top-p, seed, context allocation, thinking, row limit, and time limit are request controls. Device, precision, GPU offload, and model loading are managed by Ollama. Thinking **On/Off** require boolean support; choose **Model default** for models exposing thinking levels.
+4. Watch **Live preview** while the request runs. **Cancel** also interrupts an idle request during model loading; the server remains running. The per-row deadline includes loading (the screen defaults to 90 seconds). Failed, timed-out, cancelled, or incomplete streams discard transient output and preserve the previous completed report.
+5. Use **Dataset rows** for the same bounded text-column workflow described above. **Save experiment** retains outputs, submitted prompts/messages, requested options, source positions, model digest/metadata, Ollama version, and server token/timing data. Reopening needs no server or weights, and restores unrun edits. Older PyTorch experiment files remain supported.
 
 ```python
-from mlcookbook import compare_regressors
+from mlcookbook.ollama import ollama_models, generate_ollama
 
-comparison = compare_regressors(data, target="y", random_state=17, cv_folds=5)
-comparison.selected_model, comparison.test_metrics
-comparison.train_rows, comparison.test_rows, comparison.folds
-comparison.to_dict()  # JSON-safe, including both candidates' CV metrics
+connection = ollama_models()  # discovery only; does not load model weights
+result = generate_ollama(
+    model=connection.models[0].name,  # choose an installed local model
+    prompt="Explain training-only preprocessing in one sentence.",
+    max_new_tokens=64, max_seconds=90, thinking="off",
+    on_progress=lambda event: None,  # accumulated text/thinking, output number, source position
+)
+result.outputs[0].text
+result.to_dict()
 ```
 
-`mlcookbook.comparison` owns shared-fold comparison and its frozen results. `mlcookbook.experiments.save_experiment` / `load_experiment` handle the snapshot format without importing GUI code; the coordinator supplies and restores the plain screen state. The shared CV helper accepts explicit positional splits for comparison and rejects overlapping training/validation rows.
+Ollama's reported token counts and server durations are distinct from local wall time; missing metrics remain unavailable. Options are requests, not verified applied settings. The server manages tokenization/context, so the client cannot guarantee no input truncation or recover the exact rendered chat prompt. Model names, seeds, and digests do not guarantee identical output across runtime/hardware changes. Loopback restricts the connection destination; Ollama's own cloud configuration remains outside this app.
+
+### Local LLM generation with llama.cpp
+
+**Inference engine → llama.cpp server** connects to an existing single-model [llama-server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), using `/health`, `/v1/models`, read-only `/props`, and streamed `/v1/chat/completions`. It uses the standard library, needs no browser or `llm` extra, and never installs, starts/stops, loads, or downloads a server/model. Router mode, authenticated endpoints, tools, and multimodal requests are outside this milestone.
+
+Start a server separately with your local GGUF. This machine's verified CPU example uses the QA checkpoint already saved in the ignored `models/` folder:
+
+```powershell
+llama-server -m models/SmolLM2-135M-Instruct.Q4_K_M.gguf --alias smollm2-135m --host 127.0.0.1 --port 8080 --ctx-size 2048 --parallel 1 --n-gpu-layers 0 --threads 4 --jinja --offline
+```
+
+The example checkpoint is [QuantFactory/SmolLM2-135M-Instruct-GGUF](https://huggingface.co/QuantFactory/SmolLM2-135M-Instruct-GGUF/tree/476854d00ede130660aba430d15f9347ad2e7d0e), file `SmolLM2-135M-Instruct.Q4_K_M.gguf`, SHA-256 `8030f04528538d47bda434f6f0bdf3952c40a58123e4d5e755332f23731a8684`. It is a small inference smoke-test model, not a quality recommendation. Checkpoints and server executables stay outside the app bundle. The installed server build `b11193-4e7481175` could not load the existing Ollama Qwen GGUF because its rope metadata format differed; compatibility depends on both model and runtime.
+
+1. Open **Local LLMs → llama.cpp server**, set the local address (default `http://127.0.0.1:8080`), then click **Test / refresh models**. Loading status is visible; refresh when ready. The selector uses the loaded model's exact identity. A changed identity is rejected before generation.
+2. Write a prompt or select **Dataset rows**. The server formats one user chat message per input; the PyTorch raw/template controls are hidden. Output limit, temperature/top-p, seed, row limit and per-row deadline are request controls. Context, GPU offload, precision and thinking remain server settings. SSE streams may carry separate reasoning text.
+3. Generate, watch the transient preview, or cancel. Cancellation interrupts idle reads without stopping the external process. Invalid/incomplete streams, timeouts and failures retain the previous completed result. Usage-only terminal events and the SSE completion marker must finish the response before it is committed.
+4. Optionally select **GGUF file** to hash that local file during a run. The app never reads a filesystem path merely because the server supplied it. This hash identifies only your selected file; its binding to the server's loaded bytes, other shards, adapters or chat template is unverified. Without a selected file, the report explicitly retains an unverified model reference.
+5. Save/Open retains submitted messages, outputs, source positions, requested and explicitly reported applied settings, model/server metadata, reported runtime version, actual usage/timings, and optional file provenance. Reopening contacts no server and reads no model file. Reruns need the server/model, plus the selected GGUF if hashing is enabled (or clear that optional field). Older PyTorch and Ollama experiments migrate before validation.
+
+```python
+from mlcookbook.llamacpp import llamacpp_models, generate_llamacpp
+
+connection = llamacpp_models()  # Does not load weights; status can be "loading".
+result = generate_llamacpp(
+    model=connection.models[0].name, prompt="Explain gravity in one sentence.",
+    max_new_tokens=64, max_seconds=90,
+    # gguf_path="models/my-model.gguf",  # optional file hash; never loads a model
+)
+result.outputs[0].text
+result.to_dict()
+```
+
+Server-reported token counts and millisecond timings remain distinct from local wall time. Unreported usage, versions, or timings stay unavailable. Exact rendered prompts and server input truncation remain unverified. Both connectors share a small private `_local_http` module for bounded loopback-only HTTP; Ollama NDJSON and llama.cpp SSE parsing remain separate.
+
+### Repeatable LLM text-to-dataset workflows
+
+In **Local LLMs**, choose **Extract fields**, **Summarize rows**, **Rewrite rows**, or **Classify rows** with Ollama or llama.cpp. Import text data, select the prompt input columns, and click **Use task template with selected columns**. Templates bind column names literally, such as `{{notes}}`; unchecked columns never enter the request. Define one output per line:
+
+```text
+extracted_bedrooms: numeric
+summary: text
+sentiment: categorical: positive | neutral | negative
+urgent: boolean
+```
+
+Names must be new columns. Roles determine nullable output storage (`Float64`, string, boolean); no string-to-number conversion or JSON repair occurs. Every field is required in the JSON object, with `null` permitted for unknown facts. Ollama receives a `format` schema and llama.cpp a `response_format` schema; the core independently rejects missing/extra/duplicate fields, wrong types and unknown labels. The [tutorial](TUTORIAL.md#structured-text-workflows) includes a complete walkthrough. Free text generation remains available on all three engines.
+
+The row limit is **1–10 source positions**, including blank/skipped rows, for structured workflows. Each row records its submitted prompt, raw answer, validated values, errors, timings and backend provenance. Cancellation retains completed rows and marks unfinished rows. **Review rows / retry / use as dataset** shows source text beside generated fields, plus exact prompts/raw output. Selected/failed-row retries require matching source/configuration/model/runtime identity; changed controls disable retry/acceptance until a full run. llama.cpp identities remain unverified server references even with an explicitly selected GGUF hash; its response timestamp is not a model fingerprint.
+
+**Use as derived dataset** explicitly copies all source rows/columns and appends nullable generated columns by source position plus a full typed dataset fingerprint. Duplicate index labels are preserved. Invalid, skipped, cancelled and unprocessed rows stay missing. Click Back and open another recipe to use this dataset; Local LLMs retains the original source run. Save an analysis experiment to persist the derived dataset and lineage, or save the LLM experiment to retain source data, templates, unrun edits and up to ten recent runs. Both reopen without inference servers or original input files.
+
+**Compare saved runs** selects two or more runs on the same source positions, output schema and reference bindings. Native charts show validation rate, wall time, tokens per wall second, server-reported load/decode durations where available, and output length. Wall time includes discovery, optional file hashing and failed attempts; inherited retry rows retain their original timings. It is an artifact comparison, not a fresh benchmark. Optional **Reference labels** uses `output_field=source_column`, one per line, and reports exact field agreement on valid, non-null pairs with evaluated-row counts. Reference columns cannot be prompt bindings. Validation rate uses all selected source rows and does not measure semantic accuracy.
+
+**Export current run** writes UTF-8 JSON with source values, row outcomes, metadata and metrics. `.mlcb` remains the typed, checksummed source snapshot and offline-reopening format. Generated columns can still reveal target information: inspect inputs and freeze prompt/model choices before assessing held-out predictions.
+
+The [roadmap](ROADMAP.md#local-llm-and-workflow-graphs) continues with graph execution and a native Qt canvas for connecting these operations to existing recipes.
+
+The same operations are available without Qt:
+
+```python
+from mlcookbook.llm_workflow import run_workflow, derive_dataset
+
+run = run_workflow(
+    data, backend="ollama", model="your-installed-model", base_url="http://127.0.0.1:11434",
+    template="Extract the bedroom count from this description:\n{{notes}}",
+    bindings=["notes"], field_spec="extracted_bedrooms: numeric", max_rows=3,
+    settings={"max_new_tokens": 128, "temperature": 0.0},
+)
+# Inspect run.rows first. Accept explicitly after reviewing raw text/errors:
+derived, lineage = derive_dataset(data, run.to_dict())
+```
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: `ruff check .` (rules configured in `pyproject.toml`), the library tests on Ubuntu with Python 3.12 and 3.13 (plus the example tour), and the full suite including the PySide6 app tests on Windows with Qt's offscreen platform. Locally: `ruff check .` and `pytest`.
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: `ruff check .` (rules configured in `pyproject.toml`), the library tests on Ubuntu with Python 3.12 and 3.13 (plus the example tour), and the full suite including the PySide6 app tests on Windows with Qt's offscreen platform. A separate Ubuntu CPU LLM job installs `.[dev,gui,llm]` and Qt runtime libraries, then runs tiny-checkpoint and fake Ollama/llama.cpp HTTP tests entirely offline. No external inference server or model download is needed for tests. Locally: `ruff check .` and `pytest` using the project environment.
 
 ## Web portability
 

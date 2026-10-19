@@ -356,6 +356,7 @@ class ReportScreen(QWidget):
         settings_layout.setContentsMargins(0, 0, 0, 0)
         if self._params:
             grid = QFormLayout()
+            self.param_form = grid
             grid.setSpacing(theme.SPACE_XS)
             for spec in self._params:
                 widget = self._param_widget(spec)
@@ -391,17 +392,26 @@ class ReportScreen(QWidget):
 
     def _param_widget(self, spec: dict) -> QWidget:
         kind = spec["kind"]
-        if kind in ("text", "path"):
+        if kind == "model":
+            widget = QComboBox()
+            widget.setEditable(True)
+            widget.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            widget.lineEdit().setMaxLength(spec.get("max_length", 512))
+            widget.setEditText(spec.get("value", ""))
+            widget.currentTextChanged.connect(self._configuration_changed)
+        elif kind in ("text", "path", "file"):
             widget = QLineEdit(spec.get("value", ""))
             widget.setMaxLength(spec.get("max_length", 4096))
             widget.textChanged.connect(self._configuration_changed)
-            if kind == "path":
+            if kind in ("path", "file"):
                 action = widget.addAction(widget.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
                                           QLineEdit.ActionPosition.TrailingPosition)
-                action.setToolTip("Choose local model folder")
+                action.setToolTip("Choose local model folder" if kind == "path" else "Choose local GGUF file")
 
                 def choose_directory():
-                    path = QFileDialog.getExistingDirectory(self, "Choose local Hugging Face model folder", widget.text())
+                    path = (QFileDialog.getExistingDirectory(self, "Choose local Hugging Face model folder", widget.text())
+                            if kind == "path" else QFileDialog.getOpenFileName(self, "Choose local GGUF file", widget.text(),
+                                                                            "GGUF files (*.gguf);;All files (*)")[0])
                     if path:
                         widget.setText(path)
 
@@ -437,7 +447,9 @@ class ReportScreen(QWidget):
         widget = self.param_widgets[spec["key"]]
         if spec["kind"] == "choice":
             return widget.currentData()
-        if spec["kind"] in ("text", "path"):
+        if spec["kind"] == "model":
+            return widget.currentText()
+        if spec["kind"] in ("text", "path", "file"):
             return widget.text()
         if spec["kind"] == "multiline":
             return widget.toPlainText()
@@ -706,6 +718,10 @@ class ReportScreen(QWidget):
             "is_example": self.is_example,
         })
 
+    def prepare_session(self, state: dict) -> dict:
+        """Recipe-specific migrations run before saved controls are validated."""
+        return state
+
     def restore_session(self, state: dict):
         self._restoring = True
         request = state["request"]
@@ -725,7 +741,9 @@ class ReportScreen(QWidget):
             widget = self.param_widgets[spec["key"]]
             if spec["kind"] == "choice":
                 widget.setCurrentIndex(widget.findData(value))
-            elif spec["kind"] in ("text", "path"):
+            elif spec["kind"] == "model":
+                widget.setEditText(value)
+            elif spec["kind"] in ("text", "path", "file"):
                 widget.setText(value)
             elif spec["kind"] == "multiline":
                 widget.setPlainText(value)
@@ -757,7 +775,7 @@ class ReportScreen(QWidget):
                 value = values[spec["key"]]
                 if spec["kind"] == "choice":
                     require(value in [item[1] for item in spec["options"]])
-                elif spec["kind"] in ("text", "path", "multiline"):
+                elif spec["kind"] in ("text", "path", "file", "multiline", "model"):
                     require(isinstance(value, str) and len(value) <= spec.get("max_length", 4096))
                 elif value is None:
                     require(bool(spec.get("none_at_min")))

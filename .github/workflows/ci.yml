@@ -53,13 +53,18 @@ jobs:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       QT_QPA_PLATFORM: offscreen
+      OMP_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0
       - run: pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e ".[dev,gui,llm]"
       # Real tiny checkpoints are constructed in tests; no model downloads.
-      - run: pytest tests/test_llm.py tests/test_app_import.py -k llm
+      - run: pytest tests/test_llm.py tests/test_ollama.py tests/test_llamacpp.py tests/test_llm_workflow.py tests/test_app_import.py -k "llm or ollama or llamacpp or workflow"

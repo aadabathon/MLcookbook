@@ -39,6 +39,124 @@ def finish(controller, qt):
     assert controller.job is None
 
 
+def configure_text_workflow(controller, server):
+    import pandas as pd
+
+    from mlcookbook import Dataset
+    from tests.test_llm_workflow import ANSWER, ndjson
+
+    open_recipe(controller, "llm")
+    data = Dataset(pd.DataFrame({"text": ["great", "bad", None], "target": [10., 20., 30.]}, index=[8, 8, 3]))
+    controller._use_import((data, "club.csv", app._dataset_view(data, "club.csv")))
+    screen = controller.screen
+    screen.param_widgets["workflow"].setCurrentIndex(screen.param_widgets["workflow"].findData("extract"))
+    screen.param_widgets["backend"].setCurrentIndex(screen.param_widgets["backend"].findData("ollama"))
+    screen.param_widgets["ollama_url"].setText(server.base_url)
+    screen.param_widgets["ollama_model"].setEditText("test:tiny")
+    screen.param_widgets["template"].setPlainText("Read {{text}}")
+    screen.param_widgets["field_spec"].setPlainText("sentiment: categorical: positive | negative\nscore: numeric\nurgent: boolean")
+    screen.param_widgets["max_rows"].setValue(3)
+    server.state["raw_stream"] = ndjson(ANSWER)
+    return screen
+
+
+def test_text_workflow_disk_retry_compare_export_and_derived_data(controller, qt, ollama_server, tmp_path):
+    import json
+
+    from mlcookbook.core.results import to_jsonable
+
+    screen = configure_text_workflow(controller, ollama_server)
+    assert screen.run_button.isEnabled()
+    screen.run_button.click()
+    finish(controller, qt)
+    first = screen._report["workflow_run"]
+    assert [row["status"] for row in first["rows"]] == ["valid", "valid", "skipped"]
+    assert screen.workflow_review.isVisibleTo(screen) and not screen.workflow_compare.isEnabled()
+    controller.workflow_action("retry", [1])
+    finish(controller, qt)
+    assert screen._report["workflow_run"]["parent_run_id"] == first["run_id"]
+    assert len(screen._report["workflow_history"]) == 2 and screen.workflow_compare.isEnabled()
+    controller.workflow_action("compare", None)
+    finish(controller, qt)
+    assert len(screen._report["plots"]) == 6
+    assert screen._report["tables"][0]["title"].startswith("Saved run comparison")
+    assert "Compared 2 saved runs" in screen.status.text()
+    export = tmp_path / "club.json"
+    controller.workflow_action("export", str(export))
+    finish(controller, qt)
+    assert json.loads(export.read_text(encoding="utf-8"))["run"] == screen._report["workflow_run"]
+    report = to_jsonable(screen._report)
+    path = tmp_path / "club.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    ollama_server.state["status"] = 500
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    screen = controller.screen
+    assert screen._report == report
+    assert screen.param_widgets["template"].toPlainText() == "Read {{text}}"
+    assert len(screen._report["workflow_history"]) == 2
+    screen.param_widgets["template"].setPlainText("Changed {{text}}")
+    controller.workflow_action("derive", None)
+    assert "Settings changed" in screen.status.text()
+    screen.param_widgets["template"].setPlainText("Read {{text}}")
+    controller.workflow_action("derive", None)
+    finish(controller, qt)
+    assert controller.imported[0].df.index.tolist() == [8, 8, 3]
+    assert controller.imported[0].df.score.iloc[:2].tolist() == [2.5, 2.5]
+    assert controller.imported[0].df.score.iloc[2:].isna().all()
+    assert "score" not in screen.dataset.df
+    controller.show_front_page()
+    open_recipe(controller, "linear-regression")
+    assert "score" in controller.screen.dataset.df
+    assert controller.screen.source["kind"] == "llm_derived"
+    controller.show_front_page()
+    open_recipe(controller, "llm")
+    assert controller.screen._report["workflow_run"] == report["workflow_run"]
+    assert "score" not in controller.screen.dataset.df
+
+
+def test_text_workflow_unrun_settings_restore_and_legacy_migration(controller, qt, ollama_server, tmp_path):
+    from copy import deepcopy
+
+    from gui.screens.llm import WORKFLOW_DEFAULTS
+
+    screen = configure_text_workflow(controller, ollama_server)
+    screen.run_button.click()
+    finish(controller, qt)
+    screen.param_widgets["template"].setPlainText("Unrun {{text}}")
+    path = tmp_path / "unrun.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    assert controller.screen.param_widgets["template"].toPlainText() == "Unrun {{text}}"
+    assert "Settings changed" in controller.screen.result_state.text()
+    state = deepcopy(controller.screen.session_state())
+    for values in (state["params"], state["request"]["params"], state["report_request"]["params"]):
+        for key in WORKFLOW_DEFAULTS:
+            values.pop(key)
+    migrated = controller.screen.prepare_session(state)
+    assert migrated["params"]["workflow"] == "generate"
+    controller.screen.validate_session(migrated)
+
+
+@pytest.mark.parametrize("task,field", [("extract", "topic"), ("summarize", "summary"),
+                                       ("rewrite", "rewritten"), ("classify", "sentiment")])
+def test_text_workflow_presets_bind_selected_columns(controller, ollama_server, task, field):
+    from mlcookbook.llm_workflow import parse_fields
+
+    screen = configure_text_workflow(controller, ollama_server)
+    screen.param_widgets["workflow"].setCurrentIndex(screen.param_widgets["workflow"].findData(task))
+    screen.preset_button.click()
+    assert "{{text}}" in screen.param_widgets["template"].toPlainText()
+    assert parse_fields(screen.param_widgets["field_spec"].toPlainText())[0]["name"] == field
+    assert screen.param_rows["prompt"][1].isHidden()
+    screen.param_widgets["backend"].setCurrentIndex(0)
+    assert not screen.run_button.isEnabled()
+    assert "Ollama or llama.cpp" in screen._problem()
+
+
 def open_recipe(controller, key):
     controller.open_recipe(next(r for r in RECIPES if r.key == key))
     finish(controller, QApplication.instance())
@@ -245,6 +363,262 @@ def test_llm_cancel_keeps_previous_report(controller, qt, tiny_llm, monkeypatch)
     assert screen.cancel_button.isHidden()
     assert screen.session_state()["report"] == previous
     assert screen.run_button.isEnabled()
+
+
+def setup_ollama(controller, qt, server):
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["backend"].setCurrentIndex(1)
+    screen.param_widgets["ollama_url"].setText(server.base_url)
+    assert screen.param_widgets["model_path"].isHidden()
+    assert not screen.param_widgets["ollama_model"].isHidden()
+    assert not server.requests  # Selecting an engine never contacts a server.
+    screen.connection_button.click()
+    finish(controller, qt)
+    assert screen.param_widgets["ollama_model"].currentText() == "test:tiny"
+    assert "test-0.40" in screen.connection_status.text()
+    assert "4,096 tokens" in screen.connection_status.text()
+    assert screen.run_button.isEnabled()
+    return screen
+
+
+def test_ollama_app_save_reopen_offline_and_failed_rerun(controller, qt, ollama_server, tmp_path, monkeypatch):
+    import mlcookbook.ollama as ollama
+    from mlcookbook.core.results import to_jsonable
+    from mlcookbook.experiments import load_experiment
+
+    screen = setup_ollama(controller, qt, ollama_server)
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = to_jsonable(screen.session_state()["report"])
+    assert previous["generation"]["backend"] == "ollama"
+    assert previous["generation"]["outputs"][0]["text"] == "Hi 🌍"
+    assert "torch" not in previous["provenance"]["versions"]
+    assert screen.preview_box.isHidden()
+    screen.param_widgets["prompt"].setPlainText("An unrun edit")
+    path = tmp_path / "ollama.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    assert "torch" not in load_experiment(path).versions
+    controller.show_front_page()
+
+    def unavailable(*args, **kwargs):
+        raise ConnectionError("Ollama is not running")
+
+    monkeypatch.setattr(ollama, "ollama_models", unavailable)
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    screen = controller.screen
+    assert screen.session_state()["report"] == previous
+    assert screen.request()["params"]["prompt"] == "An unrun edit"
+    assert screen.param_widgets["ollama_model"].currentText() == "test:tiny"
+    assert "previous result" in screen.result_state.text()
+    assert "Results restored" in screen.status.text()
+    screen.run_button.click()
+    finish(controller, qt)
+    assert "not running" in screen.status.text()
+    assert screen.session_state()["report"] == previous
+
+
+@pytest.mark.parametrize("after_preview", [False, True])
+def test_ollama_app_cancel_discards_preview_keeps_report(controller, qt, ollama_server, after_preview):
+    screen = setup_ollama(controller, qt, ollama_server)
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = screen.session_state()
+    ollama_server.started.clear()
+    ollama_server.state["hold_after_preview" if after_preview else "hold"] = True
+    screen.param_widgets["prompt"].setPlainText("new prompt")
+    screen.run_button.click()
+    assert ollama_server.started.wait(3)
+    if after_preview:
+        deadline = time.monotonic() + 3
+        while screen.preview_box.isHidden() and time.monotonic() < deadline:
+            qt.processEvents()
+            time.sleep(0.005)
+        assert screen.preview_text.toPlainText() == "Hi 🌍"
+        assert "not a completed result" in screen.preview_label.text()
+    assert screen.session_state()["report"] == previous["report"]
+    screen.cancel_button.click()
+    finish(controller, qt)
+    assert "cancelled" in screen.status.text()
+    assert screen.preview_box.isHidden() and not screen.preview_text.toPlainText()
+    assert screen.session_state()["report"] == previous["report"]
+    assert screen.session_state()["report_request"] == previous["report_request"]
+    assert screen.run_button.isEnabled()
+
+
+def test_ollama_app_rows_and_incomplete_stream_recovery(controller, qt, ollama_server):
+    import pandas as pd
+
+    screen = setup_ollama(controller, qt, ollama_server)
+    use_frame(controller, pd.DataFrame({"question": ["one", None, "two"]}))
+    screen.param_widgets["input_mode"].setCurrentIndex(1)
+    screen.param_widgets["max_rows"].setValue(2)
+    screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = screen.session_state()["report"]
+    assert [output["row_position"] for output in previous["generation"]["outputs"]] == [0, 2]
+    ollama_server.state["raw_stream"] = b'{"message":{"content":"partial"}}\n'
+    screen.run_button.click()
+    finish(controller, qt)
+    assert "without a completed response" in screen._status_message
+    assert screen.session_state()["report"] == previous
+    assert screen.preview_box.isHidden()
+
+
+def test_llm_legacy_experiment_migrates_without_loading(controller, qt, tmp_path, monkeypatch):
+    import mlcookbook.llm as llm
+    from gui.screens.llm import NEW_DEFAULTS
+    from mlcookbook.experiments import save_experiment
+
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["model_path"].setText("old/model/folder")
+    screen.show_report({"summary": "Previously generated text"})
+    screen.param_widgets["prompt"].setPlainText("An unrun edit")
+    state = screen.session_state()
+    for values in (state["params"], state["request"]["params"], state["report_request"]["params"]):
+        for key in NEW_DEFAULTS:
+            values.pop(key)
+    path = tmp_path / "legacy.mlcb"
+    save_experiment(path, screen.dataset, recipe="llm", name="legacy", state=state)
+    monkeypatch.setattr(llm, "_load_model", lambda *args: pytest.fail("Reopen must not load weights"))
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    screen = controller.screen
+    assert screen.request()["params"]["backend"] == "pytorch"
+    assert screen.request()["params"]["model_path"] == "old/model/folder"
+    assert screen.request()["params"]["prompt"] == "An unrun edit"
+    assert screen.session_state()["report"] == state["report"]
+    assert "previous result" in screen.result_state.text()
+
+
+def setup_llamacpp(controller, qt, server):
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["backend"].setCurrentIndex(2)
+    screen.param_widgets["llamacpp_url"].setText(server.base_url)
+    assert not server.requests
+    for key in ("model_path", "context_tokens", "thinking", "prompt_format"):
+        assert screen.param_widgets[key].isHidden()
+    assert not screen.param_widgets["gguf_path"].isHidden()
+    screen.connection_button.click()
+    finish(controller, qt)
+    return screen
+
+
+def test_llamacpp_app_save_restore_unrun_edits_and_no_server(controller, qt, llamacpp_server, tmp_path, monkeypatch):
+    import mlcookbook.llamacpp as cpp
+    from mlcookbook.core.results import to_jsonable
+
+    screen = setup_llamacpp(controller, qt, llamacpp_server)
+    assert screen.param_widgets["llamacpp_model"].currentText() == "test-gguf"
+    assert "b-test" in screen.connection_status.text()
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = to_jsonable(screen.session_state()["report"])
+    assert previous["generation"]["outputs"][0]["text"] == "Hi 🌍"
+    assert "torch" not in previous["provenance"]["versions"]
+    assert "Selected file SHA-256" not in table_texts(screen.report_widget)
+    screen.param_widgets["prompt"].setPlainText("An unrun llama.cpp edit")
+    path = tmp_path / "llamacpp.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    controller.show_front_page()
+
+    def offline(*args, **kwargs):
+        raise ConnectionError("llama-server is not running")
+
+    monkeypatch.setattr(cpp, "llamacpp_models", offline)
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    screen = controller.screen
+    assert screen.request()["params"]["prompt"] == "An unrun llama.cpp edit"
+    assert screen.session_state()["report"] == previous
+    assert "Results restored" in screen.status.text()
+    screen.run_button.click()
+    finish(controller, qt)
+    assert "not running" in screen.status.text()
+    assert screen.session_state()["report"] == previous
+
+
+@pytest.mark.parametrize("after_preview", [False, True])
+def test_llamacpp_app_cancel_preserves_completed_result(controller, qt, llamacpp_server, after_preview):
+    screen = setup_llamacpp(controller, qt, llamacpp_server)
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = screen.session_state()
+    llamacpp_server.started.clear()
+    llamacpp_server.state["hold_after_preview" if after_preview else "hold"] = True
+    screen.param_widgets["prompt"].setPlainText("A new prompt")
+    screen.run_button.click()
+    assert llamacpp_server.started.wait(3)
+    if after_preview:
+        deadline = time.monotonic() + 3
+        while screen.preview_box.isHidden() and time.monotonic() < deadline:
+            qt.processEvents()
+            time.sleep(0.005)
+        assert "Hi 🌍" in screen.preview_text.toPlainText()
+        assert "A thought" in screen.preview_text.toPlainText()
+    assert screen.session_state()["report"] == previous["report"]
+    screen.cancel_button.click()
+    finish(controller, qt)
+    assert "cancelled" in screen.status.text()
+    assert screen.session_state()["report"] == previous["report"]
+    assert screen.session_state()["report_request"] == previous["report_request"]
+    assert screen.preview_box.isHidden()
+    assert screen.run_button.isEnabled()
+
+
+def test_llamacpp_app_loading_rows_and_broken_stream(controller, qt, llamacpp_server):
+    import pandas as pd
+
+    llamacpp_server.state["loading"] = True
+    screen = setup_llamacpp(controller, qt, llamacpp_server)
+    assert "loading" in screen.status.text() and not screen.run_button.isEnabled()
+    llamacpp_server.state["loading"] = False
+    screen.connection_button.click()
+    finish(controller, qt)
+    assert screen.run_button.isEnabled()
+    use_frame(controller, pd.DataFrame({"text": ["one", None, "two"]}))
+    screen.param_widgets["input_mode"].setCurrentIndex(1)
+    screen.param_widgets["max_rows"].setValue(2)
+    screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    screen.run_button.click()
+    finish(controller, qt)
+    previous = screen.session_state()["report"]
+    assert [output["row_position"] for output in previous["generation"]["outputs"]] == [0, 2]
+    llamacpp_server.state["raw_stream"] = b'data: {"choices":[]}\n\n'
+    screen.run_button.click()
+    finish(controller, qt)
+    assert "without a completed response" in screen._status_message
+    assert screen.session_state()["report"] == previous
+
+
+def test_llm_legacy_ollama_state_migrates_without_contacting_server(controller, qt, tmp_path, monkeypatch):
+    import mlcookbook.ollama as ollama
+    from gui.screens.llm import LLAMACPP_DEFAULTS
+    from mlcookbook.experiments import save_experiment
+
+    open_recipe(controller, "llm")
+    screen = controller.screen
+    screen.param_widgets["backend"].setCurrentIndex(1)
+    screen.param_widgets["ollama_model"].setEditText("old-local-model")
+    screen.show_report({"summary": "Saved Ollama result"})
+    state = screen.session_state()
+    for values in (state["params"], state["request"]["params"], state["report_request"]["params"]):
+        for key in LLAMACPP_DEFAULTS:
+            values.pop(key)
+    path = tmp_path / "old-ollama.mlcb"
+    save_experiment(path, screen.dataset, recipe="llm", name="old-ollama", state=state)
+    monkeypatch.setattr(ollama, "ollama_models", lambda *args, **kwargs: pytest.fail("Reopening must not contact a server"))
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    assert controller.screen.request()["params"]["backend"] == "ollama"
+    assert controller.screen.request()["params"]["ollama_model"] == "old-local-model"
+    assert controller.screen.session_state()["report"] == state["report"]
 
 
 def table_texts(widget):
