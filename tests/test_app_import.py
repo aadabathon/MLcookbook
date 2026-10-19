@@ -1,6 +1,7 @@
 ﻿"""Integration checks for the desktop import and background analysis flow."""
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -543,3 +544,176 @@ def test_navigation_restores_regression_task_and_role_overrides(controller, qt, 
     assert controller.screen.current_task() == "regression"
     assert controller.screen.positive.isHidden()
     assert "match current settings" in controller.screen.result_state.text()
+
+
+@pytest.mark.parametrize("key", list(app.SCREEN_FACTORIES))
+def test_experiment_reopens_in_new_app_without_training(controller, qt, tmp_path, monkeypatch, key):
+    from mlcookbook.core.results import to_jsonable
+
+    open_recipe(controller, key)
+    screen = controller.screen
+    screen.sections["import"].setChecked(True)
+    screen.markers.setText("?, -999")
+    if screen.preprocessing is not None:
+        screen.set_preprocessing(dict(screen.preprocessing, scaling="robust"), 3)
+    previous = to_jsonable(screen.session_state())
+    path = tmp_path / f"{key}.mlcb"
+    controller.save_experiment(str(path))
+    assert not controller.window.open_experiment_button.isEnabled()
+    assert not controller.window.save_experiment_button.isEnabled()
+    finish(controller, qt)
+    assert path.exists() and "Saved" in screen.status.text()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Opening a saved experiment must not train")
+
+    monkeypatch.setattr(app, "_run_report", unexpected)
+    reopened = app.MLCookbookApp()
+    try:
+        reopened.open_experiment(str(path))
+        finish(reopened, qt)
+        assert reopened.key == key
+        restored = to_jsonable(reopened.screen.session_state())
+        for field in ("request", "report", "report_request", "params", "markers", "sections", "is_example"):
+            assert restored[field] == previous[field]
+        assert reopened.screen.dataset.df.equals(screen.dataset.df)
+        assert reopened.window.save_experiment_button.isEnabled()
+        if screen.preprocessing is not None:
+            assert "previous result" in reopened.screen.result_state.text()
+    finally:
+        reopened.wait_for_job()
+        qt.processEvents()
+        reopened.window.close()
+        reopened.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_saved_import_is_independent_of_original_file_and_reruns(controller, qt, tmp_path, linear_df):
+    from mlcookbook.experiments import load_experiment
+
+    path = tmp_path / "study.csv"
+    linear_df.to_csv(path, sep=";", index=False)
+    open_recipe(controller, "model-comparison")
+    controller.load_file(str(path), ";", "utf-8-sig", "?")
+    finish(controller, qt)
+    screen = controller.screen
+    screen.target.setCurrentIndex(screen.target.findData("y"))
+    screen.param_widgets["n_estimators"].setValue(10)
+    screen.param_widgets["random_state"].setValue(17)
+    screen.set_preprocessing(dict(screen.preprocessing, scaling="robust"), 3)
+    screen.run_button.click()
+    finish(controller, qt)
+    result = screen.session_state()["report"]["comparison"]
+    saved = tmp_path / "study.mlcb"
+    controller.save_experiment(str(saved))
+    finish(controller, qt)
+    assert load_experiment(saved).source["delimiter"] == ";"
+    assert load_experiment(saved).source["missing_markers"] == ["?"]
+    path.unlink()
+    controller.show_front_page()
+    controller.open_experiment(str(saved))
+    finish(controller, qt)
+    controller.screen.run_button.click()
+    finish(controller, qt)
+    assert controller.screen.session_state()["report"]["comparison"] == result
+    controller.show_front_page()
+    open_recipe(controller, "linear-regression")
+    assert controller.screen.dataset_name == "study.csv"
+    assert controller.screen.source["delimiter"] == ";"
+    assert not controller.screen.session_state()["report"]
+
+
+@pytest.mark.parametrize("kind", ["corrupt", "recipe", "settings", "report"])
+def test_failed_experiment_open_preserves_current_work(controller, qt, tmp_path, kind):
+    from mlcookbook.experiments import save_experiment
+
+    open_recipe(controller, "linear-regression")
+    screen = controller.screen
+    before = deepcopy(screen.session_state())
+    path = tmp_path / "broken.mlcb"
+    if kind == "corrupt":
+        path.write_bytes(b"damaged archive")
+    else:
+        state = deepcopy(before)
+        if kind == "settings":
+            state["params"]["alpha"] = -100
+        if kind == "report":
+            state["report"]["metric_groups"] = [None]
+        save_experiment(path, screen.dataset, recipe="unknown" if kind == "recipe" else "linear-regression",
+                        name="broken", state=state)
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    assert controller.screen is screen
+    assert screen.request() == before["request"]
+    assert screen.session_state()["report"] == before["report"]
+    assert "Unable to complete" in screen.status.text()
+    assert controller.window.open_experiment_button.isEnabled()
+
+
+def test_empty_experiment_and_failed_open_from_home(controller, qt, tmp_path, linear_df):
+    controller.open_experiment(str(tmp_path / "missing.mlcb"))
+    finish(controller, qt)
+    assert controller.screen is None
+    assert "Unable to complete" in controller.window.statusBar().currentMessage()
+    open_recipe(controller, "model-comparison")
+    use_frame(controller, linear_df)
+    assert controller.screen.request()["target"] is None
+    path = tmp_path / "unrun.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    controller.show_front_page()
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    assert controller.screen.request()["target"] is None
+    assert not controller.screen.session_state()["report"]
+    assert not controller.screen.run_button.isEnabled()
+
+
+def test_comparison_requires_cv_and_shows_shared_split(controller, qt):
+    open_recipe(controller, "model-comparison")
+    screen = controller.screen
+    report = screen.session_state()["report"]
+    assert "Shared split" in report["settings"]
+    assert "selected before test evaluation" in report["summary"]
+    assert len(report["comparison"]["candidates"]) == 2
+    screen.set_preprocessing(screen.preprocessing, 0)
+    assert not screen.run_button.isEnabled()
+    assert "needs cross-validation" in screen.status.text()
+
+
+def test_experiment_restores_scroll_and_does_not_accumulate_import_notes(controller, qt, tmp_path):
+    from mlcookbook.experiments import load_experiment
+
+    open_recipe(controller, "model-comparison")
+    controller.window.resize(1280, 860)
+    controller.window.show()
+    controller.screen.sections["settings"].setChecked(True)
+    qt.processEvents()
+    controller.screen.form_panel.verticalScrollBar().setValue(100)
+    controller.screen.report_widget.verticalScrollBar().setValue(300)
+    positions = controller.screen.session_state()["scroll"]
+    assert all(positions)
+    path = tmp_path / "comparison.mlcb"
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    notes = load_experiment(path).source["import_notes"]
+    controller.open_experiment(str(path))
+    finish(controller, qt)
+    qt.processEvents()
+    assert controller.screen.session_state()["scroll"] == positions
+    controller.save_experiment(str(path))
+    finish(controller, qt)
+    assert load_experiment(path).source["import_notes"] == notes
+
+
+def test_failed_save_preserves_current_report_and_reenables_actions(controller, qt, tmp_path):
+    open_recipe(controller, "linear-regression")
+    screen = controller.screen
+    before = deepcopy(screen.session_state())
+    controller.save_experiment(str(tmp_path / "missing-folder" / "analysis.mlcb"))
+    finish(controller, qt)
+    assert controller.screen is screen
+    assert screen.request() == before["request"]
+    assert screen.session_state()["report"] == before["report"]
+    assert "Unable to complete" in screen.status.text()
+    assert controller.window.save_experiment_button.isEnabled()

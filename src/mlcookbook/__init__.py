@@ -14,6 +14,9 @@ Public API:
     # unsupervised learning
     kmeans, pca
 
+    # shared-fold regression comparison
+    compare_regressors
+
 Everything else lives in submodules (mlcookbook.preprocessing,
 mlcookbook.evaluation, ...) and is imported explicitly.
 """
@@ -24,6 +27,7 @@ from mlcookbook.classification.neural_network import NeuralNetworkResult, neural
 from mlcookbook.classification.svm import SVMResult, svm
 from mlcookbook.classification.tree import DecisionTreeResult, decision_tree
 from mlcookbook.clustering.kmeans import KMeansResult, kmeans
+from mlcookbook.comparison import RegressionComparisonResult, compare_regressors
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.schema import VarType
 from mlcookbook.dimensionality.pca import PCAResult, pca
@@ -39,7 +43,7 @@ from mlcookbook.statistics.categorical import ChiSquareResult, chi_square
 from mlcookbook.statistics.groups import AnovaResult, anova
 from mlcookbook.statistics.scan import AssociationScanResult, association_scan
 
-__version__ = "0.3.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "AnovaResult",
@@ -58,6 +62,7 @@ __all__ = [
     "RandomForestRegressionResult",
     "RandomForestResult",
     "RegressionTreeResult",
+    "RegressionComparisonResult",
     "SVMRegressionResult",
     "SVMResult",
     "VarType",
@@ -65,6 +70,7 @@ __all__ = [
     "association_scan",
     "chi_square",
     "correlation",
+    "compare_regressors",
     "decision_tree",
     "decision_tree_regression",
     "kmeans",

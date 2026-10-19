@@ -7,12 +7,16 @@ exist or when to swap them — that is app.py's job.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
 from gui import theme
 
 
 class MainWindow(QMainWindow):
+    experiment_open_requested = Signal(str)
+    experiment_save_requested = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("MLcookbook")
@@ -26,6 +30,28 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._screen: QWidget | None = None
+
+    def set_experiment_actions(self, *, can_save: bool, busy: bool):
+        self.open_experiment_button.setEnabled(not busy)
+        self.save_experiment_button.setEnabled(can_save and not busy)
+
+    def set_status(self, message: str):
+        self.statusBar().showMessage(message)
+        self.statusBar().setToolTip(message)
+        self.statusBar().setVisible(bool(message))
+
+    def _open_experiment(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open experiment", "", "MLcookbook experiments (*.mlcb)")
+        if path:
+            self.experiment_open_requested.emit(path)
+
+    def _save_experiment(self):
+        dialog = QFileDialog(self, "Save experiment (includes a copy of the dataset)",
+                             "experiment.mlcb", "MLcookbook experiments (*.mlcb)")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setDefaultSuffix("mlcb")
+        if dialog.exec():
+            self.experiment_save_requested.emit(dialog.selectedFiles()[0])
 
     def show_screen(self, screen: QWidget) -> None:
         """Replace the current screen (delete-and-redraw)."""
@@ -55,4 +81,12 @@ class MainWindow(QMainWindow):
 
         row.addLayout(wordmark)
         row.addStretch()
+        self.open_experiment_button = QPushButton("Open experiment…")
+        self.open_experiment_button.clicked.connect(self._open_experiment)
+        self.save_experiment_button = QPushButton("Save experiment…")
+        self.save_experiment_button.setToolTip("Save this recipe's settings, last report, and a copy of the dataset.")
+        self.save_experiment_button.clicked.connect(self._save_experiment)
+        self.save_experiment_button.setEnabled(False)
+        row.addWidget(self.open_experiment_button)
+        row.addWidget(self.save_experiment_button)
         return header

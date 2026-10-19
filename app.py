@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import inspect
 import sys
+from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
@@ -42,6 +44,7 @@ from gui.screens.decision_tree import DecisionTreeScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
 from gui.screens.logistic_regression import LogisticRegressionScreen
+from gui.screens.model_comparison import ModelComparisonScreen
 from gui.screens.neural_network import NeuralNetworkScreen
 from gui.screens.pca import PCAScreen
 from gui.screens.random_forest import RandomForestScreen
@@ -90,6 +93,7 @@ def _wine_labeled_frame():
 
 # key -> (frame factory, display name, target, positive class)
 DEMOS = {
+    "model-comparison": (_diabetes_frame, "Diabetes", "progression", None),
     "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
     "logistic-regression": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
     "decision-tree": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
@@ -806,7 +810,43 @@ def _neural_network_report(dataset, request, name) -> dict:
     }
 
 
+def _comparison_report(dataset, request, name):
+    from mlcookbook.comparison import compare_regressors
+
+    result = compare_regressors(dataset, target=request["target"], features=request["features"],
+                                preprocessing=_config(request), cv_folds=request["cv_folds"],
+                                **request["params"])
+    names = {"ridge": "Ridge", "random_forest": "Random forest"}
+    chosen = names[result.selected_model]
+    return {
+        **_base(result, dataset, name, f"Shared split · seed {result.random_state} · "
+                f"{len(result.train_rows)} train / {len(result.test_rows)} test rows · {len(result.folds)} CV folds"),
+        "summary": f"{chosen} had the lowest mean training-CV RMSE and was selected before test evaluation. "
+                   "Both candidates use identical folds and preprocessing choices.",
+        "plots": [{"title": "Model comparison · training cross-validation", "x_label": "fold", "y_label": "RMSE (lower is better)",
+                   "series": [{"kind": "line", "color": color, "label": names[candidate.model],
+                               "points": [(fold.fold, fold.scores["rmse"]) for fold in candidate.cross_validation.folds]}
+                              for candidate, color in zip(result.candidates, ("accent", "alt"))]},
+                  _actual_vs_predicted(result)],
+        "metric_groups": [_regression_group(f"{chosen} · final test set", result.test_metrics),
+                          _regression_group(f"{chosen} · training set", result.train_metrics)],
+        "tables": [{"title": "Select by cross-validation · mean ± sample SD", "headers": ["MODEL", "RMSE", "MAE", "R²"],
+                    "rows": [[names[c.model] + (" · selected" if c.model == result.selected_model else ""),
+                              *[f"{_num(c.cross_validation.mean[m])} ± {_num(c.cross_validation.std[m])}"
+                                for m in ("rmse", "mae", "r2")]] for c in result.candidates]},
+                   {"title": "Candidate settings", "headers": ["MODEL", "SETTINGS"],
+                    "rows": [["Ridge", f"Penalty strength: {request['params']['alpha']:g}"],
+                             ["Random forest", f"{request['params']['n_estimators']} trees · "
+                              f"depth: {request['params']['max_depth'] or 'unlimited'} · "
+                              f"min leaf: {request['params']['min_samples_leaf']}"]]},
+                   _preprocessing_table(result.preprocessing)],
+        "warnings": result.warnings,
+        "comparison": result.to_dict(),  # retained in the saved experiment, including exact row/fold membership
+    }
+
+
 REPORT_BUILDERS = {
+    "model-comparison": _comparison_report,
     "linear-regression": _linear_regression_report,
     "logistic-regression": _logistic_regression_report,
     "decision-tree": _decision_tree_report,
@@ -827,6 +867,7 @@ REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest"
 def _screens():
     from mlcookbook import (
         association_scan,
+        compare_regressors,
         decision_tree,
         kmeans,
         linear_regression,
@@ -838,6 +879,7 @@ def _screens():
     )
 
     return {
+        "model-comparison": (compare_regressors, ModelComparisonScreen),
         "linear-regression": (linear_regression, LinearRegressionScreen),
         "logistic-regression": (logistic_regression, LogisticRegressionScreen),
         "decision-tree": (decision_tree, DecisionTreeScreen),
@@ -868,8 +910,9 @@ def _default_screen(key, demo=True):
         screen.positive.setCurrentText(positive)
     screen.dataset = dataset
     screen.dataset_name = name
+    screen.source = {"kind": "demo", "recipe": key}
     if demo:
-        screen.show_report(REPORT_BUILDERS[key](dataset, screen.request(), name))
+        screen.show_report(_run_report(key, dataset, name, screen.request()))
     screen.set_status("Built-in example. Open your own file or adjust the selections and run.")
     return screen
 
@@ -916,6 +959,7 @@ def _run_report(key, dataset, name, request):
     import pandas as pd
 
     from mlcookbook import Dataset
+    from mlcookbook.experiments import runtime_versions
 
     # Overrides describe roles; they never convert strings into numbers silently.
     for column, role in request["overrides"].items():
@@ -927,7 +971,10 @@ def _run_report(key, dataset, name, request):
         if role == "datetime" and not pd.api.types.is_datetime64_any_dtype(values):
             raise ValueError(f"{column!r} is not stored as dates. ISO-8601 dates (2024-05-31) are parsed on import.")
     configured = Dataset(dataset.df, overrides=request["overrides"])
-    return REPORT_BUILDERS[key](configured, request, name)
+    report = REPORT_BUILDERS[key](configured, request, name)
+    report["provenance"] = {"versions": runtime_versions(), "created_utc": datetime.now(UTC).isoformat(),
+                            "random_state": request.get("params", {}).get("random_state", 0)}
+    return report
 
 
 class _Job(QThread):
@@ -954,6 +1001,8 @@ class MLCookbookApp:
         self.job = None
         self.screen = None
         self.sessions: dict[str, dict] = {}
+        self.window.experiment_open_requested.connect(self.open_experiment)
+        self.window.experiment_save_requested.connect(self.save_experiment)
         QApplication.instance().aboutToQuit.connect(self.wait_for_job)
         self.show_front_page()
 
@@ -969,6 +1018,7 @@ class MLCookbookApp:
         page = FrontPage()
         page.recipe_selected.connect(self.open_recipe)
         self.window.show_screen(page)
+        self.window.set_experiment_actions(can_save=False, busy=False)
 
     def open_recipe(self, recipe: Recipe) -> None:
         if self.job is not None:
@@ -985,40 +1035,125 @@ class MLCookbookApp:
             screen.dataset = saved["dataset"]
             screen.dataset_name = saved["name"]
             screen.set_dataset(saved["view"])
+            screen.source = saved["source"]
         elif self.imported is not None:
             self._display_import(self.imported)
-        screen.back_requested.connect(self.show_front_page)
-        screen.load_requested.connect(self.load_file)
-        screen.run_requested.connect(self.run_analysis)
+        self._connect_screen(screen)
         self.window.show_screen(screen)
         if saved is not None:
             screen.restore_session(saved["state"])
         elif self.imported is None:
             self.run_analysis(screen.request())
 
+    def _connect_screen(self, screen):
+        screen.back_requested.connect(self.show_front_page)
+        screen.load_requested.connect(self.load_file)
+        screen.run_requested.connect(self.run_analysis)
+        self.window.set_experiment_actions(can_save=True, busy=self.job is not None)
+        self.window.set_status("")
+
     def _remember_screen(self):
         if self.screen is not None:
             self.sessions[self.key] = {
                 "dataset": self.screen.dataset, "name": self.screen.dataset_name,
                 "view": self.screen.view, "state": self.screen.session_state(),
+                "source": deepcopy(self.screen.source),
             }
 
     def _start_job(self, operation, accept, message):
         if self.job is not None:
             return
         screen = self.screen
-        screen.set_busy(True)
-        screen.set_status(message)
+        if screen is not None:
+            screen.set_busy(True)
+        else:
+            self.window._screen.setEnabled(False)
+        self._set_status(message)
+        self.window.set_experiment_actions(can_save=screen is not None, busy=True)
+
+        def accepted(value):
+            try:
+                accept(value)
+            except Exception as exc:
+                self._set_status("Unable to complete: " + (str(exc) or type(exc).__name__))
+
         self.job = _Job(operation)
-        self.job.succeeded.connect(accept)
-        self.job.failed.connect(lambda error: screen.set_status("Unable to complete: " + error))
+        self.job.succeeded.connect(accepted)
+        self.job.failed.connect(lambda error: self._set_status("Unable to complete: " + error))
         self.job.finished.connect(self._job_finished)
         self.job.start()
 
     def _job_finished(self):
-        self.screen.set_busy(False)
+        if self.screen is not None:
+            self.screen.set_busy(False)
+        self.window._screen.setEnabled(True)
+        self.window.set_experiment_actions(can_save=self.screen is not None, busy=False)
         self.job.deleteLater()
         self.job = None
+
+    def _set_status(self, message):
+        if self.screen is not None:
+            self.screen.set_status(message)
+        else:
+            self.window.set_status(message)
+
+    def save_experiment(self, path):
+        from mlcookbook.experiments import save_experiment
+
+        if self.screen is None or self.job is not None:
+            return
+        screen = self.screen
+        state = screen.session_state()
+        source = deepcopy(screen.source)
+        source.setdefault("import_notes", list(screen.view.get("notes", [])))
+        self._start_job(lambda: save_experiment(path, screen.dataset, recipe=self.key,
+                                               name=screen.dataset_name, state=state, source=source),
+                        lambda _: self._set_status(f"Saved {Path(path).name} · includes dataset, settings, and last report."),
+                        "Saving experiment…")
+
+    def open_experiment(self, path):
+        from mlcookbook.experiments import load_experiment
+
+        def read():
+            loaded = load_experiment(path)
+            view = _dataset_view(loaded.dataset, loaded.name)
+            view["source"] = deepcopy(loaded.source)
+            view["notes"] = list(loaded.source.get("import_notes", []))
+            view["notes"] += loaded.warnings
+            view["notes"].append(f"Saved dataset snapshot · SHA-256 {loaded.fingerprint}")
+            return loaded, view
+
+        self._start_job(read, self._use_experiment, "Opening experiment…")
+
+    def _use_experiment(self, opened):
+        loaded, view = opened
+        factory = SCREEN_FACTORIES.get(loaded.recipe)
+        if factory is None:
+            raise ValueError(f"Unknown experiment recipe: {loaded.recipe!r}.")
+        screen = factory(demo=False)
+        try:
+            screen.dataset, screen.dataset_name = loaded.dataset, loaded.name
+            screen.source = loaded.source
+            screen.set_dataset(view)
+            screen.validate_session(loaded.state)
+            screen.restore_session(loaded.state)
+            if screen.request() != loaded.state["request"]:
+                raise ValueError("Saved selections cannot be restored exactly with this recipe.")
+        except Exception:
+            screen.deleteLater()
+            raise
+        # Commit navigation only after the entire snapshot has been read and validated.
+        self.sessions.clear()
+        self.imported = (loaded.dataset, loaded.name, view)
+        self.screen, self.key = screen, loaded.recipe
+        self._connect_screen(screen)
+        self.window.show_screen(screen)
+        screen.restore_session(loaded.state)  # scroll positions require the attached layout
+        message = f"Opened {loaded.name} from its saved snapshot. Results restored without retraining."
+        if loaded.warnings:
+            message += " Package versions differ; see Data checks before rerunning."
+        screen.set_status(message)
+        self.window.set_status("")
 
     def load_file(self, path, delimiter, encoding, markers=""):
         from mlcookbook.io import load_dataset_with_report
@@ -1028,7 +1163,11 @@ class MLCookbookApp:
         def read():
             dataset, report = load_dataset_with_report(path, delimiter=delimiter, encoding=encoding,
                                                        missing_markers=missing_markers)
-            return dataset, Path(path).name, _dataset_view(dataset, Path(path).name, report)
+            view = _dataset_view(dataset, Path(path).name, report)
+            view["source"] = {"kind": "file", "path": str(Path(path).resolve()), "delimiter": delimiter,
+                              "encoding": encoding, "missing_markers": missing_markers,
+                              "parse_dates": True, "keep_leading_zeros": True}
+            return dataset, Path(path).name, view
         self._start_job(read, self._use_import, "Loading file...")
 
     def _use_import(self, loaded):
@@ -1040,6 +1179,7 @@ class MLCookbookApp:
     def _display_import(self, loaded):
         dataset, name, view = loaded
         self.screen.is_example = False
+        self.screen.source = deepcopy(view.get("source", {"kind": "snapshot"}))
         self.screen.dataset = dataset
         self.screen.dataset_name = name
         self.screen.set_dataset(view)

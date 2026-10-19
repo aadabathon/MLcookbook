@@ -26,6 +26,11 @@ class Recipe:
 
 RECIPES: list[Recipe] = [
     Recipe(
+        title="Model Comparison",
+        description="Compare ridge and random forest regression on shared folds, with a final held-out evaluation.",
+        icon="⇄", status="Ready", variant="ready", key="model-comparison",
+    ),
+    Recipe(
         title="Linear Regression",
         description="Least squares, ridge, or lasso, with residual checks and cross-validated error.",
         icon="β",  # β

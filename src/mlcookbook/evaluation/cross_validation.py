@@ -66,12 +66,16 @@ def cross_validate_pipeline(
     folds: int = 5,
     random_state: int = 0,
     positive_class: Any = None,
+    *,
+    splits: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> CrossValidationResult:
     """Cross-validate an unfitted sklearn estimator/pipeline on (X, y).
 
     *task* is "regression" (shuffled k-fold; R², RMSE, MAE), "binary"
     (stratified; accuracy, F1 of *positive_class*, ROC AUC) or "multiclass"
     (stratified; accuracy, macro F1, one-vs-rest macro ROC AUC).
+    *splits* can supply shared, positional train/validation indices for model
+    comparison; indices refer to the provided X/y, never to the test holdout.
     """
     if task not in TASKS:
         raise ValueError(f"task must be one of {list(TASKS)}; got {task!r}.")
@@ -79,7 +83,19 @@ def cross_validate_pipeline(
         raise ValueError(f"Cross-validation needs at least 2 folds; got {folds}.")
     if task == "binary" and positive_class is None:
         raise ValueError("Binary cross-validation needs the positive_class for F1.")
-    if task == "regression":
+    if splits is not None:
+        splitter = list(splits)
+        if len(splitter) != folds:
+            raise ValueError("The supplied splits must match the requested fold count.")
+        for train, validation in splitter:
+            for indices in (train, validation):
+                indices = np.asarray(indices)
+                if (indices.ndim != 1 or len(indices) == 0 or not np.issubdtype(indices.dtype, np.integer)
+                        or indices.min() < 0 or indices.max() >= len(y) or len(np.unique(indices)) != len(indices)):
+                    raise ValueError("CV split indices must be unique positions within X/y.")
+            if np.intersect1d(train, validation).size:
+                raise ValueError("CV training and validation rows must not overlap.")
+    elif task == "regression":
         splitter = KFold(n_splits=folds, shuffle=True, random_state=random_state)
     else:
         splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)

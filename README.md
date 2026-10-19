@@ -65,6 +65,14 @@ Run `python examples/basic_usage.py` for a complete tour.
 
 ## Installation
 
+### Windows desktop download
+
+Download `MLcookbook-v1.0.0-windows-x64.zip` from the [v1.0.0 release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0), extract the entire archive, and open `MLcookbook/MLcookbook.exe`. Keep the adjacent `_internal` folder with the executable. Python is bundled; no separate Python installation is needed.
+
+Start with a built-in demo or import CSV/Parquet data. **Save experiment** writes a `.mlcb` snapshot of the dataset, current recipe settings, and last report; **Open experiment** restores it. See the [release notes](CHANGELOG.md) for the v1 scope.
+
+### From source
+
 Requires Python 3.12+.
 
 ```bash
@@ -140,10 +148,11 @@ Three layers, one seam:
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window, navigation, background jobs, the built-in demo datasets (`DEMOS`), and the report builders (`REPORT_BUILDERS`) that turn core results into plain report dicts.
 
-Nine recipes are ready. Each opens on a built-in scikit-learn dataset, then accepts your own CSV/Parquet file:
+Ten recipes are ready. Each opens on a built-in scikit-learn dataset, then accepts your own CSV/Parquet file:
 
 | Recipe | Demo data | Report |
 |---|---|---|
+| Model Comparison | diabetes | ridge vs random forest regression on identical training folds, selected model's final test metrics, exact row/fold membership saved with the report |
 | Linear Regression | diabetes | actual vs predicted, residual plot, test/train/CV metrics, residual checks, coefficients (OLS, ridge, or lasso) |
 | Logistic Regression | breast cancer | fitted sigmoid (binary) or recall by class (multiclass), metrics, confusion matrix, odds ratios or softmax coefficients |
 | Decision Trees | breast cancer | the drawn tree (colored by class, or by predicted value for regression), depth-vs-overfit curve, importances, rules |
@@ -164,7 +173,7 @@ Reports include a short explanation of the result, followed by the recipe's visu
 4. Expand **Model & validation settings** to adjust model settings (penalty, depth, trees, k, ...) or open **Preprocessing & validation** (imputation, scaling, encoding, rare levels, missing flags, CV folds).
 5. Click **Run Analysis** in the fixed bottom action bar. Progress and errors stay visible while the form and report scroll. Import and training run in background threads; reports show the dataset, target, features, and settings used. A banner marks results from previous settings until you rerun (or revert your changes).
 
-The loaded dataset stays available when switching recipes. Each recipe remembers its selections, all model parameters, preprocessing, import options, expanded controls, scroll positions, and last report for the session. Returning restores the report without retraining, including any unrun changes and their stale-result banner. A successful file replacement clears all previous recipe sessions; a failed import preserves them. Nothing is saved across app restarts. Failed runs show an error and keep the previous report and the settings that produced it.
+The loaded dataset stays available when switching recipes. Each recipe remembers its selections, all model parameters, preprocessing, import options, expanded controls, scroll positions, and last report for the session. Returning restores the report without retraining, including any unrun changes and their stale-result banner. A successful file replacement clears all previous recipe sessions; a failed import preserves them. Use **Save experiment** to retain the current recipe across app restarts. Failed runs show an error and keep the previous report and the settings that produced it.
 
 **Data checks** remains accessible after a run. **About this recipe** contains the Python callable and signature. Recipe cards support Tab navigation and Enter/Space activation.
 
@@ -183,6 +192,29 @@ report.kept_as_text, report.parsed_dates, report.notes
 Screens share one layout (`gui/screens/report_screen.py`) that renders a plain report dict; visuals are drawn with `QPainter` (`gui/plot.py`, `gui/tree_plot.py`), so there is no plotting dependency. See "Desktop GUI conventions" in `AGENTS.md` for the full contract.
 
 A standalone Windows build (PyInstaller) is produced into `dist/MLcookbook/MLcookbook.exe` — see the packaging notes in ADAM.md.
+
+### Save, reopen, and compare
+
+1. Open **Model Comparison**, import your CSV/Parquet, and select a numeric target and features.
+2. Expand **Model & validation settings** to choose the split/model seed, test fraction, ridge penalty, and forest settings. Choose CV folds and shared preprocessing in **Preprocessing & validation**. Comparison requires CV.
+3. Run. Ridge and random forest use one materialized split and the same training-only folds. Each pipeline fits preprocessing inside each fold. The lowest mean CV RMSE selects the model (ridge wins an exact tie); only the selected model is refitted on all training rows and evaluated on the held-out test rows. Mean ± sample SD and per-fold curves show the variation in validation scores.
+4. Click **Save experiment** in the app header. The `.mlcb` file includes a copy of the full dataset, current controls (including unrun changes), the last completed report and its request, original import options, package versions, run timestamp/seed, and a SHA-256 fingerprint of the data snapshot. Comparison reports also retain the actual train/test row positions and CV folds.
+5. After restarting the app, use **Open experiment** from the header. The report reappears without training. The original CSV/Parquet may have moved or been removed; reopening uses the embedded snapshot. Click **Run Analysis** to rerun with the restored settings. Data checks flag package-version differences because results can vary across versions.
+
+Saving is explicit and captures **one recipe**, not every open recipe session. It also works for all other recipes and for configurations that have not been run yet. Files use a versioned ZIP containing JSON metadata/results and a typed Parquet snapshot; no fitted model objects or executable Python are stored. Saves replace existing files atomically. Failed opens leave your current dataset and report intact. Successfully opening an experiment clears previous in-memory recipe sessions and makes its dataset available to the other recipes. A saved file contains the dataset itself, so its size and contents follow your data.
+
+The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Classification comparison, arbitrary workflow graphs, PyTorch, fitted-model persistence, and CSV result export remain future work.
+
+```python
+from mlcookbook import compare_regressors
+
+comparison = compare_regressors(data, target="y", random_state=17, cv_folds=5)
+comparison.selected_model, comparison.test_metrics
+comparison.train_rows, comparison.test_rows, comparison.folds
+comparison.to_dict()  # JSON-safe, including both candidates' CV metrics
+```
+
+`mlcookbook.comparison` owns shared-fold comparison and its frozen results. `mlcookbook.experiments.save_experiment` / `load_experiment` handle the snapshot format without importing GUI code; the coordinator supplies and restores the plain screen state. The shared CV helper accepts explicit positional splits for comparison and rejects overlapping training/validation rows.
 
 ## Continuous integration
 

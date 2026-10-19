@@ -2,6 +2,26 @@
 
 Personal notes for the author. The scaffold is done — from here on, this project is yours. This file is your map: where things are, how to work, and what to build in what order. Edit it freely; it's a living document.
 
+## v1.0.0 release - 2026-10-19
+
+The first tagged release packages all ten recipes, the usability improvements, saved experiments, and regression model comparison. The package and experiment provenance now report **1.0.0**. [Release notes](CHANGELOG.md) define the scope; the [GitHub release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0) hosts the portable Windows x64 ZIP and its SHA-256 checksum. Extract the entire ZIP and keep `_internal` beside `MLcookbook.exe`. The local shortcut continues to use `dist/MLcookbook/MLcookbook.exe`.
+
+Release verification: **299 tests passed** on Python 3.12 with pandas 2.2.3; Ruff and `examples/basic_usage.py` passed. The preceding milestone also passed the full suite on pandas 3.0.6. GitHub CI checks the release commit on Linux Python 3.12/3.13 and Windows Python 3.12. PyTorch and graph composition remain separate next steps.
+
+## Saved experiments and comparison - 2026-10-17
+
+Implemented at my request: **Save experiment / Open experiment** in the header, plus **Model Comparison** as a tenth recipe. Try the comparison demo, change a setting, save a `.mlcb`, close the app, and reopen it: the prior report and the unrun change return without retraining. The file embeds the full parsed dataset, so it still opens if the original CSV/Parquet moves. Saving is explicit and captures the current recipe only.
+
+For your own regression study: import data, choose a numeric target/features, choose seed/test fraction and model settings, and run. Ridge and random forest receive identical training folds, with preprocessing fitted separately inside each fold. Lowest mean CV RMSE selects the pipeline, which is then refitted on training rows and evaluated on the reserved test rows. The report shows both candidates' CV curves/table and the selected model's test metrics. Change settings using CV; repeatedly consulting the test score weakens its independence.
+
+The core additions are `comparison.py` (plain frozen comparison results, exact source row/fold positions) and `experiments.py` (versioned JSON + Parquet snapshots, fingerprints, package-version notes, atomic writes). Original import options and report run timestamp/seed/versions are retained. Current controls can differ from the saved report's request, and the stale-result banner survives reopening. Opening a valid experiment replaces the active dataset and clears other in-memory recipe sessions; failures preserve your work.
+
+Learning points: shared seeds alone are less auditable than recorded row membership; CV selects a model while the test set estimates its performance; every fold needs a newly fitted preprocessor; repeatability depends on data, settings, and software versions. Experiment files are readable data, not pickled trained models. Classification comparison, result export, fitted-model persistence, graph composition, and PyTorch remain future work. No dependencies were added.
+
+Validation: **299 tests passed** with the installed pandas 2.2.3 and again with isolated pandas 3.0.6 using CI's Qt offscreen mode. Ruff passed. Native Windows renders covered the home page, comparison curves/table, minimum size, reopened unrun changes, and using the saved dataset in another recipe. The final display refinements passed seven focused GUI checks.
+
+The Windows executable was rebuilt with the isolated build `PATH`, verified to contain the current versions of all nine changed application modules, and launch-tested: a responsive Qt window opened and closed normally. No commit was made for this milestone.
+
 ## Quality-of-life update - 2026-10-16
 
 The nine existing recipes now share a fixed Run/status/progress bar, collapsed CSV and model/validation controls, wider column-name space, an About dialog for Python details, and a persistent warning summary. Data checks remain available after a run. Short result explanations use the existing computed metrics; long tables retain all rows in a bounded scroller. Recipe cards work with Tab and Enter/Space.

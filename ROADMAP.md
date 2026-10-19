@@ -23,7 +23,7 @@ Originally features left for hands-on implementation; most were built at Adam's 
 - [x] **PCA workflow** (`dimensionality/pca.py`) with explained variance and loadings.
 - [x] **Residual diagnostics** for regression (`regression/diagnostics.py`).
 - [ ] **Hyperparameter search** (e.g. choose alpha or max_depth by cross-validation, reported as a curve).
-- [ ] **Fair model comparison**: several algorithms on the same split and folds, one comparison table.
+- [x] **Fair model comparison, first scope**: ridge and random forest regression on the same materialized split and training folds, one CV comparison table/curve; select by mean CV RMSE and evaluate only the selected model on the test rows. Exact row/fold membership is retained. Built at Adam's request on 2026-10-17; other algorithms and classification comparison remain future extensions.
 - [x] **SVM and neural-network recipes**: `svm`/`svm_regression` (kernels, support vectors, standardized SVR target) and `neural_network`/`neural_network_regression` (scikit-learn MLP with loss and early-stopping validation curves).
 
 ## Infrastructure
@@ -37,7 +37,8 @@ Originally features left for hands-on implementation; most were built at Adam's 
 - [x] **CI** (GitHub Actions): ruff, library tests on Ubuntu 3.12/3.13, full app suite on Windows.
 - [ ] **mypy** configuration and type-checking in CI.
 - [ ] **Property-based tests** with `hypothesis` for schema inference edge cases.
-- [ ] **Saved analyses and export**: import options, overrides, settings, seed, and a data fingerprint saved per run; metrics and predictions exportable.
+- [x] **Saved experiments**: explicit `.mlcb` save/open for every recipe, with a Parquet dataset snapshot, import options, overrides, current settings, last report/request, run seed/time, versions, and a snapshot fingerprint. Reopening restores without training, including unrun edits. Built at Adam's request on 2026-10-17.
+- [ ] **Result export**: standalone metrics/predictions files and fitted-model persistence. Comparison's complete result is already retained in experiment JSON; the other recipes currently save their display reports.
 
 ## Directions under discussion
 

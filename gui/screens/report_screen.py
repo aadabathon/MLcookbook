@@ -29,6 +29,7 @@ the screen subclass as ``params`` specs, and preprocessing choices.
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -57,7 +58,14 @@ from PySide6.QtWidgets import (
 
 from gui import theme
 from gui.plot import BarList, PlotWidget
-from gui.preprocessing_dialog import DEFAULT_CV_FOLDS, PreprocessingDialog, default_preprocessing, summarize
+from gui.preprocessing_dialog import (
+    CV_OPTIONS,
+    DEFAULT_CV_FOLDS,
+    PREPROCESSING_OPTIONS,
+    PreprocessingDialog,
+    default_preprocessing,
+    summarize,
+)
 from gui.tree_plot import TreeWidget
 
 ROLES = ["numeric", "categorical", "boolean", "datetime", "text", "unsupported"]
@@ -690,6 +698,65 @@ class ReportScreen(QWidget):
         self.set_status(state["status"])
         # Wait for restored content to be laid out; canceled when this screen is deleted.
         QTimer.singleShot(0, self, lambda: self._restore_scroll(state["scroll"]))
+
+    def validate_session(self, state: dict):
+        """Reject incompatible saved controls before changing the current experiment."""
+        def require(condition):
+            if not condition:
+                raise ValueError("Experiment settings are invalid or incompatible with this recipe.")
+
+        def parameters(values, specs):
+            require(isinstance(values, dict) and set(values) == {spec["key"] for spec in specs})
+            for spec in specs:
+                value = values[spec["key"]]
+                if spec["kind"] == "choice":
+                    require(value in [item[1] for item in spec["options"]])
+                elif value is None:
+                    require(bool(spec.get("none_at_min")))
+                else:
+                    require(type(value) in (int, float) and isfinite(value) and spec["min"] <= value <= spec["max"])
+                    if spec["kind"] == "int":
+                        require(type(value) is int)
+
+        def request_valid(request):
+            require(isinstance(request, dict))
+            require(set(request) == set(self.request()))
+            require(request["task"] in (self._tasks or (self._fixed_task,)))
+            names = [column["name"] for column in self._columns]
+            require(request["target"] is None or request["target"] in names)
+            require(isinstance(request["features"], list) and all(isinstance(name, str) for name in request["features"]))
+            require(len(request["features"]) == len(set(request["features"])) and set(request["features"]) <= set(names))
+            require(isinstance(request["overrides"], dict) and set(request["overrides"]) == set(names))
+            require(all(role in ROLES for role in request["overrides"].values()))
+            parameters(request["params"], [spec for spec in self._params
+                                          if request["task"] in spec.get("tasks", (request["task"],))])
+            if self.preprocessing is not None:
+                config = request["preprocessing"]
+                require(isinstance(config, dict) and set(config) == set(self.preprocessing))
+                for key, _, options in PREPROCESSING_OPTIONS:
+                    require(config[key] in [value for _, value in options])
+            else:
+                require(request["preprocessing"] is None)
+            require(request["cv_folds"] in ([value for _, value in CV_OPTIONS] if self.cv_folds is not None else [None]))
+            if request["positive_class"] is not None:
+                column = self._column(request["target"])
+                require(column is not None and request["positive_class"] in column["classes"])
+
+        require(isinstance(state, dict) and set(state) == set(self.session_state()))
+        request_valid(state["request"])
+        parameters(state["params"], self._params)
+        require(isinstance(state["report"], dict))
+        if state["report"]:
+            request_valid(state["report_request"])
+        else:
+            require(state["report_request"] is None)
+        require(isinstance(state["sections"], dict) and set(state["sections"]) == set(self.sections))
+        require(all(type(value) is bool for value in state["sections"].values()))
+        require(type(state["is_example"]) is bool)
+        require(isinstance(state["status"], str) and isinstance(state["markers"], str))
+        require(self.delimiter.findData(state["delimiter"]) >= 0 and self.encoding.findData(state["encoding"]) >= 0)
+        require(isinstance(state["scroll"], (list, tuple)) and len(state["scroll"]) == 2
+                and all(type(value) is int and value >= 0 for value in state["scroll"]))
 
     def _restore_scroll(self, positions):
         self.form_panel.verticalScrollBar().setValue(positions[0])
