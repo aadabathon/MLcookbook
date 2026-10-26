@@ -21,10 +21,10 @@ from PySide6.QtWidgets import (
 from gui.screens.report_screen import ReportScreen
 
 PARAMS = [
-    {"key": "workflow", "label": "Workflow", "kind": "choice",
+    {"key": "workflow", "label": "Workflow", "kind": "choice", "group": "Task",
      "options": [("Free text generation", "generate"), ("Extract fields", "extract"),
                  ("Summarize rows", "summarize"), ("Rewrite rows", "rewrite"), ("Classify rows", "classify")]},
-    {"key": "backend", "label": "Inference engine", "kind": "choice",
+    {"key": "backend", "label": "Inference engine", "kind": "choice", "group": "Local runtime",
      "options": [("PyTorch / Transformers", "pytorch"), ("Ollama", "ollama"), ("llama.cpp server", "llamacpp")]},
     {"key": "ollama_url", "label": "Ollama address", "kind": "text", "value": "http://127.0.0.1:11434",
      "max_length": 2048, "help": "An existing local Ollama server. Only loopback HTTP addresses are accepted."},
@@ -39,7 +39,7 @@ PARAMS = [
              "The hash identifies this file only; its binding to server-loaded weights is unverified."},
     {"key": "model_path", "label": "Model folder", "kind": "path", "value": "", "max_length": 4096,
      "help": "A local Hugging Face folder with config.json, tokenizer files, and safetensors weights."},
-    {"key": "input_mode", "label": "Input", "kind": "choice",
+    {"key": "input_mode", "label": "Input", "kind": "choice", "group": "Input and output",
      "options": [("Typed prompt", "prompt"), ("Dataset rows", "rows")]},
     {"key": "prompt", "label": "Prompt", "kind": "multiline", "max_length": 16000,
      "value": "Explain why preprocessing should be fitted only on training data.",
@@ -56,7 +56,8 @@ PARAMS = [
                            "Reference columns must be excluded from prompt inputs."},
     {"key": "prompt_format", "label": "Prompt format", "kind": "choice",
      "options": [("Auto (use chat template if present)", "auto"), ("Plain text", "plain"), ("Chat template", "chat")]},
-    {"key": "max_new_tokens", "label": "Output token limit", "kind": "int", "min": 1, "max": 512, "value": 128},
+    {"key": "max_new_tokens", "label": "Output token limit", "kind": "int", "min": 1, "max": 512, "value": 128,
+     "group": "Generation controls"},
     {"key": "max_input_tokens", "label": "Input token limit", "kind": "int", "min": 1, "max": 8192, "value": 512},
     {"key": "context_tokens", "label": "Context budget", "kind": "int", "min": 256, "max": 32768, "value": 4096,
      "help": "Requested Ollama context allocation, including input and output. The server manages input truncation."},
@@ -69,7 +70,8 @@ PARAMS = [
      "decimals": 2, "step": 0.05, "help": "Sampling probability mass. Used only when temperature is above zero."},
     {"key": "random_state", "label": "Sampling seed", "kind": "int", "min": 0, "max": 2147483647, "value": 0},
     {"key": "device", "label": "Device", "kind": "choice", "options": [("CPU", "cpu"), ("NVIDIA CUDA", "cuda")]},
-    {"key": "max_rows", "label": "Dataset row limit", "kind": "int", "min": 1, "max": 10, "value": 1},
+    {"key": "max_rows", "label": "Dataset row limit", "kind": "int", "min": 1, "max": 10, "value": 1,
+     "group": "Run limits"},
     {"key": "max_seconds", "label": "Time limit (s)", "kind": "float", "min": 1.0, "max": 120.0,
      "value": 90.0, "decimals": 0, "step": 5.0,
      "help": "Server engines: per-row request deadline, including loading. PyTorch: decoding only, checked between steps."},
@@ -90,7 +92,7 @@ class LLMScreen(ReportScreen):
     def __init__(self, engine, report, parent=None):
         super().__init__("Local LLMs", engine, report, parent, task="unsupervised", params=PARAMS,
                          min_features=0, feature_roles=("text", "categorical"),
-                         cross_validation=False, preprocessing=False, settings_title="Model & generation settings")
+                         cross_validation=False, preprocessing=False, settings_title="Workflow settings")
         self.run_button.setText("Generate text")
         self.workflow_tools = QWidget()
         tools = QVBoxLayout(self.workflow_tools)
@@ -216,7 +218,7 @@ class LLMScreen(ReportScreen):
             return
         structured = self.param_widgets["workflow"].currentData() != "generate"
         rows = structured or self.param_widgets["input_mode"].currentData() == "rows"
-        for widget in (self.columns, self.columns_label, self.columns_help, self.load_button, self.preview_button,
+        for widget in (self.data_heading, self.columns, self.columns_label, self.columns_help, self.load_button, self.preview_button,
                        self.checks_button, self.badge, self.sections["import"].parentWidget()):
             widget.setVisible(rows)
         for widget in self.param_rows["max_rows"]:
@@ -312,7 +314,7 @@ class LLMScreen(ReportScreen):
         super()._update_result_state()
         self._update_workflow_actions()
         if hasattr(self, "result_state") and not self._report:
-            self.result_state.setText("Choose a local model and write a prompt to begin")
+            self.result_state.setText("No completed run")
 
     def _update_run(self):
         super()._update_run()
@@ -326,24 +328,10 @@ class LLMScreen(ReportScreen):
             return super()._build_report(report)
         content = QWidget()
         layout = QVBoxLayout(content)
-        for message in (
-            "Choose a local language model to begin",
-            "1. Choose an engine. For Ollama or llama.cpp, start the local server and click Test / refresh models. "
-            "For PyTorch, choose a Hugging Face safetensors model folder.",
-            "2. Write a prompt, or choose Dataset rows to prepend an instruction to a text column.",
-            "3. Generate text. Your output, prompt, settings, model fingerprint, and runtime versions can be saved as an experiment.",
-            "For data workflows, choose Extract fields, Summarize, Rewrite or Classify. Select input columns, apply a task template, "
-            "and define output roles. Ollama and llama.cpp request structured JSON; review the validated rows before using generated columns.",
-            "PyTorch supports GPT-2, Llama (including SmolLM2), Qwen2, and Qwen3. Ollama uses its installed local models, "
-            "including quantized weights. A model is not bundled or downloaded automatically.",
-            "Server engines manage their own device, context, thinking, and quantization. llama.cpp uses the server's chat template. "
-            "For PyTorch, start with a small model on CPU; "
-            "CUDA requires a compatible PyTorch installation. "
-            "No training or evaluation scores are produced by this recipe.",
-        ):
-            label = QLabel(message)
-            label.setWordWrap(True)
-            layout.addWidget(label)
+        label = QLabel("Completed text, row outcomes and recorded model settings will appear here.")
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(label)
         layout.addStretch()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

@@ -1211,6 +1211,24 @@ def _default_screen(key, demo=True, setup=False):
     func, screen_class = _screens()[key]
     engine = _engine_info(func)
     engine["description"] = next(recipe.description for recipe in RECIPES if recipe.key == key)
+    if key == "model-comparison":
+        engine["evaluation"] = "Shared training folds select a model before its test holdout is evaluated."
+    elif key in ("linear-regression", "logistic-regression", *REGRESSION_TWINS):
+        defaults = inspect.signature(func).parameters
+        engine["evaluation"] = (f"Test holdout: {defaults['test_size'].default:.0%} · "
+                                f"fixed split/model seed {defaults['random_state'].default}.\n"
+                                "Cross-validation uses training rows only.")
+    elif key in ("kmeans", "pca"):
+        engine["evaluation"] = "Fitted on all selected rows; no test holdout or training cross-validation."
+        if key == "kmeans":
+            engine["evaluation"] += f" Fixed clustering seed {inspect.signature(func).parameters['random_state'].default}."
+    elif key == "association-scan":
+        engine["evaluation"] = "Each pair uses its complete rows. Adjusted p-values control the false discovery rate."
+    elif key == "wearable-study":
+        engine["evaluation"] = "Fixed training, validation and test groups. Final-test evaluation must be selected explicitly."
+    else:
+        engine["evaluation"] = ("Generated text is not scored for factual accuracy. Structured tasks check output fields; "
+                                "reference agreement uses available labelled rows.")
     if key in REGRESSION_TWINS:
         engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
                              + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
@@ -1304,6 +1322,10 @@ def _run_report(key, dataset, name, request, *, stop_requested=None, on_progress
     report["provenance"] = {"versions": runtime_versions(include_llm=key == "llm" and request["params"].get("backend", "pytorch") == "pytorch"),
                             "created_utc": datetime.now(UTC).isoformat(),
                             "random_state": request.get("params", {}).get("random_state", 0)}
+    report["run_details"] = [
+        "Created (UTC): " + report["provenance"]["created_utc"],
+        "Runtime: " + " · ".join(f"{package} {version}" for package, version in report["provenance"]["versions"].items()),
+    ]
     return report
 
 

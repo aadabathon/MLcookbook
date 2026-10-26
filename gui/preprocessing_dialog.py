@@ -57,14 +57,19 @@ class PreprocessingDialog(QDialog):
         self.setWindowTitle("Preprocessing & validation")
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
-        note = QLabel("Every step is fitted on training rows only and refitted inside each "
-                      "cross-validation fold, so nothing leaks from the rows used for evaluation.")
+        note = QLabel("Preprocessing is fitted on training rows and refitted within each training fold. "
+                      "The test holdout stays separate." if cv_folds is not None else
+                      "Preprocessing is fitted on all selected rows. This unsupervised analysis describes "
+                      "the supplied dataset; it has no test holdout or training cross-validation.")
         note.setWordWrap(True)
+        note.setObjectName("HelpText")
         layout.addWidget(note)
         form = QFormLayout()
         self.combos: dict[str, QComboBox] = {}
         for key, label, options in PREPROCESSING_OPTIONS:
-            self.combos[key] = self._combo(options, preprocessing.get(key))
+            shown_options = options if cv_folds is not None else [(text.replace("training ", ""), value)
+                                                                 for text, value in options]
+            self.combos[key] = self._combo(shown_options, preprocessing.get(key))
             form.addRow(label, self.combos[key])
         self.cv = None
         if cv_folds is not None:  # unsupervised recipes have no held-out evaluation to cross-validate

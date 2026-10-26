@@ -4,7 +4,7 @@ A hands-on guide to all twelve desktop recipes, including the three Local LLM en
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
-The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. Complete earlier previews are preserved at `dist/ui-stage1/MLcookbook` and `dist/ui-stage2/MLcookbook`, each with its matching runtime. Examples now require an explicit action.
+The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. Complete earlier previews are preserved at `dist/ui-stage1/MLcookbook`, `dist/ui-stage2/MLcookbook` and `dist/ui-stage3/MLcookbook`, each with its matching runtime. Examples require an explicit action.
 
 ## Start with your data
 
@@ -20,7 +20,7 @@ The sidebar's **Active dataset** identifies your ordinary tabular input. The **I
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
 2. Click **Recipes → Linear Regression**. Opening it does not run an analysis. Choose target/features for your imported file and **Run Analysis**, or click **Run example** for the bundled diabetes example predicting `progression`. Example loading and analysis run in the background.
-3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model & validation settings** to try ridge or lasso. Open **Preprocessing & validation...** inside that section to inspect the preprocessing and training-fold settings.
+3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model settings** to try ridge or lasso. **Preprocessing & validation...** stays accessible below model settings; the adjacent summary identifies the test split, seed and training-CV folds.
 4. Change one setting and click **Run Analysis**. Until that succeeds, the result banner identifies the previous result. Editing controls alone does not retrain a model.
 5. Click **Save experiment...** and choose a `.mlcb` file. Return to the recipe list or close the app, then use **Open experiment...** to restore it.
 
@@ -29,6 +29,8 @@ Local LLMs opens a setup screen instead of running a model automatically. Its st
 While viewing an example, **Use my data** restores this recipe's own-data report and unrun choices. The sidebar continues to identify your active file while **Input:** identifies the example. **View example** returns to a cached example without rerunning, including invalid unrun edits you need to repair. Example edits stay with that example; **Run Analysis** reruns it. Switching to Data or another recipe and back restores the last view without retraining. Opening a saved example restores its embedded data/results without replacing an existing ordinary dataset. Empty classical setup screens cannot be saved until a dataset/example is loaded.
 
 An experiment saves one recipe, the full typed dataset snapshot, current controls, and the last completed report with the settings that produced it. It also keeps unrun edits. Reopening does not train, contact an inference server, or reread the original CSV/model files. Model weights and fitted classical estimators are not embedded. A failed run leaves the previous completed report visible.
+
+Use **Recipe reference** for applicability, assumptions, parameter meaning, interpretation and limitations. Expand **Python API** there only when you need the callable signature. Expand **Run details** above a completed report to inspect the input/settings recorded for that result and any available runtime/timestamp details. This temporary disclosure does not alter the experiment. The result banner shows whether that report matches the current controls; the footer shows readiness, progress or errors.
 
 ## Choose a recipe
 

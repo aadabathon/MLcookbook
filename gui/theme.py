@@ -113,7 +113,7 @@ def stylesheet() -> str:
     QPushButton:hover {{ background-color: {CARD_HOVER}; border-color: {TEXT_FAINT}; }}
     QPushButton:focus {{ border-color: {BORDER_ACCENT}; }}
     QPushButton:disabled {{ color: {TEXT_FAINT}; background-color: {SURFACE}; }}
-    QPushButton#SectionToggle {{ text-align: left; color: {TEXT}; }}
+    QPushButton#SectionToggle, QPushButton#RunDetailsToggle {{ text-align: left; color: {TEXT}; }}
     QPushButton#WarningSummary {{
         background-color: {WARNING_BG}; color: {WARNING}; border-color: {WARNING_BORDER}; text-align: left;
     }}

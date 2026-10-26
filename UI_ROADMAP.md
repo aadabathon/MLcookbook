@@ -100,13 +100,17 @@ For a rejected preview, the existing shortcut bundle remains available. Before p
 
 ## 4. Forms, reports and technical reference
 
-- [ ] Organize forms consistently around data/columns, model settings, preprocessing, validation and reproducibility.
-- [ ] Consolidate repeated status text while keeping fixed Run/Cancel/progress controls, stale-result indication and an accessible warning summary.
-- [ ] Retain a short result summary and principal analytical visual. Make metrics, tables, preprocessing and provenance easy to scan/expand. Preserve train/test/CV distinctions and every table row.
-- [ ] Replace API-first About content with concise reference: applicability, assumptions, parameters, metric/plot interpretation and limitations. Put callable signatures in a secondary developer section; avoid permanently displayed lessons.
-- [ ] Carry these rules through Local LLMs and Movement Study. Preserve prompts/identities, requested versus applied settings, row outcomes, reference coverage, split/group lineage and explicit final-test evaluation.
+- [x] Organize forms consistently around data/columns, model settings, preprocessing, validation and reproducibility.
+- [x] Consolidate repeated status text while keeping fixed Run/Cancel/progress controls, stale-result indication and an accessible warning summary.
+- [x] Retain a short result summary and principal analytical visual. Make metrics, tables, preprocessing and provenance easy to scan/expand. Preserve train/test/CV distinctions and every table row.
+- [x] Replace API-first About content with concise reference: applicability, assumptions, parameters, metric/plot interpretation and limitations. Put callable signatures in a secondary developer section; avoid permanently displayed lessons.
+- [x] Carry these rules through Local LLMs and Movement Study. Preserve prompts/identities, requested versus applied settings, row outcomes, reference coverage, split/group lineage and explicit final-test evaluation.
 
 **Acceptance:** inspect regression, binary/multiclass classification, unsupervised analyses, trees, long tables, LLM output and Movement Study. A graduate user can identify data, configuration, evaluation design and result limitations without decoding scattered labels or opening a function signature.
+
+**Source verification — 2026-10-26:** 566 pytest cases passed, Ruff/dependency checks passed; the 60 existing SVC deprecation warnings remain. Native Windows inspection covered 93 states at 100%/125%/150%, with no clipping flags, Qt/Python warnings or forced expansion at 1080×720. Preprocessing/evaluation stays outside collapsed model settings; comparison split/seed controls and fixed defaults are explicit. Unsupervised fitting is labelled as full-data fitting. Run details expansion is temporary and adds no saved-state keys. References match actual screen controls. Existing `.mlcb` states, precise report values, all 500 rows in a long-table case, typed-prompt setup and sealed Movement groups remain covered. New disclosure callbacks use QObject-bound slots after a Windows validation run exposed a native failure during worker garbage collection; focused lifecycle checks and the subsequent full suite passed without a product GC workaround. The 119-file baseline and recovery evidence are under `ui-stage4/`; the accepted complete stage 3 bundle is preserved at `dist/ui-stage3/MLcookbook`.
+
+**Windows delivery:** all 48 checked bundled modules match final source. Native startup/responsiveness/normal close and the exact frozen runtime checks passed, including the new controls/reference, own/example/offline snapshots, a legacy source-free Movement Study with zero evaluations/final test sealed, and 24 tokens from a real offline CPU model. The temporary helper exited normally and was removed. All 6,216 original production files and the complete stage 3 inventory remain unchanged. All 52 protected core/plot/tree files match the baseline. Evidence is in `ui-stage4/packaging-validation.json`; preview SHA-256 `4d0d1200b1e8ed99fc818396cdb19905d99ba22abe269af08b1b22c101172686`. The shortcut and release remain unchanged.
 
 ## 5. Startup and first-use responsiveness
 
@@ -134,6 +138,6 @@ The 2026-10-24 audit used fresh processes without flushing OS caches. Time to th
 
 ## First implementation slice and scope
 
-Stages 0–3 are implemented at Adam's request, with separate source checkpoints and Windows previews. Stage 4's forms/reference organization is the next reviewable slice. Recipe navigation is now setup-only; examples and analyses run explicitly.
+Stages 0–4 are implemented at Adam's request, with separate source checkpoints and Windows previews. Stage 5's startup/first-use profiling is next. Recipe navigation is setup-only; examples and analyses run explicitly. The current forms/reference pass does not implement startup optimization.
 
 This pass adds no new inference engine, graph execution/editor, REST service, mandatory lessons, dependency, alternate entry point, model installation/download, or multi-dataset project format. Preserve statistical/leakage boundaries, typed results, saved experiments and the existing presentation/core separation. Broader additions require a separate explicit request.

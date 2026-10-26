@@ -246,7 +246,8 @@ def test_llm_opens_setup_without_loading_a_model(controller, monkeypatch):
     controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "llm"))
     screen = controller.screen
     assert controller.job is None and not screen.run_button.isEnabled()
-    assert "Choose a local" in labels_text(screen.report_widget)
+    assert "Choose a local" in screen.status.text()
+    assert not screen._report and "No completed run" in screen.result_state.text()
     assert screen.preprocessing is None and screen.cv_folds is None
     assert screen.columns.isHidden()
     screen.param_widgets["input_mode"].setCurrentIndex(1)
@@ -703,7 +704,7 @@ def test_model_settings_and_preprocessing_reach_the_core(controller, qt, logisti
     screen.param_widgets["max_depth"].setValue(2)
     preprocessing = dict(screen.preprocessing, numeric_impute="mean", categorical_encoding="ordinal")
     screen.set_preprocessing(preprocessing, 3)
-    assert "CV 3 folds" in screen.preprocessing_summary.text()
+    assert "3 folds" in screen.evaluation_summary.text()
     screen.run_button.click()
     finish(controller, qt)
     text = labels_text(screen.report_widget)
