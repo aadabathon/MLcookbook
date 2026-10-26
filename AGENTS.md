@@ -74,3 +74,14 @@ This machine is Windows. **Files must be UTF-8** — the original README was UTF
 ## Docs to keep in sync
 
 If you change the public API, architecture, or add a module: update `README.md`. If you complete or obsolete a roadmap item (only when asked): update `ROADMAP.md`.
+
+
+## Movement Study integration — 2026-10-22
+
+Adam explicitly requested native integration with his PSoC wearable project.
+`wearable.py` exposes `load_wearable_study` / `evaluate_wearable` and frozen JSON-safe import/evaluation results, deliberately exported at root. Import reads/hash-checks the same CSV bytes and retains fixed group/session/window/clock lineage as `unsupported` columns in a typed Dataset snapshot. Only the 32/64 known physical-unit summary features are predictors. Whole-group CV refits preprocessing in each fold; model selection uses fixed validation macro F1, and final test evaluation is explicit. No row fallback or serialized fitted model.
+
+`WearableScreen` is a setup-first ReportScreen with explicit study import, sealed-test choice and evaluation export. `app.py` coordinates validation, results, atomic JSON export and saved snapshots. Reopen/rerun requires no original study files; study holdouts are never propagated into other recipes' imported datasets. Ordinary row-wise recipes remain exploratory for motion windows. Synthetic provenance survives saved snapshots and warns in results. The PSoC companion CLI delegates to this same evaluator. No dependency or additional entry point was added. Tests cover checksum/roles/lineage, group/CV isolation, training-only fitting, holdout-independent selection, offline reruns and desktop import/export/save/failure recovery.
+
+
+Direct offline handoff uses the existing `main` entry point: mutually exclusive `--movement-study`, `--study EXPORT_JSON`, `--experiment FILE_MLCB` arguments, with Qt options forwarded. A queued startup action uses the existing coordinator import/open methods and never runs training. Tests cover no-auto-run, sealed defaults, snapshot restoration, invalid-path recovery and argument exclusion. The companion study manifest/launcher remains in the PSoC repos; no runtime dependency on those repos was added to MLcookbook.

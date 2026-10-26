@@ -1,6 +1,6 @@
 # Using ML Cookbook
 
-A hands-on guide to all eleven desktop recipes, including the three Local LLM engines. Start with a built-in demo, then use the same controls with your own data. The examples below are learning exercises, not evidence about real housing markets.
+A hands-on guide to all twelve desktop recipes, including the three Local LLM engines. Start with a built-in demo, then use the same controls with your own data. The examples below are learning exercises, not evidence about real housing markets.
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
@@ -409,3 +409,41 @@ A future model inspector could open inside a selected model node. A useful first
 For your TensorFlow background, [TensorBoard's Graphs dashboard](https://www.tensorflow.org/tensorboard/graphs) already provides model/operation inspection from logged graphs. [Netron](https://github.com/lutzroeder/netron) is another existing model-file viewer with support for multiple formats. They are references or separate tools, not installed integrations in ML Cookbook. TensorFlow training, model-graph import/editing, cross-framework conversion, and attention/activation inspection are not implemented here.
 
 For LLM research, a useful order is: make prompt runs reproducible, measure extraction quality against references, connect the resulting data to recipes, then add a PyTorch model inspector. That gives each visual node an output and evaluation you can actually inspect.
+
+
+## Movement Study: fixed participant/session holdouts
+
+Open **Movement Study**, then select the wearable pipeline's `export.json`.
+The manifest and split/index CSVs are one study; opening `train.csv` in an
+ordinary recipe is useful for exploration but does not preserve grouped model
+evaluation. Review Data checks, keep the final test sealed, and run grouped
+baselines. The report compares two candidates on validation groups and records
+the complete fold/group assignments. Save an experiment to retain an offline
+snapshot, or export evaluation JSON with probabilities and clock lineage.
+
+When ready for a final test, freeze your decisions first, choose **Evaluate
+frozen final test**, run once, and retain that experiment. Its score was not
+used to select the candidate. Window classification is separate from continuous
+fall-event evaluation and DEEPCRAFT CNN training. A synthetic study is only a
+software demonstration.
+
+
+The same desktop entry point accepts direct offline handoffs:
+
+```powershell
+python -m mlcookbook --movement-study
+python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
+python -m mlcookbook --experiment C:/path/to/study.mlcb
+# The portable EXE accepts the same arguments.
+```
+
+Opening verifies/imports the study or restores the saved snapshot without fitting
+a model. The empty Movement Study card and new imports default to sealed test
+groups; saved experiments retain their explicit unrun choices without running
+them. Qt command-line options are forwarded separately. Failed imports leave
+the app usable with the error in its status area. The PSoC companion now provides
+`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
+native grouped baselines in one new folder, plus `verify-study` and a PowerShell
+launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
+separate evidence. Synthetic provenance propagates from sessions automatically,
+and mixed real/synthetic preparation is rejected.

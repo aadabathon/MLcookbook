@@ -231,3 +231,33 @@ Agents read `AGENTS.md` / `CLAUDE.md` and know not to build roadmap features for
 ## Scratch space for ideas
 
 - (jot things here)
+
+
+## Native wearable workflow — 2026-10-22
+
+The PSoC belt project is now integrated directly into **Movement Study**. After collecting/auditing recordings, prepare the belt dataset and run `wearable.py export-mlcookbook` in its analysis repository. Open the resulting `export.json` in this card, then **Run grouped baselines**. Whole-person/session splits stay fixed; the final test remains sealed by default. Save an experiment to keep settings/results and the typed feature/lineage snapshot together. Reopen and rerun offline even if the original export folder moved. **Export evaluation…** retains metrics, predictions, probabilities and source times as JSON.
+
+The native function is also called by the wearable CLI, so GUI and CLI share evaluation logic. IDs/times cannot be predictors, and test rows are not handed to the other recipe cards. Logistic regression/random forest are baselines, not the DEEPCRAFT temporal CNN. The PSoC project contains a clearly marked synthetic smoke study for trying the workflow; its scores are not evidence of real activity/fall recognition. The user still supplies physical build, real recordings, Studio training/export and on-board checks.
+
+Verification of the movement port: **454 MLcookbook tests** and **47 wearable pipeline tests** passed, plus the four host firmware suites and actual firmware-dump import check. Ruff and dependency checks passed. Native Windows rendering was inspected at normal and minimum sizes; synthetic import/run/export/save/reopen succeeded. The rebuilt executable creates its native window with Python removed from PATH; its five integration modules were checked against final source. Evidence is in the PSoC project’s `workingDir/build/mlcookbook-port/`. No real classifier accuracy or hardware behavior is claimed, and no Git commit was made.
+
+
+The same desktop entry point accepts direct offline handoffs:
+
+```powershell
+python -m mlcookbook --movement-study
+python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
+python -m mlcookbook --experiment C:/path/to/study.mlcb
+# The portable EXE accepts the same arguments.
+```
+
+Opening verifies/imports the study or restores the saved snapshot without fitting
+a model. The empty Movement Study card and new imports default to sealed test
+groups; saved experiments retain their explicit unrun choices without running
+them. Qt command-line options are forwarded separately. Failed imports leave
+the app usable with the error in its status area. The PSoC companion now provides
+`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
+native grouped baselines in one new folder, plus `verify-study` and a PowerShell
+launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
+separate evidence. Synthetic provenance propagates from sessions automatically,
+and mixed real/synthetic preparation is rejected.

@@ -26,6 +26,11 @@ class Recipe:
 
 RECIPES: list[Recipe] = [
     Recipe(
+        title="Movement Study",
+        description="Open a wearable study, compare baselines on whole-person/session holdouts, and retain prediction lineage.",
+        icon="∿", status="Ready", variant="ready", key="wearable-study",
+    ),
+    Recipe(
         title="Linear Regression",
         description="Least squares, ridge, or lasso, with residual checks and cross-validated error.",
         icon="β",  # β

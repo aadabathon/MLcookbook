@@ -46,10 +46,17 @@ from mlcookbook.statistics.association import CorrelationResult, correlation
 from mlcookbook.statistics.categorical import ChiSquareResult, chi_square
 from mlcookbook.statistics.groups import AnovaResult, anova
 from mlcookbook.statistics.scan import AssociationScanResult, association_scan
+from mlcookbook.wearable import (
+    WearableEvaluationResult,
+    WearableImportReport,
+    evaluate_wearable,
+    load_wearable_study,
+)
 
 __version__ = "1.0.0"
 
 __all__ = [
+    "WearableEvaluationResult", "WearableImportReport", "evaluate_wearable", "load_wearable_study",
     "AnovaResult",
     "AssociationScanResult",
     "ChiSquareResult",

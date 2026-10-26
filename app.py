@@ -19,6 +19,7 @@ Launch with:  python -m mlcookbook
 
 from __future__ import annotations
 
+import argparse
 import inspect
 import sys
 from copy import deepcopy
@@ -31,7 +32,7 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
         if _p not in sys.path:
             sys.path.insert(0, _p)
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -51,6 +52,7 @@ from gui.screens.pca import PCAScreen
 from gui.screens.random_forest import RandomForestScreen
 from gui.screens.report_screen import MAX_CLASSES
 from gui.screens.svm import SVMScreen
+from gui.screens.wearable import WearableScreen
 
 MAX_PLOT_POINTS = 3000  # scatter plots draw a deterministic sample beyond this
 
@@ -103,7 +105,14 @@ def _prompt_frame():
 
 
 # key -> (frame factory, display name, target, positive class)
+def _movement_placeholder():
+    import pandas as pd
+
+    return pd.DataFrame({"movement_study": ["Open the wearable export.json to begin."]})
+
+
 DEMOS = {
+    "wearable-study": (_movement_placeholder, "No movement study selected", None, None),
     "llm": (_prompt_frame, "Example prompts", None, None),
     "model-comparison": (_diabetes_frame, "Diabetes", "progression", None),
     "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
@@ -1124,11 +1133,51 @@ REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest"
                     "svm": "svm_regression", "neural-network": "neural_network_regression"}
 
 
+def _wearable_report(dataset, req, name):
+    from mlcookbook import evaluate_wearable
+
+    result = evaluate_wearable(dataset, **req["params"])
+    data = result.to_dict()
+    selected = data["candidates"][data["selected_model"]]
+    groups = {split: sum(value == split for value in result.group_splits.values())
+              for split in ("train", "validation", "test")}
+    metrics = [{"title": "Fixed validation groups", "items": [
+        ("Macro F1", _num(selected["validation"]["macro_f1"])),
+        ("Balanced accuracy", _num(selected["validation"]["balanced_accuracy"])),
+        ("Accuracy", _num(selected["validation"]["accuracy"]))]}]
+    if result.final_test_evaluated:
+        metrics.append({"title": "Frozen final test groups", "items": [
+            ("Macro F1", _num(selected["test"]["macro_f1"])),
+            ("Balanced accuracy", _num(selected["test"]["balanced_accuracy"]))]})
+    validation = selected["validation"]
+    return {"dataset": name, "target": "Human movement label", "features": f"{len(result.features)} fixed window summaries; IDs and times excluded",
+            "settings": f"Whole-{result.group_by} splits · seed {result.seed} · test {'evaluated' if result.final_test_evaluated else 'sealed'}",
+            "summary": ("Synthetic integration fixture. " if any(w.startswith("Synthetic fixture") for w in result.warnings) else "") + f"Selected {result.selected_model.replace('_', ' ')} using macro F1 on separate validation groups. "
+                       f"Groups: {groups['train']} training, {groups['validation']} validation, {groups['test']} test. "
+                       "These classical baselines do not train the board CNN or establish fall-event performance.",
+            "metric_groups": metrics,
+            "tables": [{"title": "Validation comparison", "headers": ["Candidate", "Macro F1", "Balanced accuracy", "Group folds"],
+                        "rows": [[key.replace('_', ' '), _num(value["validation"]["macro_f1"]),
+                                  _num(value["validation"]["balanced_accuracy"]), str(len(value["grouped_cv"]))]
+                                 for key, value in result.candidates.items()], "stretch_column": 0},
+                       {"title": "Validation confusion matrix · actual rows / predicted columns",
+                        "headers": ["Actual / predicted", *result.labels],
+                        "rows": [[label, *map(str, row)] for label, row in zip(result.labels, validation["confusion_matrix"])],
+                        "stretch_column": 0},
+                       {"title": "Fixed group assignments", "headers": ["Group", "Split"],
+                        "rows": [[key, value] for key, value in sorted(result.group_splits.items())], "stretch_column": 0}],
+            "warnings": [*result.warnings, *result.limitations], "wearable_evaluation": data}
+
+
+REPORT_BUILDERS["wearable-study"] = _wearable_report
+
+
 def _screens():
     from mlcookbook import (
         association_scan,
         compare_regressors,
         decision_tree,
+        evaluate_wearable,
         generate_text,
         kmeans,
         linear_regression,
@@ -1140,6 +1189,7 @@ def _screens():
     )
 
     return {
+        "wearable-study": (evaluate_wearable, WearableScreen),
         "llm": (generate_text, LLMScreen),
         "model-comparison": (compare_regressors, ModelComparisonScreen),
         "linear-regression": (linear_regression, LinearRegressionScreen),
@@ -1166,7 +1216,7 @@ def _default_screen(key, demo=True):
         engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
                              + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
     screen = screen_class(engine, {})
-    screen.is_example = key != "llm"
+    screen.is_example = key not in ("llm", "wearable-study")
     screen.set_dataset(_dataset_view(dataset, name), target=target)
     if positive is not None:
         screen.positive.setCurrentText(positive)
@@ -1175,7 +1225,8 @@ def _default_screen(key, demo=True):
     screen.source = {"kind": "demo", "recipe": key}
     if demo and getattr(screen, "auto_run_demo", True):
         screen.show_report(_run_report(key, dataset, name, screen.request()))
-    screen.set_status("Choose a local model folder, write a prompt, and generate text." if key == "llm" else
+    screen.set_status("Open the export.json from the wearable pipeline; no recording is loaded automatically." if key == "wearable-study" else
+                      "Choose a local model folder, write a prompt, and generate text." if key == "llm" else
                       "Built-in example. Open your own file or adjust the selections and run.")
     return screen
 
@@ -1302,7 +1353,7 @@ class MLCookbookApp:
             screen.dataset_name = saved["name"]
             screen.set_dataset(saved["view"])
             screen.source = saved["source"]
-        elif self.imported is not None:
+        elif self.imported is not None and recipe.key != "wearable-study":
             self._display_import(self.imported)
         self._connect_screen(screen)
         self.window.show_screen(screen)
@@ -1316,6 +1367,9 @@ class MLCookbookApp:
         screen.load_requested.connect(self.load_file)
         screen.run_requested.connect(self.run_analysis)
         screen.cancel_requested.connect(self.cancel_analysis)
+        if isinstance(screen, WearableScreen):
+            screen.study_requested.connect(self.load_wearable_study)
+            screen.evaluation_export_requested.connect(self.export_wearable_evaluation)
         if isinstance(screen, LLMScreen):
             screen.connection_requested.connect(self.connect_local_llm)
             screen.workflow_requested.connect(self.workflow_action)
@@ -1426,6 +1480,10 @@ class MLCookbookApp:
                     # Role overrides belong to the original run, not to unrun edits.
                     roles = state["report_request"]["overrides"]
                     check_source(Dataset(loaded.dataset.df, overrides=roles), run)
+            if loaded.recipe == "wearable-study" and loaded.source.get("kind") == "wearable_study":
+                from mlcookbook.wearable import check_wearable_study
+
+                check_wearable_study(loaded.dataset)
             screen.restore_session(state)
             if screen.request() != state["request"]:
                 raise ValueError("Saved selections cannot be restored exactly with this recipe.")
@@ -1434,7 +1492,7 @@ class MLCookbookApp:
             raise
         # Commit navigation only after the entire snapshot has been read and validated.
         self.sessions.clear()
-        self.imported = (loaded.dataset, loaded.name, view)
+        self.imported = None if loaded.recipe == "wearable-study" else (loaded.dataset, loaded.name, view)
         self.screen, self.key = screen, loaded.recipe
         self._connect_screen(screen)
         self.window.show_screen(screen)
@@ -1444,6 +1502,54 @@ class MLCookbookApp:
             message += " Package versions differ; see Data checks before rerunning."
         screen.set_status(message)
         self.window.set_status("")
+
+    def load_wearable_study(self, path):
+        from mlcookbook import load_wearable_study
+
+        def read():
+            dataset, imported = load_wearable_study(path)
+            name = Path(path).parent.name if Path(path).is_file() else Path(path).name
+            view = _dataset_view(dataset, name)
+            view["notes"] = [*imported.warnings, "Use Movement Study for grouped scores. Ordinary recipe row splits are exploratory."]
+            view["source"] = {"kind": "wearable_study", "path": str(Path(path).resolve()),
+                              "wearable_import": imported.to_dict()}
+            return dataset, name, view
+
+        def accept(loaded):
+            self.sessions.pop("wearable-study", None)
+            self._display_import(loaded)
+            self.screen.set_status("Study verified. Fixed groups and human labels retained; final test remains sealed.")
+
+        self._start_job(read, accept, "Verifying movement study and fixed groups…")
+
+    def export_wearable_evaluation(self, path):
+        import json
+        import os
+        import tempfile
+
+        if self.job is not None or not isinstance(self.screen, WearableScreen):
+            return
+        value = deepcopy(self.screen._report.get("wearable_evaluation"))
+        if value is None:
+            return
+
+        def write():
+            destination = Path(path)
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
+                                                  prefix=".movement-", suffix=".tmp", delete=False) as stream:
+                    temporary = Path(stream.name)
+                    json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, destination)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+        self._start_job(write, lambda _: self._set_status("Evaluation exported with predictions, probabilities and source-window lineage."),
+                        "Exporting movement evaluation…")
 
     def load_file(self, path, delimiter, encoding, markers=""):
         from mlcookbook.io import load_dataset_with_report
@@ -1621,8 +1727,27 @@ class MLCookbookApp:
             self._start_job(derive, accept, "Creating a typed derived dataset…")
 
 
-def main() -> int:
-    app = QApplication(sys.argv)
+def _startup_options(argv):
+    parser = argparse.ArgumentParser(description="MLcookbook offline desktop workbench")
+    start = parser.add_mutually_exclusive_group()
+    start.add_argument("--study", metavar="EXPORT_JSON", help="open a verified Movement Study export without training")
+    start.add_argument("--experiment", metavar="FILE_MLCB", help="restore a saved experiment without retraining")
+    start.add_argument("--movement-study", action="store_true", help="open the Movement Study setup card")
+    return parser.parse_known_args(argv)
+
+
+def _open_startup(controller, options):
+    if options.study or options.movement_study:
+        controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "wearable-study"))
+        if options.study:
+            controller.load_wearable_study(str(Path(options.study).resolve()))
+    elif options.experiment:
+        controller.open_experiment(str(Path(options.experiment).resolve()))
+
+
+def main(argv=None) -> int:
+    options, qt_arguments = _startup_options(sys.argv[1:] if argv is None else argv)
+    app = QApplication([sys.argv[0], *qt_arguments])
     app.setApplicationName("MLcookbook")
     app.setFont(QFont("Segoe UI", theme.BODY_POINT_SIZE))
     app.setStyleSheet(theme.stylesheet())
@@ -1633,6 +1758,7 @@ def main() -> int:
     controller = MLCookbookApp()
     controller.window.resize(1280, 860)
     controller.window.show()
+    QTimer.singleShot(0, lambda: _open_startup(controller, options))
     return app.exec()
 
 
