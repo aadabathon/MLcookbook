@@ -3,9 +3,10 @@
 from gui.screens.report_screen import ReportScreen
 
 PARAMS = [
-    {"key": "random_state", "label": "Split / model seed", "kind": "int", "min": 0, "max": 2147483647, "value": 0},
+    {"key": "random_state", "label": "Split / model seed", "kind": "int", "min": 0, "max": 2147483647, "value": 0,
+     "section": "evaluation"},
     {"key": "test_size", "label": "Test fraction", "kind": "float", "min": 0.1, "max": 0.5, "value": 0.25,
-     "decimals": 2, "step": 0.05},
+     "decimals": 2, "step": 0.05, "section": "evaluation"},
     {"key": "alpha", "label": "Ridge penalty", "kind": "float", "min": 0.001, "max": 1000.0, "value": 1.0},
     {"key": "n_estimators", "label": "Forest trees", "kind": "int", "min": 10, "max": 500, "value": 100},
     {"key": "max_depth", "label": "Forest max depth", "kind": "int", "min": 0, "max": 30, "value": 0,

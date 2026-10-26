@@ -24,6 +24,8 @@ class WearableScreen(ReportScreen):
                          min_features=0, cross_validation=False, preprocessing=False,
                          settings_title="Grouped evaluation settings")
         self.load_button.setText("Open movement study…")
+        self.data_heading.setText("Study data")
+        self.sections["settings"].setChecked(True)
         self.sections["import"].hide()
         self.columns.hide()
         self.columns_help.hide()

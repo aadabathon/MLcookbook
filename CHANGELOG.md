@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Startup defers the scientific stack until first use while preserving all 44 root API exports as their original objects. Runtime initialization and first CSV/experiment imports run in background jobs with recovery and ordered offline study handoffs. Windows packaging explicitly includes lazily resolved core modules.
+
+- Recipe forms separate model settings from accessible preprocessing/evaluation, display split/seed/CV context, and consolidate stale-result status. Reports offer a collapsed run-details disclosure; every ready recipe has applicability/assumptions/interpretation reference with a secondary Python API section. Local LLM controls are grouped, empty output is concise, and Movement Study shows its sealed-test controls. Existing experiment state keys and analytical behavior are preserved.
+
 - Recipe navigation is setup-only. Classical examples run only on **Run example**, preserve the user's active dataset and per-source settings/results, and provide **Use my data**. Saved examples reopen independently; typed LLM prompts use empty storage and row workflows require imported data.
 
 - Data-first sidebar with direct Recipes/Local LLMs/Movement Study navigation. Import/inspect CSV or Parquet before choosing an analysis, retain source-role and input identity boundaries, preserve recipe state through navigation, and lock routes during jobs. Imported/restored recipes skip preset-data construction. Saved Movement Studies retain an existing active ordinary dataset.

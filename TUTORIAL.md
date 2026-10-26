@@ -4,7 +4,7 @@ A hands-on guide to all twelve desktop recipes, including the three Local LLM en
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
-The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. Complete earlier previews are preserved at `dist/ui-stage1/MLcookbook` and `dist/ui-stage2/MLcookbook`, each with its matching runtime. Examples now require an explicit action.
+The existing Windows shortcut opens the refreshed UI at `dist/MLcookbook/MLcookbook.exe`. The complete pre-redesign app is preserved at `dist/ui-original/MLcookbook`. Earlier UI previews remain at `dist/ui-stage1/MLcookbook` through `dist/ui-stage4/MLcookbook`, each with its matching runtime. Future review builds use `dist/ui-preview/MLcookbook`. Examples require an explicit action.
 
 ## Start with your data
 
@@ -16,11 +16,13 @@ The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The exist
 
 The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** line on each recipe identifies what that screen will use: a file/snapshot, a built-in example, a typed LLM prompt or a Movement Study. Study imports and reserved groups stay separate; opening a saved study preserves an existing active tabular dataset. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
 
+On first use, **Preparing analysis runtime…** may appear while scientific libraries initialize in the background. The current page stays visible and navigation locks until preparation finishes. This does not train a model or load LLM weights. A failed preparation leaves the page available for retry. File and experiment imports show their own loading status while performing initialization and reading data.
+
 ## Your first experiment
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
 2. Click **Recipes → Linear Regression**. Opening it does not run an analysis. Choose target/features for your imported file and **Run Analysis**, or click **Run example** for the bundled diabetes example predicting `progression`. Example loading and analysis run in the background.
-3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model & validation settings** to try ridge or lasso. Open **Preprocessing & validation...** inside that section to inspect the preprocessing and training-fold settings.
+3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model settings** to try ridge or lasso. **Preprocessing & validation...** stays accessible below model settings; the adjacent summary identifies the test split, seed and training-CV folds.
 4. Change one setting and click **Run Analysis**. Until that succeeds, the result banner identifies the previous result. Editing controls alone does not retrain a model.
 5. Click **Save experiment...** and choose a `.mlcb` file. Return to the recipe list or close the app, then use **Open experiment...** to restore it.
 
@@ -29,6 +31,8 @@ Local LLMs opens a setup screen instead of running a model automatically. Its st
 While viewing an example, **Use my data** restores this recipe's own-data report and unrun choices. The sidebar continues to identify your active file while **Input:** identifies the example. **View example** returns to a cached example without rerunning, including invalid unrun edits you need to repair. Example edits stay with that example; **Run Analysis** reruns it. Switching to Data or another recipe and back restores the last view without retraining. Opening a saved example restores its embedded data/results without replacing an existing ordinary dataset. Empty classical setup screens cannot be saved until a dataset/example is loaded.
 
 An experiment saves one recipe, the full typed dataset snapshot, current controls, and the last completed report with the settings that produced it. It also keeps unrun edits. Reopening does not train, contact an inference server, or reread the original CSV/model files. Model weights and fitted classical estimators are not embedded. A failed run leaves the previous completed report visible.
+
+Use **Recipe reference** for applicability, assumptions, parameter meaning, interpretation and limitations. Expand **Python API** there only when you need the callable signature. Expand **Run details** above a completed report to inspect the input/settings recorded for that result and any available runtime/timestamp details. This temporary disclosure does not alter the experiment. The result banner shows whether that report matches the current controls; the footer shows readiness, progress or errors.
 
 ## Choose a recipe
 

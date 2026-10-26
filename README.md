@@ -71,6 +71,8 @@ Run `python examples/basic_usage.py` for a complete tour.
 
 Download `MLcookbook-v1.0.0-windows-x64.zip` from the [v1.0.0 release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0), extract the entire archive, and open `MLcookbook/MLcookbook.exe`. Keep the adjacent `_internal` folder with the executable. Python is bundled; no separate Python installation is needed.
 
+That release predates the current Data-first UI and local LLM workflows. Current repository builds include them.
+
 Start with a built-in demo or import CSV/Parquet data. **Save experiment** writes a `.mlcb` snapshot of the dataset, current recipe settings, and last report; **Open experiment** restores it. See the [release notes](CHANGELOG.md) for the v1 scope.
 
 ### From source
@@ -150,7 +152,15 @@ Opening a recipe never constructs a preset or runs an analysis. It restores your
 
 The shared visual system keeps sans-serif typography, neutral surfaces, sentence-case headings, clear focus states and restrained accent colors. Ready cards omit decorative symbols and repeated badges.
 
-To review this UI separately from the shortcut build, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. Keep the executable with its `_internal` folder. This preview build leaves the complete `dist/MLcookbook` bundle used by the existing shortcut intact; source launches already use the refreshed UI.
+Recipe forms separate data/columns, model settings and preprocessing/evaluation. Preprocessing, the training-CV setting and the split/seed context stay accessible when model settings are collapsed. Model Comparison's editable split and seed sit beside evaluation controls. The result banner identifies stale results; the footer reports readiness, progress or an actionable error. **Run details** expands the displayed report's data/settings and any recorded timestamp/runtime information. This disclosure is temporary and does not change saved experiment settings.
+
+**Recipe reference** explains applicability, data assumptions, controls, interpretation and limitations for every ready recipe. Its Python API section starts collapsed. Local LLM settings are grouped by task, runtime, inputs, generation and limits; Movement Study opens its grouped evaluation controls with the final test sealed. These presentation changes retain the existing `.mlcb` format and analytical results.
+
+The Data shell opens before scientific libraries load. First use of an analysis prepares the existing runtime in a background job, with a visible status and navigation locks; it does not run a model. File/snapshot imports also initialize their core work in a worker. A failed initialization retains the current view and can be retried. The Python package keeps the same public names and real functions/classes, resolving each export when requested; `import mlcookbook` alone does not import the scientific stack or optional model runtimes.
+
+Adam's existing Windows shortcut now uses the refreshed UI at `dist/MLcookbook/MLcookbook.exe`. The complete pre-redesign app is preserved at `dist/ui-original/MLcookbook`; earlier UI previews remain in `dist/ui-stage1` through `dist/ui-stage4`. Keep every executable with its matching `_internal` folder.
+
+To review future UI changes separately, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. This preview build leaves the installed `dist/MLcookbook` bundle intact.
 
 A PySide6 desktop shell, launched with a single entry point:
 
@@ -186,15 +196,15 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 ### Analyze your own data
 
-1. Open a recipe. Its built-in example runs in the background. For your own CSV, expand **CSV import options** if you need a different delimiter, encoding, or extra missing-value markers (e.g. `?, -999`), then click **Open CSV / Parquet**.
+1. Import CSV/Parquet from **Data**, then open a recipe. Nothing runs automatically. For another CSV delimiter, encoding or missing-value markers (e.g. `?, -999`), expand **CSV import options** before opening the file. **Run example** is a separate explicit action.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.
 3. Choose the target and features. Decision trees, random forests, SVMs, and neural networks pick classification or regression from the target (a numeric target with more than 20 values means regression) and let you switch. Classification works with 2 to 20 classes: two classes let you pick the positive class; more run as multiclass.
-4. Expand **Model & validation settings** to adjust model settings (penalty, depth, trees, k, ...) or open **Preprocessing & validation** (imputation, scaling, encoding, rare levels, missing flags, CV folds).
+4. Expand **Model settings** for penalty, depth, trees or cluster count. **Preprocessing & validation** stays outside that collapsed group; use it for imputation, scaling, encoding, rare levels, missing flags and training-CV folds. The evaluation summary identifies the test split and seed, or full-data fitting for unsupervised recipes.
 5. Click **Run Analysis** in the fixed bottom action bar. Progress and errors stay visible while the form and report scroll. Import and training run in background threads; reports show the dataset, target, features, and settings used. A banner marks results from previous settings until you rerun (or revert your changes).
 
 The loaded dataset stays available when switching recipes. Each recipe remembers its selections, all model parameters, preprocessing, import options, expanded controls, scroll positions, and last report for the session. Returning restores the report without retraining, including any unrun changes and their stale-result banner. A successful file replacement clears all previous recipe sessions; a failed import preserves them. Use **Save experiment** to retain the current recipe across app restarts. Failed runs show an error and keep the previous report and the settings that produced it.
 
-**Data checks** remains accessible after a run. **About this recipe** contains the Python callable and signature. Recipe cards support Tab navigation and Enter/Space activation.
+**Data checks** remains accessible after a run. **Recipe reference** explains the method and its limitations, with the Python callable and signature in a collapsed section. Recipe cards support Tab navigation and Enter/Space activation.
 
 Import rules: CSV files need a header with unique, non-empty column names. Numeric-looking CSV columns with leading zeros (`01234`) stay text; text columns whose every value is an ISO-8601 date/time are parsed as dates (offsets converted to UTC); ambiguous formats such as `05/06/2024` stay text. Parquet preserves stored types; nested list/struct columns must be flattened. Files are loaded into memory, so datasets must fit in RAM.
 

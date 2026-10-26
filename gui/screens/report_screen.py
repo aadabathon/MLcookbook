@@ -8,6 +8,7 @@ and never imports mlcookbook. The report shape (all values already strings):
         "target":   "progression",                              # optional (unsupervised)
         "features": "age, sex, bmi, ...",
         "settings": "max_depth=3 · min_samples_leaf=5",        # optional
+        "run_details": ["Created (UTC): ...", "Runtime: ..."],  # optional, formatted provenance
         "summary":  "Mean absolute error on 111 held-out rows: 42.1 ...",  # optional, formatted by app.py
         "tree":     {...},   # optional node-link diagram, see gui/tree_plot.py; leads the report
         "bars":     [{"title": "...", "items": [(label, 0..1, "text"), ...]}],  # optional
@@ -31,7 +32,7 @@ from __future__ import annotations
 from copy import deepcopy
 from math import isfinite
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -68,6 +69,7 @@ from gui.preprocessing_dialog import (
     default_preprocessing,
     summarize,
 )
+from gui.recipe_reference import RecipeReferenceDialog
 from gui.tree_plot import TreeWidget
 
 ROLES = ["numeric", "categorical", "boolean", "datetime", "text", "unsupported"]
@@ -117,7 +119,7 @@ class ReportScreen(QWidget):
         min_features: int = 1,
         cross_validation: bool = True,
         preprocessing: bool = True,
-        settings_title: str = "Model & validation settings",
+        settings_title: str = "Model settings",
     ) -> None:
         super().__init__(parent)
         self._fixed_task = task
@@ -126,6 +128,7 @@ class ReportScreen(QWidget):
         self._feature_roles = feature_roles
         self._min_features = min_features
         self._settings_title = settings_title
+        self.recipe_title = title
         self.preprocessing = default_preprocessing() if preprocessing else None
         self.cv_folds = DEFAULT_CV_FOLDS if cross_validation else None
         self._report = {}
@@ -155,7 +158,7 @@ class ReportScreen(QWidget):
         navigation = QHBoxLayout()
         navigation.addWidget(back)
         navigation.addStretch()
-        about = QPushButton("About this recipe")
+        about = QPushButton("Recipe reference")
         about.clicked.connect(self._about)
         navigation.addWidget(about)
         outer.addLayout(navigation)
@@ -260,13 +263,19 @@ class ReportScreen(QWidget):
         button = QPushButton("▸  " + title)
         button.setObjectName("SectionToggle")
         button.setCheckable(True)
+        button.setProperty("disclosure_title", title)
         button.toggled.connect(content.setVisible)
-        button.toggled.connect(lambda opened: button.setText(("▾  " if opened else "▸  ") + title))
+        button.toggled.connect(self._toggle_disclosure)
         self.sections[key] = button
         layout.addWidget(button)
         layout.addWidget(content)
         content.hide()
         return box
+
+    @Slot(bool)
+    def _toggle_disclosure(self, opened: bool):
+        button = self.sender()
+        button.setText(("▾  " if opened else "▸  ") + button.property("disclosure_title"))
 
     def _show_notes(self, title: str, messages: list[str]):
         dialog = QDialog(self)
@@ -292,8 +301,11 @@ class ReportScreen(QWidget):
         dialog.exec()
 
     def _about(self):
-        self._show_notes("About this recipe", [self.engine.get("summary", ""),
-                         "Python API", self.engine.get("callable", "") + self.engine.get("signature", "")])
+        dialog = RecipeReferenceDialog(self.recipe_title, self.engine, self)
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
 
     def _show_warnings(self):
         self._show_notes("Warnings for the displayed result", self._report.get("warnings", []))
@@ -309,6 +321,8 @@ class ReportScreen(QWidget):
         form = QVBoxLayout(panel)
         form.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, 0)
         form.setSpacing(theme.SPACE_XS)
+        self.data_heading = self._section_label("Data and columns")
+        form.addWidget(self.data_heading)
         self.badge = QLabel(report.get("dataset", ""))
         self.badge.setObjectName("DatasetBadge")
         self.badge.setWordWrap(True)
@@ -399,6 +413,12 @@ class ReportScreen(QWidget):
         settings = QWidget()
         settings_layout = QVBoxLayout(settings)
         settings_layout.setContentsMargins(0, 0, 0, 0)
+        self.evaluation_options = QWidget()
+        evaluation_layout = QVBoxLayout(self.evaluation_options)
+        evaluation_layout.setContentsMargins(0, 0, 0, 0)
+        evaluation_layout.setSpacing(theme.SPACE_XS)
+        self.evaluation_form = QFormLayout()
+        self.evaluation_form.setSpacing(theme.SPACE_XS)
         if self._params:
             grid = QFormLayout()
             self.param_form = grid
@@ -406,26 +426,51 @@ class ReportScreen(QWidget):
             for spec in self._params:
                 widget = self._param_widget(spec)
                 label = QLabel(spec["label"])
+                label.setWordWrap(True)
                 label.setToolTip(spec.get("help", ""))
                 widget.setToolTip(spec.get("help", ""))
-                grid.addRow(label, widget)
+                target_form = self.evaluation_form if spec.get("section") == "evaluation" else grid
+                if spec.get("group"):
+                    target_form.addRow(self._section_label(spec["group"]))
+                target_form.addRow(label, widget)
                 self.param_widgets[spec["key"]] = widget
                 self.param_rows[spec["key"]] = (label, widget)
             settings_layout.addLayout(grid)
 
-        self.preprocessing_button = QPushButton("Preprocessing && validation...")
+        # Keep the historical section keys for saved experiments. Preprocessing
+        # and evaluation stay accessible even when model controls are collapsed.
+        if self._params or self.preprocessing is not None:
+            settings_section = self._expandable("settings", self._settings_title, settings)
+            form.addWidget(settings_section)
+            settings_section.setVisible(any(spec.get("section") != "evaluation" for spec in self._params))
+        else:
+            settings.deleteLater()
+
+        self.preprocessing_button = QPushButton("Preprocessing && validation...", self.evaluation_options)
         self.preprocessing_button.clicked.connect(self._edit_preprocessing)
-        self.preprocessing_summary = QLabel("")
+        self.preprocessing_summary = QLabel("", self.evaluation_options)
         self.preprocessing_summary.setObjectName("HelpText")
         self.preprocessing_summary.setWordWrap(True)
         if self.preprocessing is not None:
-            settings_layout.addWidget(self.preprocessing_button)
-            settings_layout.addWidget(self.preprocessing_summary)
-            self._update_preprocessing_summary()
-        if self._params or self.preprocessing is not None:
-            form.addWidget(self._expandable("settings", self._settings_title, settings))
+            evaluation_layout.addWidget(self._section_label("Preprocessing and evaluation" if self.cv_folds is not None
+                                                             else "Preprocessing"))
+            evaluation_layout.addWidget(self.preprocessing_button)
+            evaluation_layout.addWidget(self.preprocessing_summary)
         else:
-            settings.deleteLater()
+            self.preprocessing_button.hide()
+            self.preprocessing_summary.hide()
+        evaluation_layout.addLayout(self.evaluation_form)
+        self.evaluation_summary = QLabel()
+        self.evaluation_summary.setObjectName("HelpText")
+        self.evaluation_summary.setTextFormat(Qt.TextFormat.PlainText)
+        self.evaluation_summary.setWordWrap(True)
+        self.evaluation_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        evaluation_layout.addWidget(self.evaluation_summary)
+        form.addWidget(self.evaluation_options)
+        if self.preprocessing is not None:
+            self._update_preprocessing_summary()
+        else:
+            self._update_evaluation_summary()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -658,12 +703,9 @@ class ReportScreen(QWidget):
             return
         self._update_run()
         self._update_result_state()
+        self._update_evaluation_summary()
         if hasattr(self, "status") and self._columns:
-            message = "Ready to run with these selections."
-            if self._report:
-                message = ("Results match the current settings." if self.request() == self._report_request else
-                           "Settings changed. Run Analysis to update the results.")
-            self.set_status(self._problem() or message)
+            self.set_status(self._problem() or "Ready to run with these selections.")
         self.configuration_changed.emit()
 
     def set_input_context(self, text: str):
@@ -725,7 +767,23 @@ class ReportScreen(QWidget):
         self._configuration_changed()
 
     def _update_preprocessing_summary(self):
-        self.preprocessing_summary.setText(summarize(self.preprocessing, self.cv_folds))
+        self.preprocessing_summary.setText(summarize(self.preprocessing, None))
+        self._update_evaluation_summary()
+
+    def _update_evaluation_summary(self):
+        if not hasattr(self, "evaluation_summary"):
+            return
+        parts = []
+        if "test_size" in self.param_widgets and "random_state" in self.param_widgets:
+            parts.append(f"Test holdout: {self.param_widgets['test_size'].value():.0%} · "
+                         f"split/model seed {self.param_widgets['random_state'].value()}.")
+        if self.engine.get("evaluation"):
+            parts.append(self.engine["evaluation"])
+        if self.cv_folds is not None:
+            parts.append(f"Training cross-validation: {self.cv_folds} folds." if self.cv_folds else
+                         "Training cross-validation is off.")
+        self.evaluation_summary.setText("\n".join(parts))
+        self.evaluation_summary.setVisible(bool(parts))
 
     def _choose_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open dataset", "", "Datasets (*.csv *.parquet)")
@@ -932,10 +990,21 @@ class ReportScreen(QWidget):
             lines.append(("Features: " if report.get("target") else "Columns: ") + report.get("features", ""))
             if report.get("settings"):
                 lines.append("Settings: " + report["settings"])
+            lines.extend(report.get("run_details", []))
             context = QLabel("\n".join(lines))
             context.setTextFormat(Qt.TextFormat.PlainText)
             context.setWordWrap(True)
+            context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            details = QPushButton("▸  Run details")
+            details.setObjectName("RunDetailsToggle")
+            details.setCheckable(True)
+            details.setProperty("disclosure_title", "Run details")
+            details.setToolTip("Inspect the displayed run's data, settings and recorded provenance.")
+            details.toggled.connect(context.setVisible)
+            details.toggled.connect(self._toggle_disclosure)
+            column.addWidget(details)
             column.addWidget(context)
+            context.hide()
             if report.get("summary"):
                 summary = QLabel(report["summary"])
                 summary.setObjectName("ResultSummary")
