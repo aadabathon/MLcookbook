@@ -69,17 +69,9 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(header)
         row.setContentsMargins(theme.SPACE_XL, 0, theme.SPACE_XL, 0)
 
-        # Two-tone wordmark: violet "ML", pale "COOKBOOK".
-        wordmark = QHBoxLayout()
-        wordmark.setSpacing(0)
-        ml = QLabel("ML")
-        ml.setObjectName("WordmarkAccent")
-        rest = QLabel("COOKBOOK")
-        rest.setObjectName("Wordmark")
-        wordmark.addWidget(ml)
-        wordmark.addWidget(rest)
-
-        row.addLayout(wordmark)
+        wordmark = QLabel("ML Cookbook")
+        wordmark.setObjectName("Wordmark")
+        row.addWidget(wordmark)
         row.addStretch()
         self.open_experiment_button = QPushButton("Open experiment…")
         self.open_experiment_button.clicked.connect(self._open_experiment)

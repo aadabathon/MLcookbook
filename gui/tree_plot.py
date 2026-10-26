@@ -72,7 +72,7 @@ class TreeWidget(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(theme.SURFACE))
         neg, pos = QColor(theme.PLOT_ALT), QColor(theme.ACCENT)
-        small = QFont("Segoe UI", 8)
+        small = QFont(theme.FONT_FAMILY, theme.PLOT_POINT_SIZE)
 
         # Edges first, so boxes sit on top of them.
         for i, node in enumerate(self._nodes):
@@ -83,7 +83,7 @@ class TreeWidget(QWidget):
                 box = self._box(child)
                 start = QPointF(parent.center().x(), parent.bottom())
                 end = QPointF(box.center().x(), box.top())
-                p.setPen(QPen(QColor(theme.BORDER_ACCENT), 1.5))
+                p.setPen(QPen(QColor(theme.SCROLL_HANDLE), 1.5))
                 p.drawLine(start, end)
                 p.setFont(small)
                 p.setPen(QColor(theme.TEXT_MUTED))
@@ -96,12 +96,12 @@ class TreeWidget(QWidget):
             color = QColor(theme.palette(node["color"])) if "color" in node else None
             outline = color if color is not None else (pos if node["positive"] else neg)
             p.setBrush(QColor(theme.CARD))
-            p.setPen(QPen(outline if leaf else QColor(theme.BORDER_ACCENT), 2 if leaf else 1))
+            p.setPen(QPen(outline if leaf else QColor(theme.BORDER), 2 if leaf else 1))
             p.drawRoundedRect(box, 8, 8)
 
             text_w = int(BOX_W - 16)
             p.setPen(QColor(theme.TEXT))
-            p.setFont(QFont("Segoe UI", 9))
+            p.setFont(QFont(theme.FONT_FAMILY, theme.PLOT_POINT_SIZE))
             title = QFontMetrics(p.font()).elidedText(node["title"], Qt.TextElideMode.ElideRight, text_w)
             p.drawText(QRectF(box.left() + 8, box.top() + 6, text_w, 18), Qt.AlignmentFlag.AlignVCenter, title)
             p.setFont(small)

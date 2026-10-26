@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -73,16 +72,11 @@ class FrontPage(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(theme.SPACE_MD)
 
-        tick = QFrame()
-        tick.setObjectName("PageTitleTick")
-        tick.setFixedSize(3, 46)
-        row.addWidget(tick)
-
         text = QVBoxLayout()
         text.setSpacing(2)
         title = QLabel("Recipes")
         title.setObjectName("PageTitle")
-        subtitle = QLabel("A growing collection of machine learning recipes.")
+        subtitle = QLabel("Statistics, machine learning and local models.")
         subtitle.setObjectName("PageSubtitle")
         text.addWidget(title)
         text.addWidget(subtitle)

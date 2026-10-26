@@ -4,6 +4,16 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## UI roadmap stage 1 — 2026-10-25
+
+The first requested slice keeps the recipe catalog and analytical widgets while applying one sans-serif type system, neutral surfaces/borders, restrained accent colors, sentence-case section headings, and left-aligned cards without decorative symbols or repeated Ready labels. Plot/tree fonts share the theme, axis margins account for tick widths, and tree connections use a readable neutral line. Metric caption aliases affect display only; exact values, arbitrary names and saved report data retain their original strings. Warnings, stale results, keyboard actions and experiment controls remain visible.
+
+Review the separate candidate at `dist/ui-preview/MLcookbook/MLcookbook.exe`, together with its `_internal` folder. Rebuild that candidate with `./build_windows.ps1 -Preview`. The existing shortcut still points to `dist/MLcookbook/MLcookbook.exe`; its complete bundle is preserved. Neither the shortcut nor a release was updated. Data-first navigation, explicit examples, reference content and startup work remain later [UI roadmap](UI_ROADMAP.md) stages.
+
+Source recovery evidence is outside Git at `C:/Users/adams/.codex/visualizations/2026/10/25/01a17148-2348-7b22-af8a-4a0517a8d864/`: the verified `ui-baseline-2026-10-24/source.zip` includes the pre-existing dirty Movement Study work, while `ui-stage1/rollback/` records only changes since that checkpoint, their preimages and hashes. Revert individual UI hunks after checking subsequent edits; do not reset to HEAD, which predates the uncommitted Movement integration. Native captures and packaging checks live in `ui-stage1/`.
+
+Verification: **479 tests passed**, Ruff, dependency checks and `git diff --check` passed. The same 60 sklearn SVC deprecation warnings remain. Native Windows inspection covered home, imported setup/results, regression/classification, complete trees, long tables, Local LLMs, Movement Study and dialogs, including minimum size, keyboard focus and metric/painter text at 100%/125%/150% scaling. The candidate's 46 checked modules match final source; it launched responsively and closed normally with Python removed from PATH. A QA helper using its exact frozen PYZ/runtime generated real offline CPU SmolLM2 text and restored a synthetic saved Movement Study with source files absent, unrun edits preserved, zero evaluation calls and test groups sealed. The exact temporary helper was removed. All 6,216 original shortcut-bundle files remain byte-for-byte unchanged. No dependencies, models, services, shortcut promotion, release, commit or push were added.
+
 ## Structured text workflows - 2026-10-19
 
 The third roadmap milestone is implemented at my request. Open **Local LLMs**, choose a structured workflow and server engine, import text rows, check only input columns, and **Use task template with selected columns**. Templates bind `{{column name}}` literally. Fields use `new_name: text/numeric/boolean/categorical`, with optional `: label | label` for categorical values. The tutorial now walks through extracting fields from the practice housing notes.

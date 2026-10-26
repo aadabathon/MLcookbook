@@ -747,7 +747,7 @@ def test_import_notes_and_data_checks_are_shown(controller, qt, tmp_path):
     assert any("leading zeros" in note for note in screen.view["notes"])
     assert any("missing" in note for note in screen.view["notes"])
     text = labels_text(screen.report_widget)
-    assert "DATA CHECKS" in text and "row identifier" in text
+    assert "Data checks" in text and "row identifier" in text
     row = [c["name"] for c in screen.view["columns"]].index("row_id")
     assert screen.columns.item(row, 0).checkState() == Qt.CheckState.Unchecked  # likely IDs start unchecked
 

@@ -142,6 +142,10 @@ Copy the shape of an existing one:
 
 ## Desktop app
 
+The first [UI roadmap](UI_ROADMAP.md) stage refreshes the existing recipe layout with shared sans-serif typography, neutral surfaces and borders, sentence-case headings, clearer focus states, and restrained accent colors. Ready cards no longer repeat a status badge or decorative symbol. Reports retain their numerical precision and warning summaries. Data navigation and explicit example selection are later stages.
+
+To review this UI separately from the shortcut build, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. Keep the executable with its `_internal` folder. This preview build leaves the complete `dist/MLcookbook` bundle used by the existing shortcut intact; source launches already use the refreshed UI.
+
 A PySide6 desktop shell, launched with a single entry point:
 
 ```bash

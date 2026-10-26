@@ -77,6 +77,21 @@ MAX_CLASSES = 20  # app.py lists a column's classes when it has 2..MAX_CLASSES d
 UNCHECKED_ISSUES = {"likely_id", "constant", "all_missing"}  # start these columns unchecked
 TASK_LABELS = {"classification": "Classification (predict a class)", "regression": "Regression (predict a number)"}
 MULTICLASS = "All classes (multiclass)"
+# Presentation aliases for fixed metric captions, including saved older reports.
+# Unknown labels and user-supplied class/column names retain their exact case.
+METRIC_CAPTIONS = {
+    "ACCURACY": "Accuracy", "BALANCED ACC.": "Balanced accuracy", "PRECISION": "Precision", "RECALL": "Recall",
+    "MACRO F1": "Macro F1", "ARCHITECTURE": "Architecture", "QUANTIZATION": "Quantization",
+    "ROWS": "Rows", "TREES": "Trees", "CLUSTERS": "Clusters", "COMPONENTS": "Components",
+    "CONVERGED": "Converged", "EPOCHS": "Epochs", "PARAMETERS": "Parameters", "SUPPORT VECTORS": "Support vectors",
+    "INERTIA": "Inertia", "SILHOUETTE": "Silhouette", "BEST k (SILHOUETTE)": "Best k (silhouette)",
+    "DEPTH RANGE": "Depth range", "LEAF COUNT RANGE": "Leaf count range", "SHARE OF TRAINING ROWS": "Share of training rows",
+    "OUTPUT TOKENS": "Output tokens", "MODEL LOAD": "Model load", "TOKENS / SECOND": "Tokens / second",
+    "TOKENS / WALL SECOND": "Tokens / wall second", "VALID ROWS": "Valid rows", "WALL TIME": "Wall time",
+    "CRAMÉR'S V": "Cramér's V", "NORMALITY p": "Normality p", "SPREAD p": "Spread p", "SPREAD RHO": "Spread RHO",
+    "KRUSKAL p": "Kruskal p", "FISHER p": "Fisher p", "SKEW": "Skew", "EXCESS KURTOSIS": "Excess kurtosis",
+    "TRUST": "Trust", "PC1 SHARE": "PC1 share", "FOR 90%": "For 90%", "EIGENVALUE > 1": "Eigenvalue > 1",
+}
 
 
 class ReportScreen(QWidget):
@@ -336,7 +351,7 @@ class ReportScreen(QWidget):
         self.columns_help = help_label
         form.addWidget(help_label)
         self.columns = QTableWidget(0, 3)
-        self.columns.setHorizontalHeaderLabels(["USE / COLUMN", "TYPE", "MISSING"])
+        self.columns.setHorizontalHeaderLabels(["Use / column", "Type", "Missing"])
         self.columns.verticalHeader().setVisible(False)
         self.columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.columns.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -946,8 +961,10 @@ class ReportScreen(QWidget):
             tile_layout.setSpacing(2)
             number = QLabel(value)
             number.setObjectName("MetricValue")
-            caption = QLabel(label)
+            number.setWordWrap(True)
+            caption = QLabel(METRIC_CAPTIONS.get(label, label))
             caption.setObjectName("MetricLabel")
+            caption.setWordWrap(True)
             tile_layout.addWidget(number)
             tile_layout.addWidget(caption)
             row.addWidget(tile)
@@ -989,6 +1006,7 @@ class ReportScreen(QWidget):
 
     @staticmethod
     def _section_label(text: str) -> QLabel:
-        label = QLabel(text.upper())
+        label = QLabel(text)
         label.setObjectName("FieldLabel")
+        label.setWordWrap(True)
         return label

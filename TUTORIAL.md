@@ -4,6 +4,8 @@ A hands-on guide to all twelve desktop recipes, including the three Local LLM en
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
+The stage 1 UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. It uses the same recipe controls with updated typography, colors and headings. The existing shortcut still opens its previous bundle. The Data sidebar and opt-in examples are planned; the demo behavior described below still applies.
+
 ## Your first experiment
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
