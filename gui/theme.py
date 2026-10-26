@@ -44,6 +44,7 @@ CARD_PADDING = 20
 GRID_COLUMNS = 3
 WINDOW_MIN_WIDTH = 1080
 WINDOW_MIN_HEIGHT = 720
+SIDEBAR_WIDTH = 180
 
 
 def palette(name: str) -> str:
@@ -62,6 +63,18 @@ def stylesheet() -> str:
     }}
     QFrame#AppHeader {{ border-bottom: 1px solid {BORDER}; }}
     QFrame#AppHeader QLabel {{ background: transparent; }}
+    QFrame#Sidebar {{ background-color: {SURFACE}; border-right: 1px solid {BORDER}; }}
+    QFrame#Sidebar QLabel {{ background: transparent; }}
+    QPushButton#SidebarButton {{
+        background: transparent; color: {TEXT_MUTED}; border: 1px solid transparent;
+        border-radius: 6px; padding: 9px 10px; min-height: 20px; text-align: left;
+    }}
+    QPushButton#SidebarButton:hover {{ background-color: {CARD_HOVER}; color: {TEXT}; }}
+    QPushButton#SidebarButton:checked {{ background-color: {CARD}; color: {TEXT}; border-color: {BORDER}; }}
+    QPushButton#SidebarButton:focus {{ border-color: {BORDER_ACCENT}; }}
+    QPushButton#SidebarButton:disabled {{ color: {TEXT_FAINT}; }}
+    QLabel#SidebarCaption {{ font-size: 13px; color: {TEXT_MUTED}; }}
+    QLabel#SidebarDataset {{ font-size: 14px; color: {TEXT}; }}
     QLabel#Wordmark {{ font-size: 19px; font-weight: 500; color: {TEXT}; }}
     QLabel#PageTitle, QLabel#ScreenTitle {{ font-size: 24px; font-weight: 500; color: {TEXT}; }}
     QLabel#PageSubtitle, QLabel#ScreenSubtitle {{ font-size: 14px; color: {TEXT_MUTED}; }}

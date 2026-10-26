@@ -8,7 +8,7 @@ Adam requested the [UI roadmap](UI_ROADMAP.md) on 2026-10-24. The target is an i
 
 The plan starts with a source/build rollback baseline, then small visual, navigation, setup, report/reference, responsiveness and Windows-acceptance stages. It takes priority over REST endpoints, workflow graphs and further feature expansion. This records the plan; implement a stage only when explicitly asked. Existing uncommitted Movement Study work must survive implementation and rollback.
 
-Stage 1's shared visual system is implemented as a separate Windows preview for review. The Data sidebar is the next stage; navigation and automatic examples retain their current behavior until that stage is requested.
+Stages 1 and 2 provide the shared visual system and Data-first sidebar in a separate Windows preview. Data import/inspection and persistent routes are implemented; making examples opt-in is the next stage. Classical recipes still run examples when no ordinary dataset is active.
 
 ## Local LLM and workflow graphs
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Data-first sidebar with direct Recipes/Local LLMs/Movement Study navigation. Import/inspect CSV or Parquet before choosing an analysis, retain source-role and input identity boundaries, preserve recipe state through navigation, and lock routes during jobs. Imported/restored recipes skip preset-data construction. Saved Movement Studies retain an existing active ordinary dataset.
+
 - First UI roadmap stage: shared sans-serif typography and spacing, neutral surfaces, sentence-case headings, quieter recipe cards, readable plot/tree labels, and preserved report values/warnings. `build_windows.ps1 -Preview` creates a separate review bundle without replacing the shortcut's app.
 
 - Direct offline desktop handoff through `--movement-study`, `--study EXPORT_JSON` and `--experiment FILE_MLCB`; imports and snapshot opens never auto-train or evaluate holdouts. The PSoC companion assembles/verifies relocatable offline studies and propagates synthetic-data provenance.

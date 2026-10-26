@@ -99,6 +99,7 @@ class ReportScreen(QWidget):
     load_requested = Signal(str, str, str, str)  # path, delimiter, encoding, extra missing markers
     run_requested = Signal(dict)
     cancel_requested = Signal()
+    configuration_changed = Signal()
 
     def __init__(
         self,
@@ -162,12 +163,19 @@ class ReportScreen(QWidget):
         subtitle.setWordWrap(True)
         outer.addWidget(subtitle)
 
+        self.input_context = QLabel()
+        self.input_context.setObjectName("HelpText")
+        self.input_context.setTextFormat(Qt.TextFormat.PlainText)
+        self.input_context.setWordWrap(True)
+        self.input_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        outer.addWidget(self.input_context)
+
         actions = self._build_actions()
         body = QHBoxLayout()
         body.setSpacing(theme.SPACE_MD)
         self.body = body
         self.form_panel = self._build_form(report)
-        body.addWidget(self.form_panel, stretch=0)
+        body.addWidget(self.form_panel, stretch=4)
         results = QWidget()
         self.result_layout = QVBoxLayout(results)
         self.result_layout.setContentsMargins(0, 0, 0, 0)
@@ -183,7 +191,7 @@ class ReportScreen(QWidget):
         self.result_layout.addWidget(self.warning_button)
         self.report_widget = self._build_report(report)
         self.result_layout.addWidget(self.report_widget, stretch=1)
-        body.addWidget(results, stretch=1)
+        body.addWidget(results, stretch=6)
         outer.addLayout(body, stretch=1)
         outer.addWidget(actions)
 
@@ -401,7 +409,8 @@ class ReportScreen(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(panel)
-        scroll.setFixedWidth(412)
+        scroll.setMinimumWidth(300)
+        scroll.setMaximumWidth(412)
         self._task_changed()
         return scroll
 
@@ -630,6 +639,10 @@ class ReportScreen(QWidget):
                 message = ("Results match the current settings." if self.request() == self._report_request else
                            "Settings changed. Run Analysis to update the results.")
             self.set_status(self._problem() or message)
+        self.configuration_changed.emit()
+
+    def set_input_context(self, text: str):
+        self.input_context.setText(text)
 
     def _update_result_state(self):
         if not hasattr(self, "result_state"):

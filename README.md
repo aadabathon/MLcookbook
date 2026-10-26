@@ -142,7 +142,11 @@ Copy the shape of an existing one:
 
 ## Desktop app
 
-The first [UI roadmap](UI_ROADMAP.md) stage refreshes the existing recipe layout with shared sans-serif typography, neutral surfaces and borders, sentence-case headings, clearer focus states, and restrained accent colors. Ready cards no longer repeat a status badge or decorative symbol. Reports retain their numerical precision and warning summaries. Data navigation and explicit example selection are later stages.
+The [UI roadmap](UI_ROADMAP.md) now includes a persistent sidebar with **Data** first, followed by **Recipes**, **Local LLMs** and **Movement Study**. The app opens on Data: import CSV/Parquet, inspect the first 20 rows, source roles, missing values and data checks, then choose a recipe. The sidebar identifies the active dataset; each recipe also identifies its own input. Typed prompts and fixed-group movement studies retain their separate input context.
+
+Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening an ordinary saved experiment makes its embedded snapshot active, while opening a Movement Study snapshot retains any existing ordinary dataset. Data's CSV options persist separately from recipe controls.
+
+The shared visual system keeps sans-serif typography, neutral surfaces, sentence-case headings, clear focus states and restrained accent colors. Ready cards omit decorative symbols and repeated badges. With an imported dataset, a recipe opens directly on that data without constructing an example. Without one, classical recipes still run their bundled demos; making examples opt-in is the next stage.
 
 To review this UI separately from the shortcut build, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. Keep the executable with its `_internal` folder. This preview build leaves the complete `dist/MLcookbook` bundle used by the existing shortcut intact; source launches already use the refreshed UI.
 

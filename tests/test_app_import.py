@@ -1155,11 +1155,11 @@ def test_failed_experiment_open_preserves_current_work(controller, qt, tmp_path,
     assert controller.window.open_experiment_button.isEnabled()
 
 
-def test_empty_experiment_and_failed_open_from_home(controller, qt, tmp_path, linear_df):
+def test_empty_experiment_and_failed_open_from_data(controller, qt, tmp_path, linear_df):
     controller.open_experiment(str(tmp_path / "missing.mlcb"))
     finish(controller, qt)
-    assert controller.screen is None
-    assert "Unable to complete" in controller.window.statusBar().currentMessage()
+    assert isinstance(controller.screen, app.DataScreen)
+    assert "Unable to complete" in controller.screen.status.text()
     open_recipe(controller, "model-comparison")
     use_frame(controller, linear_df)
     assert controller.screen.request()["target"] is None

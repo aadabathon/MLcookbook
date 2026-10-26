@@ -1,15 +1,25 @@
 # Using ML Cookbook
 
-A hands-on guide to all twelve desktop recipes, including the three Local LLM engines. Start with a built-in demo, then use the same controls with your own data. The examples below are learning exercises, not evidence about real housing markets.
+A hands-on guide to all twelve desktop recipes, including the three Local LLM engines. Import your own data from the sidebar or explore a bundled example. The examples below are learning exercises, not evidence about real housing markets.
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
-The stage 1 UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. It uses the same recipe controls with updated typography, colors and headings. The existing shortcut still opens its previous bundle. The Data sidebar and opt-in examples are planned; the demo behavior described below still applies.
+The sidebar UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. The first visual preview is preserved at `dist/ui-stage1/MLcookbook/MLcookbook.exe` with its matching runtime. Opt-in examples are the next stage; the demo behavior described below still applies.
+
+## Start with your data
+
+1. Launch the sidebar preview or source app. **Data** opens first. Click **Open CSV / Parquet…**; expand **CSV import options** first if you need another delimiter, encoding or extra missing markers.
+2. Review the preview, **Data checks**, source path/snapshot identity and **Columns and source roles**. Roles here are read-only; they describe statistical meaning and do not convert values.
+3. Click **Recipes**, then choose an analysis. It receives the active dataset and waits for your target/features and **Run Analysis**. No example is constructed for this visit.
+4. Adjust roles within that recipe if needed. Returning through **Data** or another recipe preserves its unrun choices and previous results; the Data page continues to show the original source roles.
+5. Use **Save experiment…** from a recipe to retain its data snapshot, controls and last result. Data alone is not a saved workspace/project. A successful file replacement clears previous recipe sessions; a failed import keeps them.
+
+The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** line on each recipe identifies what that screen will use: a file/snapshot, a built-in example, a typed LLM prompt or a Movement Study. Study imports and reserved groups stay separate; opening a saved study preserves an existing active tabular dataset. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
 
 ## Your first experiment
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
-2. Open **Linear Regression**. With no imported file, the classical recipes run a bundled demo in the background. Wait for completion; the diabetes demo predicts `progression`. These demonstrations are for learning the software.
+2. Click **Recipes → Linear Regression**. With no imported file, classical recipes run a bundled demo in the background. Wait for completion; the diabetes demo predicts `progression`. These demonstrations are for learning the software. With an imported file, choose its target/features and run instead.
 3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model & validation settings** to try ridge or lasso. Open **Preprocessing & validation...** inside that section to inspect the preprocessing and training-fold settings.
 4. Change one setting and click **Run Analysis**. Until that succeeds, the result banner identifies the previous result. Editing controls alone does not retrain a model.
 5. Click **Save experiment...** and choose a `.mlcb` file. Return to the recipe list or close the app, then use **Open experiment...** to restore it.
