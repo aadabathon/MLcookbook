@@ -4,6 +4,38 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## UI roadmap stage 3 — 2026-10-25
+
+Opening a recipe now waits for an explicit action. **Run example** first loads a bundled dataset in a background job, prepares GUI controls, then runs the analysis in a second job while navigation stays locked. Only success switches the visible input/report. **View example** restores a cached example without training, including invalid unrun settings you need to repair; **Run Analysis** reruns it. **Use my data** restores the ordinary-data result and unrun edits. Own/example settings and last views remain separate in memory; Save/Open still stores one recipe and its effective dataset, with the same strict state keys and `.mlcb` format. Saved examples reopen offline without becoming ordinary input or removing an independent study session.
+
+Empty classical setup cannot Run/Save. Typed LLM prompts use zero-row string storage and still generate/save/reopen without a tabular import; row and structured workflows require data. No model is loaded on navigation. Core algorithms and result schemas are unchanged. The previous sidebar build is preserved in `dist/ui-stage2/MLcookbook`, and its 118-file source checkpoint is in `ui-stage3/baseline/`. The current candidate continues to use `dist/ui-preview/MLcookbook`; the original shortcut is unchanged.
+
+Source validation: **528 tests passed**, Ruff/dependency checks passed; 60 existing sklearn SVC deprecation warnings remain. Native Windows inspection covered 96 states at 100%/125%/150%, including loading progress, exact own/example edits/results, cached-invalid-setting repair, failures, source-free saved examples, minimum-size actions/metrics, empty typed prompts and study isolation. The requested PR uses separate commits for the existing Movement prerequisite, visual system, Data sidebar and explicit examples.
+
+Windows validation: all 47 checked candidate modules match final source, and native startup/normal close passed. The same frozen PYZ/runtime passed first example loading/analysis, cached-invalid example access without training, repair/rerun and exact own-data return; saved examples reopen independently. It also restored a legacy sealed Movement Study with zero evaluations and generated real offline CPU SmolLM2 text. The temporary helper exited normally and was removed. All 6,216 original production files remain unchanged. The final candidate SHA-256 is `610f487e338f1e056af6584f5cc0d1837b48bf014330912e4f27300366055a44`; reports are under `ui-stage3/`. No model downloads, managed services, dependency changes or shortcut promotion were added.
+
+## UI roadmap stage 2 — 2026-10-25
+
+The app now starts on **Data**, with persistent sidebar routes for **Recipes**, **Local LLMs** and **Movement Study**. Import CSV/Parquet before choosing an analysis, inspect the first 20 rows, read-only source roles/missing counts and data checks, then open a recipe. The sidebar identifies the active ordinary dataset, while an **Input:** line identifies the actual recipe source, including typed prompts, examples and independent movement holdouts. Imported/restored recipes skip preset construction. Navigation keeps results, stale state, overrides and unrun controls; file replacement invalidates old sessions and failed imports/opens preserve work. Data's unrun CSV controls stay separate from the applied import provenance and each recipe's saved options.
+
+Movement Study imports and saved study opens keep fixed holdouts separate and preserve an existing ordinary dataset and its recipe sessions. Explicit accepted LLM fields become the active dataset while the LLM source run stays available. Opening a regular experiment activates its embedded snapshot without rereading the original file. Data alone is not a new project/save format. Examples remain automatic when no ordinary file is active; opt-in examples are stage 3.
+
+The candidate remains `dist/ui-preview/MLcookbook/MLcookbook.exe` (`./build_windows.ps1 -Preview`). The complete prior visual preview is preserved at `dist/ui-stage1/MLcookbook`; the original shortcut bundle remains at `dist/MLcookbook`. Recovery source before this stage is the verified 115-file `ui-stage2/baseline/source.zip` alongside stage 1's QA directory. Revert only stage-specific hunks against that dirty-source checkpoint so the previous UI and Movement Study work survive. No commit or shortcut promotion is implied by this preview.
+
+Source validation: **500 tests passed**, Ruff and dependency checks passed; the 60 existing SVC deprecation warnings remain. New coverage includes five Data presentation cases and sixteen coordinator/sidebar cases. Native Windows inspection covered 63 views at 100%/125%/150%, including minimum-size fields/metrics, distinct LLM/study inputs, exact role/stale-report restoration, failed imports and original-file-absent saved reopening. No clipping flags, Qt/Python warnings or forced window expansion were observed. All 55 core/Movement/plot source files checked against the prior dirty baseline remain unchanged.
+
+Windows validation: the rebuilt candidate's 47 checked modules match source, and it opens/closes normally without Python on PATH. A temporary QA executable using the same PYZ and `_internal` passed Data import/leading-zero IDs, no-preset navigation, source-free Save/Open, failed-import recovery and typed-prompt identity before any optional model import. It restored a legacy stage 1 Movement Study with zero evaluation calls and sealed test groups, then generated real offline CPU SmolLM2 text. The helper exited normally and was removed; all 6,216 original shortcut-bundle files remain unchanged. Evidence is in `ui-stage2/packaging-validation.json` and related logs. An initial QA-only Qt shutdown issue was corrected by retaining one QApplication; no product changes were needed. No dependency, network service, model download, release, shortcut promotion or Git mutation was added.
+
+## UI roadmap stage 1 — 2026-10-25
+
+The first requested slice keeps the recipe catalog and analytical widgets while applying one sans-serif type system, neutral surfaces/borders, restrained accent colors, sentence-case section headings, and left-aligned cards without decorative symbols or repeated Ready labels. Plot/tree fonts share the theme, axis margins account for tick widths, and tree connections use a readable neutral line. Metric caption aliases affect display only; exact values, arbitrary names and saved report data retain their original strings. Warnings, stale results, keyboard actions and experiment controls remain visible.
+
+The complete stage 1 candidate is now preserved at `dist/ui-stage1/MLcookbook/MLcookbook.exe`, together with its `_internal` folder. Current candidates build with `./build_windows.ps1 -Preview`. The existing shortcut still points to `dist/MLcookbook/MLcookbook.exe`; its complete bundle is preserved. Neither the shortcut nor a release was updated. At this checkpoint, Data-first navigation, explicit examples, reference content and startup work were scheduled as later [UI roadmap](UI_ROADMAP.md) stages.
+
+Source recovery evidence is outside Git at `C:/Users/adams/.codex/visualizations/2026/10/25/01a17148-2348-7b22-af8a-4a0517a8d864/`: the verified `ui-baseline-2026-10-24/source.zip` includes the pre-existing dirty Movement Study work, while `ui-stage1/rollback/` records only changes since that checkpoint, their preimages and hashes. Revert individual UI hunks after checking subsequent edits; do not reset to HEAD, which predates the uncommitted Movement integration. Native captures and packaging checks live in `ui-stage1/`.
+
+Verification: **479 tests passed**, Ruff, dependency checks and `git diff --check` passed. The same 60 sklearn SVC deprecation warnings remain. Native Windows inspection covered home, imported setup/results, regression/classification, complete trees, long tables, Local LLMs, Movement Study and dialogs, including minimum size, keyboard focus and metric/painter text at 100%/125%/150% scaling. The candidate's 46 checked modules match final source; it launched responsively and closed normally with Python removed from PATH. A QA helper using its exact frozen PYZ/runtime generated real offline CPU SmolLM2 text and restored a synthetic saved Movement Study with source files absent, unrun edits preserved, zero evaluation calls and test groups sealed. The exact temporary helper was removed. All 6,216 original shortcut-bundle files remain byte-for-byte unchanged. No dependencies, models, services, shortcut promotion, release, commit or push were added.
+
 ## Structured text workflows - 2026-10-19
 
 The third roadmap milestone is implemented at my request. Open **Local LLMs**, choose a structured workflow and server engine, import text rows, check only input columns, and **Use task template with selected columns**. Templates bind `{{column name}}` literally. Fields use `new_name: text/numeric/boolean/categorical`, with optional `: label | label` for categorical values. The tutorial now walks through extracting fields from the practice housing notes.
@@ -231,3 +263,33 @@ Agents read `AGENTS.md` / `CLAUDE.md` and know not to build roadmap features for
 ## Scratch space for ideas
 
 - (jot things here)
+
+
+## Native wearable workflow — 2026-10-22
+
+The PSoC belt project is now integrated directly into **Movement Study**. After collecting/auditing recordings, prepare the belt dataset and run `wearable.py export-mlcookbook` in its analysis repository. Open the resulting `export.json` in this card, then **Run grouped baselines**. Whole-person/session splits stay fixed; the final test remains sealed by default. Save an experiment to keep settings/results and the typed feature/lineage snapshot together. Reopen and rerun offline even if the original export folder moved. **Export evaluation…** retains metrics, predictions, probabilities and source times as JSON.
+
+The native function is also called by the wearable CLI, so GUI and CLI share evaluation logic. IDs/times cannot be predictors, and test rows are not handed to the other recipe cards. Logistic regression/random forest are baselines, not the DEEPCRAFT temporal CNN. The PSoC project contains a clearly marked synthetic smoke study for trying the workflow; its scores are not evidence of real activity/fall recognition. The user still supplies physical build, real recordings, Studio training/export and on-board checks.
+
+Verification of the movement port: **454 MLcookbook tests** and **47 wearable pipeline tests** passed, plus the four host firmware suites and actual firmware-dump import check. Ruff and dependency checks passed. Native Windows rendering was inspected at normal and minimum sizes; synthetic import/run/export/save/reopen succeeded. The rebuilt executable creates its native window with Python removed from PATH; its five integration modules were checked against final source. Evidence is in the PSoC project’s `workingDir/build/mlcookbook-port/`. No real classifier accuracy or hardware behavior is claimed, and no Git commit was made.
+
+
+The same desktop entry point accepts direct offline handoffs:
+
+```powershell
+python -m mlcookbook --movement-study
+python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
+python -m mlcookbook --experiment C:/path/to/study.mlcb
+# The portable EXE accepts the same arguments.
+```
+
+Opening verifies/imports the study or restores the saved snapshot without fitting
+a model. The empty Movement Study card and new imports default to sealed test
+groups; saved experiments retain their explicit unrun choices without running
+them. Qt command-line options are forwarded separately. Failed imports leave
+the app usable with the error in its status area. The PSoC companion now provides
+`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
+native grouped baselines in one new folder, plus `verify-study` and a PowerShell
+launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
+separate evidence. Synthetic provenance propagates from sessions automatically,
+and mixed real/synthetic preparation is rejected.

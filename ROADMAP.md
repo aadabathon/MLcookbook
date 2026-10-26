@@ -2,6 +2,14 @@
 
 Originally features left for hands-on implementation; most were built at Adam's request on 2026-10-12 (marked [x]). Each should follow the existing patterns: schema-validated inputs, frozen result dataclasses with warnings, leakage-safe pipelines, sklearn/scipy for the math.
 
+## Current priority: desktop UI and dataset workflow
+
+Adam requested the [UI roadmap](UI_ROADMAP.md) on 2026-10-24. The target is an intuitive graduate-level ML workspace: keep the recipe catalog and analytical widgets, put Data at the top of a persistent sidebar, make examples opt-in, and establish consistent typography/color/emphasis. Technical reference replaces API-first About content; a tutorial-first product is not the direction.
+
+The plan starts with a source/build rollback baseline, then small visual, navigation, setup, report/reference, responsiveness and Windows-acceptance stages. It takes priority over REST endpoints, workflow graphs and further feature expansion. This records the plan; implement a stage only when explicitly asked. Existing uncommitted Movement Study work must survive implementation and rollback.
+
+Stages 1–3 provide the shared visual system, Data-first sidebar and opt-in examples in a separate Windows preview. Recipe navigation performs no analysis; explicit examples retain their own state and preserve ordinary data. Forms/reference organization is the next stage.
+
 ## Local LLM and workflow graphs
 
 Requested by Adam on 2026-10-19. The direction is one desktop workbench: choose a local inference engine, run useful tasks on data, and connect those tasks to existing ML recipes in a visible, repeatable workflow.

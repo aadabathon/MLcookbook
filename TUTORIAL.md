@@ -1,18 +1,32 @@
 # Using ML Cookbook
 
-A hands-on guide to all eleven desktop recipes, including the three Local LLM engines. Start with a built-in demo, then use the same controls with your own data. The examples below are learning exercises, not evidence about real housing markets.
+A hands-on guide to all twelve desktop recipes, including the three Local LLM engines. Import your own data from the sidebar or explore a bundled example. The examples below are learning exercises, not evidence about real housing markets.
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
+
+The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. Complete earlier previews are preserved at `dist/ui-stage1/MLcookbook` and `dist/ui-stage2/MLcookbook`, each with its matching runtime. Examples now require an explicit action.
+
+## Start with your data
+
+1. Launch the sidebar preview or source app. **Data** opens first. Click **Open CSV / Parquet…**; expand **CSV import options** first if you need another delimiter, encoding or extra missing markers.
+2. Review the preview, **Data checks**, source path/snapshot identity and **Columns and source roles**. Roles here are read-only; they describe statistical meaning and do not convert values.
+3. Click **Recipes**, then choose an analysis. It receives the active dataset and waits for your target/features and **Run Analysis**. No example is constructed for this visit.
+4. Adjust roles within that recipe if needed. Returning through **Data** or another recipe preserves its unrun choices and previous results; the Data page continues to show the original source roles.
+5. Use **Save experiment…** from a recipe to retain its data snapshot, controls and last result. Data alone is not a saved workspace/project. A successful file replacement clears previous recipe sessions; a failed import keeps them.
+
+The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** line on each recipe identifies what that screen will use: a file/snapshot, a built-in example, a typed LLM prompt or a Movement Study. Study imports and reserved groups stay separate; opening a saved study preserves an existing active tabular dataset. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
 
 ## Your first experiment
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
-2. Open **Linear Regression**. With no imported file, the classical recipes run a bundled demo in the background. Wait for completion; the diabetes demo predicts `progression`. These demonstrations are for learning the software.
+2. Click **Recipes → Linear Regression**. Opening it does not run an analysis. Choose target/features for your imported file and **Run Analysis**, or click **Run example** for the bundled diabetes example predicting `progression`. Example loading and analysis run in the background.
 3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model & validation settings** to try ridge or lasso. Open **Preprocessing & validation...** inside that section to inspect the preprocessing and training-fold settings.
 4. Change one setting and click **Run Analysis**. Until that succeeds, the result banner identifies the previous result. Editing controls alone does not retrain a model.
 5. Click **Save experiment...** and choose a `.mlcb` file. Return to the recipe list or close the app, then use **Open experiment...** to restore it.
 
 Local LLMs opens a setup screen instead of running a model automatically. Its steps are in [recipe 10](#10-local-llms).
+
+While viewing an example, **Use my data** restores this recipe's own-data report and unrun choices. The sidebar continues to identify your active file while **Input:** identifies the example. **View example** returns to a cached example without rerunning, including invalid unrun edits you need to repair. Example edits stay with that example; **Run Analysis** reruns it. Switching to Data or another recipe and back restores the last view without retraining. Opening a saved example restores its embedded data/results without replacing an existing ordinary dataset. Empty classical setup screens cannot be saved until a dataset/example is loaded.
 
 An experiment saves one recipe, the full typed dataset snapshot, current controls, and the last completed report with the settings that produced it. It also keeps unrun edits. Reopening does not train, contact an inference server, or reread the original CSV/model files. Model weights and fitted classical estimators are not embedded. A failed run leaves the previous completed report visible.
 
@@ -409,3 +423,41 @@ A future model inspector could open inside a selected model node. A useful first
 For your TensorFlow background, [TensorBoard's Graphs dashboard](https://www.tensorflow.org/tensorboard/graphs) already provides model/operation inspection from logged graphs. [Netron](https://github.com/lutzroeder/netron) is another existing model-file viewer with support for multiple formats. They are references or separate tools, not installed integrations in ML Cookbook. TensorFlow training, model-graph import/editing, cross-framework conversion, and attention/activation inspection are not implemented here.
 
 For LLM research, a useful order is: make prompt runs reproducible, measure extraction quality against references, connect the resulting data to recipes, then add a PyTorch model inspector. That gives each visual node an output and evaluation you can actually inspect.
+
+
+## Movement Study: fixed participant/session holdouts
+
+Open **Movement Study**, then select the wearable pipeline's `export.json`.
+The manifest and split/index CSVs are one study; opening `train.csv` in an
+ordinary recipe is useful for exploration but does not preserve grouped model
+evaluation. Review Data checks, keep the final test sealed, and run grouped
+baselines. The report compares two candidates on validation groups and records
+the complete fold/group assignments. Save an experiment to retain an offline
+snapshot, or export evaluation JSON with probabilities and clock lineage.
+
+When ready for a final test, freeze your decisions first, choose **Evaluate
+frozen final test**, run once, and retain that experiment. Its score was not
+used to select the candidate. Window classification is separate from continuous
+fall-event evaluation and DEEPCRAFT CNN training. A synthetic study is only a
+software demonstration.
+
+
+The same desktop entry point accepts direct offline handoffs:
+
+```powershell
+python -m mlcookbook --movement-study
+python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
+python -m mlcookbook --experiment C:/path/to/study.mlcb
+# The portable EXE accepts the same arguments.
+```
+
+Opening verifies/imports the study or restores the saved snapshot without fitting
+a model. The empty Movement Study card and new imports default to sealed test
+groups; saved experiments retain their explicit unrun choices without running
+them. Qt command-line options are forwarded separately. Failed imports leave
+the app usable with the error in its status area. The PSoC companion now provides
+`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
+native grouped baselines in one new folder, plus `verify-study` and a PowerShell
+launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
+separate evidence. Synthetic provenance propagates from sessions automatically,
+and mixed real/synthetic preparation is rejected.

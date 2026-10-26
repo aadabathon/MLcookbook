@@ -19,6 +19,7 @@ Launch with:  python -m mlcookbook
 
 from __future__ import annotations
 
+import argparse
 import inspect
 import sys
 from copy import deepcopy
@@ -31,7 +32,7 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
         if _p not in sys.path:
             sys.path.insert(0, _p)
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -40,6 +41,7 @@ from gui.front_page import FrontPage
 from gui.main_window import MainWindow
 from gui.recipes import RECIPES, Recipe
 from gui.screens.association_scan import AssociationScanScreen
+from gui.screens.data import DataScreen
 from gui.screens.decision_tree import DecisionTreeScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
@@ -49,8 +51,9 @@ from gui.screens.model_comparison import ModelComparisonScreen
 from gui.screens.neural_network import NeuralNetworkScreen
 from gui.screens.pca import PCAScreen
 from gui.screens.random_forest import RandomForestScreen
-from gui.screens.report_screen import MAX_CLASSES
+from gui.screens.report_screen import MAX_CLASSES, ReportScreen
 from gui.screens.svm import SVMScreen
+from gui.screens.wearable import WearableScreen
 
 MAX_PLOT_POINTS = 3000  # scatter plots draw a deterministic sample beyond this
 
@@ -103,7 +106,14 @@ def _prompt_frame():
 
 
 # key -> (frame factory, display name, target, positive class)
+def _movement_placeholder():
+    import pandas as pd
+
+    return pd.DataFrame({"movement_study": ["Open the wearable export.json to begin."]})
+
+
 DEMOS = {
+    "wearable-study": (_movement_placeholder, "No movement study selected", None, None),
     "llm": (_prompt_frame, "Example prompts", None, None),
     "model-comparison": (_diabetes_frame, "Diabetes", "progression", None),
     "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
@@ -1124,11 +1134,51 @@ REGRESSION_TWINS = {"decision-tree": "decision_tree_regression", "random-forest"
                     "svm": "svm_regression", "neural-network": "neural_network_regression"}
 
 
+def _wearable_report(dataset, req, name):
+    from mlcookbook import evaluate_wearable
+
+    result = evaluate_wearable(dataset, **req["params"])
+    data = result.to_dict()
+    selected = data["candidates"][data["selected_model"]]
+    groups = {split: sum(value == split for value in result.group_splits.values())
+              for split in ("train", "validation", "test")}
+    metrics = [{"title": "Fixed validation groups", "items": [
+        ("Macro F1", _num(selected["validation"]["macro_f1"])),
+        ("Balanced accuracy", _num(selected["validation"]["balanced_accuracy"])),
+        ("Accuracy", _num(selected["validation"]["accuracy"]))]}]
+    if result.final_test_evaluated:
+        metrics.append({"title": "Frozen final test groups", "items": [
+            ("Macro F1", _num(selected["test"]["macro_f1"])),
+            ("Balanced accuracy", _num(selected["test"]["balanced_accuracy"]))]})
+    validation = selected["validation"]
+    return {"dataset": name, "target": "Human movement label", "features": f"{len(result.features)} fixed window summaries; IDs and times excluded",
+            "settings": f"Whole-{result.group_by} splits · seed {result.seed} · test {'evaluated' if result.final_test_evaluated else 'sealed'}",
+            "summary": ("Synthetic integration fixture. " if any(w.startswith("Synthetic fixture") for w in result.warnings) else "") + f"Selected {result.selected_model.replace('_', ' ')} using macro F1 on separate validation groups. "
+                       f"Groups: {groups['train']} training, {groups['validation']} validation, {groups['test']} test. "
+                       "These classical baselines do not train the board CNN or establish fall-event performance.",
+            "metric_groups": metrics,
+            "tables": [{"title": "Validation comparison", "headers": ["Candidate", "Macro F1", "Balanced accuracy", "Group folds"],
+                        "rows": [[key.replace('_', ' '), _num(value["validation"]["macro_f1"]),
+                                  _num(value["validation"]["balanced_accuracy"]), str(len(value["grouped_cv"]))]
+                                 for key, value in result.candidates.items()], "stretch_column": 0},
+                       {"title": "Validation confusion matrix · actual rows / predicted columns",
+                        "headers": ["Actual / predicted", *result.labels],
+                        "rows": [[label, *map(str, row)] for label, row in zip(result.labels, validation["confusion_matrix"])],
+                        "stretch_column": 0},
+                       {"title": "Fixed group assignments", "headers": ["Group", "Split"],
+                        "rows": [[key, value] for key, value in sorted(result.group_splits.items())], "stretch_column": 0}],
+            "warnings": [*result.warnings, *result.limitations], "wearable_evaluation": data}
+
+
+REPORT_BUILDERS["wearable-study"] = _wearable_report
+
+
 def _screens():
     from mlcookbook import (
         association_scan,
         compare_regressors,
         decision_tree,
+        evaluate_wearable,
         generate_text,
         kmeans,
         linear_regression,
@@ -1140,6 +1190,7 @@ def _screens():
     )
 
     return {
+        "wearable-study": (evaluate_wearable, WearableScreen),
         "llm": (generate_text, LLMScreen),
         "model-comparison": (compare_regressors, ModelComparisonScreen),
         "linear-regression": (linear_regression, LinearRegressionScreen),
@@ -1154,11 +1205,9 @@ def _screens():
     }
 
 
-def _default_screen(key, demo=True):
+def _default_screen(key, demo=True, setup=False):
     from mlcookbook import Dataset
 
-    make_frame, name, target, positive = DEMOS[key]
-    dataset = Dataset(make_frame())
     func, screen_class = _screens()[key]
     engine = _engine_info(func)
     engine["description"] = next(recipe.description for recipe in RECIPES if recipe.key == key)
@@ -1166,7 +1215,22 @@ def _default_screen(key, demo=True):
         engine["summary"] = (engine["summary"].replace("Fit a classification", "Fit a")
                              + f" The Regression task runs mlcookbook.{REGRESSION_TWINS[key]} instead.")
     screen = screen_class(engine, {})
-    screen.is_example = key != "llm"
+    if setup:
+        import pandas as pd
+
+        # Empty typed-prompt storage is deliberately not a preset dataset.
+        frame = pd.DataFrame({"prompt": pd.Series(dtype="string")}) if key == "llm" else pd.DataFrame()
+        screen.dataset = Dataset(frame, overrides={"prompt": "text"} if key == "llm" else None)
+        screen.dataset_name = "No dataset selected"
+        screen.source = {"kind": "empty"}
+        screen.set_dataset(_dataset_view(screen.dataset, screen.dataset_name))
+        screen.set_status("Choose a local model and write a prompt." if key == "llm" else
+                          "Open a movement study export." if key == "wearable-study" else
+                          "Open a dataset in Data or run the built-in example.")
+        return screen
+    make_frame, name, target, positive = DEMOS[key]
+    dataset = Dataset(make_frame())
+    screen.is_example = key not in ("llm", "wearable-study")
     screen.set_dataset(_dataset_view(dataset, name), target=target)
     if positive is not None:
         screen.positive.setCurrentText(positive)
@@ -1175,12 +1239,13 @@ def _default_screen(key, demo=True):
     screen.source = {"kind": "demo", "recipe": key}
     if demo and getattr(screen, "auto_run_demo", True):
         screen.show_report(_run_report(key, dataset, name, screen.request()))
-    screen.set_status("Choose a local model folder, write a prompt, and generate text." if key == "llm" else
+    screen.set_status("Open the export.json from the wearable pipeline; no recording is loaded automatically." if key == "wearable-study" else
+                      "Choose a local model folder, write a prompt, and generate text." if key == "llm" else
                       "Built-in example. Open your own file or adjust the selections and run.")
     return screen
 
 
-SCREEN_FACTORIES = {key: (lambda demo=True, key=key: _default_screen(key, demo)) for key in DEMOS}
+SCREEN_FACTORIES = {key: (lambda demo=True, setup=False, key=key: _default_screen(key, demo, setup)) for key in DEMOS}
 
 
 def _dataset_view(dataset, name, import_report=None):
@@ -1265,12 +1330,84 @@ class MLCookbookApp:
         self.window = MainWindow()
         self.imported = None
         self.job = None
+        self._job_continuation = None
         self.screen = None
+        self.key = "recipes"
+        self.data_options = {}
+        self.data_status = ""
         self.sessions: dict[str, dict] = {}
+        self.workspace_sessions: dict[str, dict] = {}
+        self.example_sessions: dict[str, dict] = {}
         self.window.experiment_open_requested.connect(self.open_experiment)
         self.window.experiment_save_requested.connect(self.save_experiment)
+        self.window.navigation_requested.connect(self.navigate)
         QApplication.instance().aboutToQuit.connect(self.wait_for_job)
-        self.show_front_page()
+        self.show_data_page()
+
+    def navigate(self, key):
+        if self.job is not None:
+            return
+        if key == "data":
+            self.show_data_page()
+        elif key == "recipes":
+            self.show_front_page()
+        elif key in ("llm", "wearable-study"):
+            self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key))
+
+    def _refresh_shell(self):
+        busy = self.job is not None
+        self.window.set_navigation(self.key, busy=busy)
+        can_save = isinstance(self.screen, ReportScreen) and bool(self.screen.view["columns"])
+        self.window.set_experiment_actions(can_save=can_save, busy=busy)
+        if isinstance(self.screen, ReportScreen):
+            self.screen.set_example_actions(available=self.key not in ("llm", "wearable-study"),
+                                            using_example=self.screen.is_example,
+                                            has_workspace=self.imported is not None,
+                                            has_example=self.key in self.example_sessions)
+        if self.imported is None:
+            self.window.set_dataset_context("", "")
+        else:
+            _, name, view = self.imported
+            self.window.set_dataset_context(name, f"{view['rows']} rows · {len(view['columns'])} columns")
+
+    def _workspace_view(self):
+        if self.imported is None:
+            return None
+        view = deepcopy(self.imported[2])
+        source = view.get("source", {})
+        details = []
+        if view.get("snapshot_fingerprint"):
+            details.append("Saved dataset snapshot · SHA-256 " + view["snapshot_fingerprint"])
+        if source.get("kind") == "file":
+            details.append("Source at import: " + source.get("path", view["name"]))
+            if Path(source.get("path", "")).suffix.lower() == ".csv":
+                delimiter = {",": "comma", ";": "semicolon", "\t": "tab", "|": "pipe"}.get(source.get("delimiter"), "unspecified")
+                details.append(f"CSV at import: {delimiter} delimiter · {source.get('encoding', 'encoding unavailable')} encoding")
+                if source.get("missing_markers"):
+                    details.append("Extra missing markers: " + ", ".join(source["missing_markers"]))
+            details.append("The workspace holds the imported values; opening Data does not reread the file.")
+        elif source.get("run_id") or source.get("original_source"):
+            details.append("Dataset with accepted LLM-generated columns. Review generated values and lineage in Local LLMs.")
+            if source.get("run_id"):
+                details.append("Source run: " + source["run_id"])
+        elif not details:
+            details.append("Dataset snapshot: " + view["name"])
+        view["source_summary"] = "\n".join(details)
+        return view
+
+    def show_data_page(self):
+        if self.job is not None:
+            return
+        self._remember_screen()
+        page = DataScreen()
+        page.restore_import_options(self.data_options)
+        page.set_dataset(self._workspace_view())
+        page.set_status(self.data_status)
+        page.load_requested.connect(self.load_file)
+        self.screen, self.key = page, "data"
+        self.window.show_screen(page)
+        self.window.set_status("")
+        self._refresh_shell()
 
     def wait_for_job(self):
         if self.job is not None:
@@ -1281,66 +1418,180 @@ class MLCookbookApp:
             return
         self._remember_screen()
         self.screen = None
+        self.key = "recipes"
         page = FrontPage()
         page.recipe_selected.connect(self.open_recipe)
         self.window.show_screen(page)
-        self.window.set_experiment_actions(can_save=False, busy=False)
+        self.window.set_status("")
+        self._refresh_shell()
 
-    def open_recipe(self, recipe: Recipe) -> None:
+    def open_recipe(self, recipe: Recipe, *, remember=True) -> None:
         if self.job is not None:
             return
         factory = SCREEN_FACTORIES.get(recipe.key)
         if factory is None:
             return
-        self._remember_screen()
-        screen = factory(demo=False)
+        if remember:
+            self._remember_screen()
+        saved = self.sessions.get(recipe.key)
+        screen = factory(demo=False, setup=True)
         self.screen = screen
         self.key = recipe.key
-        saved = self.sessions.get(recipe.key)
         if saved is not None:
             screen.dataset = saved["dataset"]
             screen.dataset_name = saved["name"]
             screen.set_dataset(saved["view"])
             screen.source = saved["source"]
-        elif self.imported is not None:
+        elif self.imported is not None and recipe.key != "wearable-study":
             self._display_import(self.imported)
         self._connect_screen(screen)
         self.window.show_screen(screen)
         if saved is not None:
             screen.restore_session(saved["state"])
-        elif self.imported is None and getattr(screen, "auto_run_demo", True):
-            self.run_analysis(screen.request())
+        self._update_input_context()
+        self._refresh_shell()
+
+    def run_example(self):
+        """Restore a cached example, or load/run its first result before switching."""
+        if self.job is not None or not isinstance(self.screen, ReportScreen) or self.key in ("llm", "wearable-study"):
+            return
+        self._remember_screen()
+        key = self.key
+        saved = self.example_sessions.get(key)
+        if saved is not None and not self.screen.is_example:
+            # Restore even invalid/unrun edits so they can be repaired. Never
+            # make access to the cached example depend on a successful rerun.
+            self.sessions[key] = saved
+            self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key), remember=False)
+            return
+        loaded = {}
+
+        def prepare(value):
+            loaded["value"] = value
+
+        def start_analysis():
+            if "value" not in loaded:
+                return False
+            dataset, name, view, target, positive = loaded["value"]
+            candidate = SCREEN_FACTORIES[key](demo=False, setup=True)
+            try:
+                candidate.dataset, candidate.dataset_name = dataset, name
+                candidate.source, candidate.is_example = {"kind": "demo", "recipe": key}, True
+                candidate.set_dataset(view, target=target)
+                if saved is not None:
+                    candidate.restore_session(saved["state"])
+                elif positive is not None:
+                    candidate.positive.setCurrentText(positive)
+                request = candidate.request()
+            except Exception:
+                candidate.deleteLater()
+                raise
+
+            def accept(report):
+                candidate.show_report(report, request=request)
+                candidate.set_status("Built-in example. Analysis complete. Your active dataset and choices are kept.")
+                self.screen = candidate
+                self._connect_screen(candidate)
+                self.window.show_screen(candidate)
+                self._update_input_context()
+
+            def cleanup():
+                if self.screen is not candidate:
+                    candidate.deleteLater()
+                return False
+
+            self._start_job(lambda: _run_report(key, dataset, name, request), accept,
+                            "Running built-in example…", continuation=cleanup)
+            return True
+
+        def load():
+            if saved is not None:
+                return saved["dataset"], saved["name"], saved["view"], None, None
+            from mlcookbook import Dataset
+
+            make_frame, name, target, positive = DEMOS[key]
+            dataset = Dataset(make_frame())
+            return dataset, name, _dataset_view(dataset, name), target, positive
+
+        self._start_job(load, prepare, "Loading built-in example…", continuation=start_analysis)
+
+    def use_workspace_data(self):
+        if self.job is not None or not isinstance(self.screen, ReportScreen) or not self.screen.is_example:
+            return
+        self._remember_screen()
+        saved = self.workspace_sessions.get(self.key)
+        if saved is not None:
+            self.sessions[self.key] = saved
+        else:
+            self.sessions.pop(self.key, None)
+        self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == self.key), remember=False)
 
     def _connect_screen(self, screen):
         screen.back_requested.connect(self.show_front_page)
         screen.load_requested.connect(self.load_file)
         screen.run_requested.connect(self.run_analysis)
         screen.cancel_requested.connect(self.cancel_analysis)
+        screen.configuration_changed.connect(self._update_input_context)
+        screen.example_requested.connect(self.run_example)
+        screen.workspace_requested.connect(self.use_workspace_data)
+        if isinstance(screen, WearableScreen):
+            screen.study_requested.connect(self.load_wearable_study)
+            screen.evaluation_export_requested.connect(self.export_wearable_evaluation)
         if isinstance(screen, LLMScreen):
             screen.connection_requested.connect(self.connect_local_llm)
             screen.workflow_requested.connect(self.workflow_action)
-        self.window.set_experiment_actions(can_save=True, busy=self.job is not None)
+        self._refresh_shell()
         self.window.set_status("")
 
+    def _update_input_context(self):
+        screen = self.screen
+        if not isinstance(screen, ReportScreen):
+            return
+        params = screen.request()["params"] if isinstance(screen, LLMScreen) else {}
+        if params.get("workflow") == "generate" and params.get("input_mode") == "prompt":
+            text = "Input: typed prompt"
+        elif isinstance(screen, WearableScreen):
+            text = ("Input: Movement Study · " + screen.dataset_name + " · fixed group holdouts"
+                    if screen.source.get("kind") == "wearable_study" else "Input: open a Movement Study export")
+        elif screen.is_example:
+            text = "Input: built-in example · " + screen.dataset_name
+        elif screen.source.get("kind") == "empty":
+            text = "Input: choose a dataset in Data"
+        else:
+            prefix = "Input: saved dataset snapshot · " if screen.view.get("snapshot_fingerprint") else "Input: "
+            text = prefix + screen.dataset_name
+        screen.set_input_context(text)
+
     def _remember_screen(self):
-        if self.screen is not None:
-            self.sessions[self.key] = {
+        if isinstance(self.screen, DataScreen):
+            self.data_options = self.screen.import_options()
+        elif isinstance(self.screen, ReportScreen):
+            snapshot = {
                 "dataset": self.screen.dataset, "name": self.screen.dataset_name,
                 "view": self.screen.view, "state": self.screen.session_state(),
                 "source": deepcopy(self.screen.source),
             }
+            self.sessions[self.key] = snapshot
+            (self.example_sessions if self.screen.is_example else self.workspace_sessions)[self.key] = snapshot
 
-    def _start_job(self, operation, accept, message, *, cancellable=False, on_progress=None):
+    def _clear_sessions(self):
+        self.sessions.clear()
+        self.workspace_sessions.clear()
+        self.example_sessions.clear()
+
+    def _start_job(self, operation, accept, message, *, cancellable=False, on_progress=None, continuation=None):
         if self.job is not None:
             return
         screen = self.screen
         if screen is not None:
             screen.set_busy(True)
-            screen.set_cancellable(cancellable)
+            if isinstance(screen, ReportScreen):
+                screen.set_cancellable(cancellable)
         else:
             self.window._screen.setEnabled(False)
         self._set_status(message)
-        self.window.set_experiment_actions(can_save=screen is not None, busy=True)
+        self.window.set_experiment_actions(can_save=isinstance(screen, ReportScreen), busy=True)
+        self.window.set_navigation(self.key, busy=True)
 
         def accepted(value):
             try:
@@ -1349,6 +1600,7 @@ class MLCookbookApp:
                 self._set_status("Unable to complete: " + (str(exc) or type(exc).__name__))
 
         self.job = _Job(operation)
+        self._job_continuation = continuation
         self.job.succeeded.connect(accepted)
         self.job.failed.connect(lambda error: self._set_status("Unable to complete: " + error))
         if on_progress is not None:
@@ -1357,23 +1609,33 @@ class MLCookbookApp:
         self.job.start()
 
     def _job_finished(self):
+        self.job.deleteLater()
+        self.job = None
+        continuation, self._job_continuation = self._job_continuation, None
+        if continuation is not None:
+            try:
+                if continuation():
+                    return
+            except Exception as exc:
+                self._set_status("Unable to complete: " + (str(exc) or type(exc).__name__))
         if self.screen is not None:
             self.screen.set_busy(False)
         self.window._screen.setEnabled(True)
-        self.window.set_experiment_actions(can_save=self.screen is not None, busy=False)
-        self.job.deleteLater()
-        self.job = None
+        self._update_input_context()
+        self._refresh_shell()
 
     def _set_status(self, message):
         if self.screen is not None:
             self.screen.set_status(message)
+            if isinstance(self.screen, DataScreen):
+                self.data_status = message
         else:
             self.window.set_status(message)
 
     def save_experiment(self, path):
         from mlcookbook.experiments import save_experiment
 
-        if self.screen is None or self.job is not None:
+        if not isinstance(self.screen, ReportScreen) or not self.screen.view["columns"] or self.job is not None:
             return
         screen = self.screen
         state = screen.session_state()
@@ -1392,6 +1654,10 @@ class MLCookbookApp:
     def open_experiment(self, path):
         from mlcookbook.experiments import load_experiment
 
+        previous_status = (self.screen._status_message if isinstance(self.screen, ReportScreen) else
+                           self.data_status if isinstance(self.screen, DataScreen) else
+                           self.window.statusBar().currentMessage())
+
         def read():
             loaded = load_experiment(path)
             view = _dataset_view(loaded.dataset, loaded.name)
@@ -1399,16 +1665,23 @@ class MLCookbookApp:
             view["notes"] = list(loaded.source.get("import_notes", []))
             view["notes"] += loaded.warnings
             view["notes"].append(f"Saved dataset snapshot · SHA-256 {loaded.fingerprint}")
+            view["snapshot_fingerprint"] = loaded.fingerprint
             return loaded, view
 
-        self._start_job(read, self._use_experiment, "Opening experiment…")
+        def accept(opened):
+            # An independent study preserves the ordinary workspace/session. Do
+            # not snapshot the transient "Opening experiment" job status with it.
+            self._set_status(previous_status)
+            self._use_experiment(opened)
+
+        self._start_job(read, accept, "Opening experiment…")
 
     def _use_experiment(self, opened):
         loaded, view = opened
         factory = SCREEN_FACTORIES.get(loaded.recipe)
         if factory is None:
             raise ValueError(f"Unknown experiment recipe: {loaded.recipe!r}.")
-        screen = factory(demo=False)
+        screen = factory(demo=False, setup=True)
         try:
             screen.dataset, screen.dataset_name = loaded.dataset, loaded.name
             screen.source = loaded.source
@@ -1426,6 +1699,10 @@ class MLCookbookApp:
                     # Role overrides belong to the original run, not to unrun edits.
                     roles = state["report_request"]["overrides"]
                     check_source(Dataset(loaded.dataset.df, overrides=roles), run)
+            if loaded.recipe == "wearable-study" and loaded.source.get("kind") == "wearable_study":
+                from mlcookbook.wearable import check_wearable_study
+
+                check_wearable_study(loaded.dataset)
             screen.restore_session(state)
             if screen.request() != state["request"]:
                 raise ValueError("Saved selections cannot be restored exactly with this recipe.")
@@ -1433,9 +1710,20 @@ class MLCookbookApp:
             screen.deleteLater()
             raise
         # Commit navigation only after the entire snapshot has been read and validated.
-        self.sessions.clear()
-        self.imported = (loaded.dataset, loaded.name, view)
+        self._remember_screen()
+        is_example = loaded.recipe not in ("llm", "wearable-study") and state["is_example"]
+        independent = loaded.recipe == "wearable-study" or is_example or (
+            loaded.recipe == "llm" and loaded.source.get("kind") in ("empty", "demo"))
+        if independent:
+            self.sessions.pop(loaded.recipe, None)
+        else:
+            self._clear_sessions()
+            self.imported = loaded.dataset, loaded.name, view
+            self.data_status = f"Opened {loaded.name} from its saved dataset snapshot."
         self.screen, self.key = screen, loaded.recipe
+        if is_example:
+            self.example_sessions[self.key] = {"dataset": loaded.dataset, "name": loaded.name,
+                "view": view, "state": state, "source": deepcopy(loaded.source)}
         self._connect_screen(screen)
         self.window.show_screen(screen)
         screen.restore_session(state)  # scroll positions require the attached layout
@@ -1444,6 +1732,58 @@ class MLCookbookApp:
             message += " Package versions differ; see Data checks before rerunning."
         screen.set_status(message)
         self.window.set_status("")
+        self._update_input_context()
+        self._refresh_shell()
+
+    def load_wearable_study(self, path):
+        from mlcookbook import load_wearable_study
+
+        if self.job is not None or not isinstance(self.screen, WearableScreen):
+            return
+        def read():
+            dataset, imported = load_wearable_study(path)
+            name = Path(path).parent.name if Path(path).is_file() else Path(path).name
+            view = _dataset_view(dataset, name)
+            view["notes"] = [*imported.warnings, "Use Movement Study for grouped scores. Ordinary recipe row splits are exploratory."]
+            view["source"] = {"kind": "wearable_study", "path": str(Path(path).resolve()),
+                              "wearable_import": imported.to_dict()}
+            return dataset, name, view
+
+        def accept(loaded):
+            self.sessions.pop("wearable-study", None)
+            self._display_import(loaded)
+            self.screen.set_status("Study verified. Fixed groups and human labels retained; final test remains sealed.")
+
+        self._start_job(read, accept, "Verifying movement study and fixed groups…")
+
+    def export_wearable_evaluation(self, path):
+        import json
+        import os
+        import tempfile
+
+        if self.job is not None or not isinstance(self.screen, WearableScreen):
+            return
+        value = deepcopy(self.screen._report.get("wearable_evaluation"))
+        if value is None:
+            return
+
+        def write():
+            destination = Path(path)
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
+                                                  prefix=".movement-", suffix=".tmp", delete=False) as stream:
+                    temporary = Path(stream.name)
+                    json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, destination)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+        self._start_job(write, lambda _: self._set_status("Evaluation exported with predictions, probabilities and source-window lineage."),
+                        "Exporting movement evaluation…")
 
     def load_file(self, path, delimiter, encoding, markers=""):
         from mlcookbook.io import load_dataset_with_report
@@ -1462,9 +1802,15 @@ class MLCookbookApp:
 
     def _use_import(self, loaded):
         self.imported = loaded
+        self.data_status = "Dataset loaded. Review the preview and column roles, then choose a recipe."
         # A successful replacement invalidates every recipe's results, even for the same path.
-        self.sessions.clear()
-        self._display_import(loaded)
+        self._clear_sessions()
+        if isinstance(self.screen, DataScreen):
+            self.screen.set_dataset(self._workspace_view())
+            self._set_status(self.data_status)
+        elif isinstance(self.screen, ReportScreen):
+            self._display_import(loaded)
+        self._refresh_shell()
 
     def _display_import(self, loaded):
         dataset, name, view = loaded
@@ -1475,6 +1821,7 @@ class MLCookbookApp:
         self.screen.set_dataset(view)
         self.screen.show_report({})
         self.screen.set_status("File loaded. Review the data checks and column types, choose your columns, then run.")
+        self._update_input_context()
 
     def connect_local_llm(self, backend, base_url, selected):
         if backend == "ollama":
@@ -1516,6 +1863,8 @@ class MLCookbookApp:
         self._start_job(connect, accept, "Checking the local Ollama server…", cancellable=True)
 
     def run_analysis(self, request):
+        if self.job is not None or not isinstance(self.screen, ReportScreen):
+            return
         screen = self.screen
         key = self.key
 
@@ -1613,16 +1962,38 @@ class MLCookbookApp:
             def accept(loaded):
                 self._remember_screen()
                 saved = self.sessions["llm"]
-                self.sessions.clear()
+                self._clear_sessions()
                 self.sessions["llm"] = saved
+                self.workspace_sessions["llm"] = saved
                 self.imported = loaded
+                self.data_status = "Accepted generated fields. Review the new columns before using them in an analysis."
+                self._refresh_shell()
                 self._set_status("Derived dataset ready. Click Back and open an analysis recipe to use the generated columns. "
                                  "Local LLMs retains this source run; Save experiment keeps it for later.")
             self._start_job(derive, accept, "Creating a typed derived dataset…")
 
 
-def main() -> int:
-    app = QApplication(sys.argv)
+def _startup_options(argv):
+    parser = argparse.ArgumentParser(description="MLcookbook offline desktop workbench")
+    start = parser.add_mutually_exclusive_group()
+    start.add_argument("--study", metavar="EXPORT_JSON", help="open a verified Movement Study export without training")
+    start.add_argument("--experiment", metavar="FILE_MLCB", help="restore a saved experiment without retraining")
+    start.add_argument("--movement-study", action="store_true", help="open the Movement Study setup card")
+    return parser.parse_known_args(argv)
+
+
+def _open_startup(controller, options):
+    if options.study or options.movement_study:
+        controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "wearable-study"))
+        if options.study:
+            controller.load_wearable_study(str(Path(options.study).resolve()))
+    elif options.experiment:
+        controller.open_experiment(str(Path(options.experiment).resolve()))
+
+
+def main(argv=None) -> int:
+    options, qt_arguments = _startup_options(sys.argv[1:] if argv is None else argv)
+    app = QApplication([sys.argv[0], *qt_arguments])
     app.setApplicationName("MLcookbook")
     app.setFont(QFont("Segoe UI", theme.BODY_POINT_SIZE))
     app.setStyleSheet(theme.stylesheet())
@@ -1633,6 +2004,7 @@ def main() -> int:
     controller = MLCookbookApp()
     controller.window.resize(1280, 860)
     controller.window.show()
+    QTimer.singleShot(0, lambda: _open_startup(controller, options))
     return app.exec()
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from gui import theme
@@ -66,11 +66,22 @@ class PlotWidget(QWidget):
         pad = (hi - lo) * 0.05 or 1.0
         return lo - pad, hi + pad
 
+    def _plot_rect(self, metrics: QFontMetrics) -> QRectF:
+        tick_width = max((metrics.horizontalAdvance(_fmt(tick))
+                          for tick in _nice_ticks(*self._y_range)), default=0)
+        # Keep the rotated caption and the complete tick values in separate bands.
+        caption_right = 14 + max(20, metrics.height()) / 2 if self._spec.get("y_label") else 0
+        left = max(_MARGIN_LEFT, math.ceil(caption_right + 8 + tick_width + 8))
+        return QRectF(left, _MARGIN_TOP, self.width() - left - _MARGIN_RIGHT,
+                      self.height() - _MARGIN_TOP - _MARGIN_BOTTOM)
+
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-        plot = QRectF(_MARGIN_LEFT, _MARGIN_TOP, w - _MARGIN_LEFT - _MARGIN_RIGHT, h - _MARGIN_TOP - _MARGIN_BOTTOM)
+        h = self.height()
+        small = QFont(theme.FONT_FAMILY, theme.PLOT_POINT_SIZE)
+        p.setFont(small)
+        plot = self._plot_rect(p.fontMetrics())
         (x0, x1), (y0, y1) = self._x_range, self._y_range
 
         def to_px(x: float, y: float) -> QPointF:
@@ -80,8 +91,6 @@ class PlotWidget(QWidget):
             )
 
         p.fillRect(self.rect(), QColor(theme.SURFACE))
-        small = QFont("Segoe UI", 8)
-        p.setFont(small)
 
         # Grid + tick labels
         for tx in _nice_ticks(x0, x1):
@@ -96,11 +105,11 @@ class PlotWidget(QWidget):
             p.drawLine(QPointF(plot.left(), py), QPointF(plot.right(), py))
             p.setPen(QColor(theme.TEXT_MUTED))
             p.drawText(
-                QRectF(0, py - 8, _MARGIN_LEFT - 8, 16),
+                QRectF(0, py - 8, plot.left() - 8, 16),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                 _fmt(ty),
             )
-        p.setPen(QPen(QColor(theme.BORDER_ACCENT), 1))
+        p.setPen(QPen(QColor(theme.BORDER), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(plot)
 
@@ -130,13 +139,13 @@ class PlotWidget(QWidget):
         labels = [s.get("label") for s in self._spec["series"] if s.get("label")]
         legend_w = sum(p.fontMetrics().horizontalAdvance(label) + 26 for label in labels)
         p.setPen(QColor(theme.TEXT))
-        p.setFont(QFont("Segoe UI", 10))
-        title_w = max(80.0, plot.right() - legend_w - _MARGIN_LEFT - 12)
+        p.setFont(QFont(theme.FONT_FAMILY, theme.PLOT_TITLE_POINT_SIZE))
+        title_w = max(80.0, plot.right() - legend_w - plot.left() - 12)
         title = p.fontMetrics().elidedText(self._spec.get("title", ""), Qt.TextElideMode.ElideRight, int(title_w))
-        p.drawText(QRectF(_MARGIN_LEFT, 8, title_w, 24), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        p.drawText(QRectF(plot.left(), 8, title_w, 24), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    title)
         p.setFont(small)
-        p.setPen(QColor(theme.TEXT_FAINT))
+        p.setPen(QColor(theme.TEXT_MUTED))
         p.drawText(QRectF(plot.left(), h - 22, plot.width(), 18), Qt.AlignmentFlag.AlignCenter,
                    self._spec.get("x_label", ""))
         p.save()
@@ -181,7 +190,7 @@ class BarList(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(theme.SURFACE))
-        p.setFont(QFont("Segoe UI", 9))
+        p.setFont(QFont(theme.FONT_FAMILY, theme.PLOT_POINT_SIZE))
         text_w = 56
         bar_left = self.LABEL_W + 12
         bar_w = max(10, self.width() - bar_left - text_w - 16)

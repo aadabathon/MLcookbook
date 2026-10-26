@@ -160,6 +160,11 @@ def test_text_workflow_presets_bind_selected_columns(controller, ollama_server, 
 def open_recipe(controller, key):
     controller.open_recipe(next(r for r in RECIPES if r.key == key))
     finish(controller, QApplication.instance())
+    # These legacy recipe checks explicitly exercise the bundled example.
+    # Setup-only navigation is covered independently in test_explicit_examples.
+    if key not in ("llm", "wearable-study") and not controller.screen.view["columns"]:
+        controller.run_example()
+        finish(controller, QApplication.instance())
 
 
 @pytest.mark.parametrize("suffix", ["csv", "parquet"])
@@ -248,6 +253,9 @@ def test_llm_opens_setup_without_loading_a_model(controller, monkeypatch):
     assert not screen.columns.isHidden()
     screen.param_widgets["model_path"].setText("local-model")
     screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    assert not screen.run_button.isEnabled()
+    assert "Import a dataset" in screen._problem()
+    screen.param_widgets["input_mode"].setCurrentIndex(0)
     assert screen.run_button.isEnabled()
 
 
@@ -663,7 +671,7 @@ def test_binary_positive_class_defaults_like_the_core(controller, logistic_df):
     assert screen.request()["positive_class"] == "yes"
 
 
-@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key != "llm"])
+@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key not in ("llm", "wearable-study")])
 def test_every_recipe_renders_its_demo(qt, key):
     screen = app.SCREEN_FACTORIES[key]()
     assert "Dataset: " in labels_text(screen.report_widget)
@@ -747,7 +755,7 @@ def test_import_notes_and_data_checks_are_shown(controller, qt, tmp_path):
     assert any("leading zeros" in note for note in screen.view["notes"])
     assert any("missing" in note for note in screen.view["notes"])
     text = labels_text(screen.report_widget)
-    assert "DATA CHECKS" in text and "row identifier" in text
+    assert "Data checks" in text and "row identifier" in text
     row = [c["name"] for c in screen.view["columns"]].index("row_id")
     assert screen.columns.item(row, 0).checkState() == Qt.CheckState.Unchecked  # likely IDs start unchecked
 
@@ -773,7 +781,7 @@ def test_imported_navigation_does_not_run_demo(controller, linear_df, monkeypatc
     assert controller.screen.dataset is data
 
 
-@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key != "llm"])
+@pytest.mark.parametrize("key", [key for key in app.SCREEN_FACTORIES if key not in ("llm", "wearable-study")])
 def test_session_preserves_settings_and_previous_result(controller, qt, key, monkeypatch):
     open_recipe(controller, key)
     screen = controller.screen
@@ -915,7 +923,7 @@ def test_actions_stay_visible_with_expanded_settings(controller, qt, size):
         qt.setStyleSheet(original)
 
 
-def test_demo_opens_and_runs_in_background(controller, qt, monkeypatch):
+def test_explicit_demo_runs_in_background(controller, qt, monkeypatch):
     from threading import Event, current_thread, main_thread
     started, release = Event(), Event()
     threads = []
@@ -929,7 +937,13 @@ def test_demo_opens_and_runs_in_background(controller, qt, monkeypatch):
     monkeypatch.setitem(app.REPORT_BUILDERS, "linear-regression", demo)
     try:
         controller.open_recipe(next(r for r in RECIPES if r.key == "linear-regression"))
-        assert started.wait(5)
+        assert controller.job is None and not started.is_set()
+        controller.run_example()
+        deadline = time.monotonic() + 5
+        while not started.is_set() and time.monotonic() < deadline:
+            qt.processEvents()
+            time.sleep(.005)
+        assert started.is_set()
         assert controller.window._screen is controller.screen
         assert controller.job is not None
         assert not controller.screen.run_button.isEnabled()
@@ -1056,6 +1070,11 @@ def test_experiment_reopens_in_new_app_without_training(controller, qt, tmp_path
     from mlcookbook.core.results import to_jsonable
 
     open_recipe(controller, key)
+    if key == "wearable-study":
+        from tests.test_wearable import make_export
+
+        controller.load_wearable_study(str(make_export(tmp_path / "study")))
+        finish(controller, qt)
     screen = controller.screen
     screen.sections["import"].setChecked(True)
     screen.markers.setText("?, -999")
@@ -1155,11 +1174,11 @@ def test_failed_experiment_open_preserves_current_work(controller, qt, tmp_path,
     assert controller.window.open_experiment_button.isEnabled()
 
 
-def test_empty_experiment_and_failed_open_from_home(controller, qt, tmp_path, linear_df):
+def test_empty_experiment_and_failed_open_from_data(controller, qt, tmp_path, linear_df):
     controller.open_experiment(str(tmp_path / "missing.mlcb"))
     finish(controller, qt)
-    assert controller.screen is None
-    assert "Unable to complete" in controller.window.statusBar().currentMessage()
+    assert isinstance(controller.screen, app.DataScreen)
+    assert "Unable to complete" in controller.screen.status.text()
     open_recipe(controller, "model-comparison")
     use_frame(controller, linear_df)
     assert controller.screen.request()["target"] is None
@@ -1222,3 +1241,121 @@ def test_failed_save_preserves_current_report_and_reenables_actions(controller, 
     assert screen.session_state()["report"] == before["report"]
     assert "Unable to complete" in screen.status.text()
     assert controller.window.save_experiment_button.isEnabled()
+
+
+def test_movement_study_import_run_export_and_offline_reopen(controller, qt, tmp_path):
+    import json
+
+    from mlcookbook.core.results import to_jsonable
+    from tests.test_wearable import make_export
+
+    open_recipe(controller, "wearable-study")
+    screen = controller.screen
+    assert not screen.run_button.isEnabled() and not screen.is_example
+    assert not screen._report
+    study = make_export(tmp_path / "movement")
+    controller.load_wearable_study(str(study / "export.json"))
+    finish(controller, qt)
+    assert screen.run_button.isEnabled()
+    assert screen.source["kind"] == "wearable_study"
+    assert controller.imported is None  # Reserved holdouts never become other recipes' exploratory input.
+    screen.run_button.click()
+    finish(controller, qt)
+    result = screen._report["wearable_evaluation"]
+    assert "test" not in result["predictions"]
+    assert "validation" in result["predictions"]
+    assert screen.export_button.isEnabled()
+    expected = to_jsonable(screen.session_state())
+    exported = tmp_path / "movement-evaluation.json"
+    controller.export_wearable_evaluation(str(exported))
+    finish(controller, qt)
+    assert json.loads(exported.read_text()) == result
+    screen.param_widgets["final_test"].setCurrentIndex(1)  # Keep an unrun test choice separate from the report.
+    expected = to_jsonable(screen.session_state())
+    saved = tmp_path / "movement.mlcb"
+    controller.save_experiment(str(saved))
+    finish(controller, qt)
+    for file in study.iterdir():
+        file.unlink()
+    controller.open_experiment(str(saved))
+    finish(controller, qt)
+    restored = controller.screen
+    assert restored._report == expected["report"]
+    assert restored.request() == expected["request"]
+    assert "previous result" in restored.result_state.text()
+    assert controller.imported is None
+    restored.run_button.click()
+    finish(controller, qt)
+    assert "test" in restored._report["wearable_evaluation"]["predictions"]
+    controller.show_front_page()
+    open_recipe(controller, "wearable-study")
+    assert "test" in controller.screen._report["wearable_evaluation"]["predictions"]
+
+
+def test_failed_movement_import_preserves_previous_study_and_result(controller, qt, tmp_path):
+    from tests.test_wearable import make_export
+
+    open_recipe(controller, "wearable-study")
+    study = make_export(tmp_path / "movement")
+    controller.load_wearable_study(str(study))
+    finish(controller, qt)
+    controller.screen.run_button.click()
+    finish(controller, qt)
+    original = controller.screen.session_state()
+    (study / "train.csv").write_text("damaged", encoding="utf-8")
+    controller.load_wearable_study(str(study))
+    finish(controller, qt)
+    assert "checksum" in controller.screen.status.text()
+    assert controller.screen._report == original["report"]
+    assert controller.screen.run_button.isEnabled()
+
+
+def test_ordinary_import_does_not_automatically_fill_movement_recipe(controller, linear_df):
+    from mlcookbook import Dataset
+
+    data = Dataset(linear_df)
+    controller.imported = (data, "custom", app._dataset_view(data, "custom"))
+    open_recipe(controller, "wearable-study")
+    assert not controller.screen.run_button.isEnabled()
+    assert controller.screen.dataset is not data
+
+
+
+def test_startup_study_is_verified_without_training_or_test_evaluation(controller, qt, tmp_path):
+    from tests.test_wearable import make_export
+
+    study = make_export(tmp_path / "study with spaces")
+    options, qt_arguments = app._startup_options(["--study", str(study / "export.json"), "-platform", "windows"])
+    assert qt_arguments == ["-platform", "windows"]
+    app._open_startup(controller, options)
+    finish(controller, qt)
+    assert controller.key == "wearable-study"
+    assert controller.screen.run_button.isEnabled()
+    assert not controller.screen._report
+    assert controller.screen.request()["params"]["final_test"] is False
+    assert controller.imported is None
+    saved = tmp_path / "study snapshot.mlcb"
+    controller.save_experiment(str(saved))
+    finish(controller, qt)
+    controller.show_front_page()
+    options, _ = app._startup_options(["--experiment", str(saved)])
+    app._open_startup(controller, options)
+    finish(controller, qt)
+    assert controller.key == "wearable-study"
+    assert controller.screen.source["kind"] == "wearable_study"
+    assert not controller.screen._report
+
+
+def test_startup_failure_and_empty_setup_remain_usable(controller, qt, tmp_path):
+    options, _ = app._startup_options(["--movement-study"])
+    app._open_startup(controller, options)
+    assert controller.key == "wearable-study"
+    assert not controller.screen.run_button.isEnabled()
+    options, _ = app._startup_options(["--study", str(tmp_path / "missing/export.json")])
+    app._open_startup(controller, options)
+    finish(controller, qt)
+    assert controller.screen.status.text()
+    assert controller.screen.load_button.isEnabled()
+    assert not controller.screen.run_button.isEnabled()
+    with pytest.raises(SystemExit):
+        app._startup_options(["--movement-study", "--study", "export.json"])

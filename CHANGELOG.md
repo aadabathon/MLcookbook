@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Recipe navigation is setup-only. Classical examples run only on **Run example**, preserve the user's active dataset and per-source settings/results, and provide **Use my data**. Saved examples reopen independently; typed LLM prompts use empty storage and row workflows require imported data.
+
+- Data-first sidebar with direct Recipes/Local LLMs/Movement Study navigation. Import/inspect CSV or Parquet before choosing an analysis, retain source-role and input identity boundaries, preserve recipe state through navigation, and lock routes during jobs. Imported/restored recipes skip preset-data construction. Saved Movement Studies retain an existing active ordinary dataset.
+
+- First UI roadmap stage: shared sans-serif typography and spacing, neutral surfaces, sentence-case headings, quieter recipe cards, readable plot/tree labels, and preserved report values/warnings. `build_windows.ps1 -Preview` creates a separate review bundle without replacing the shortcut's app.
+
+- Direct offline desktop handoff through `--movement-study`, `--study EXPORT_JSON` and `--experiment FILE_MLCB`; imports and snapshot opens never auto-train or evaluate holdouts. The PSoC companion assembles/verifies relocatable offline studies and propagates synthetic-data provenance.
+
+
+- Native **Movement Study** recipe and `load_wearable_study` / `evaluate_wearable` APIs: verified fixed-group wearable imports, training-only grouped CV, validation-selected baselines, explicit final test, saved offline snapshots and probability/source-window exports. The PSoC companion CLI shares the native evaluator; no new MLcookbook dependencies.
+
 - Repeatable Local LLM data workflows: bound prompt templates, extraction/summarization/rewriting/classification presets, independent structured JSON validation, per-row outcomes/retries/cancellation, explicit typed derived datasets with row lineage, saved-run comparisons, reference agreement and JSON export. Source data, unrun settings and recent runs reopen offline; no new dependencies.
 - llama.cpp server engine in **Local LLMs**: health/loaded-model checks, chat SSE streaming and reasoning, bounded rows, idle cancellation/deadlines, usage/timing and optional explicit GGUF-file provenance, offline saved outputs, and migration of older Ollama/PyTorch experiments. Shared standard-library HTTP; no new dependencies or managed server processes.
 - Ollama engine in **Local LLMs**: local connection/model discovery, quantized model support through Ollama, streamed previews, cancellation/deadlines, bounded text rows, server/model provenance, and offline experiment reopening. No new Python dependencies; existing PyTorch experiments remain compatible.

@@ -279,6 +279,8 @@ class LLMScreen(ReportScreen):
         if params["workflow"] != "generate":
             if params["backend"] == "pytorch":
                 return "Choose Ollama or llama.cpp for structured data workflows."
+            if not self.view["rows"]:
+                return "Import a dataset in Data before running a text workflow."
             if not request["features"]:
                 return "Select the input text columns and bind them in the prompt template."
             if not params["template"].strip() or not params["field_spec"].strip():
@@ -298,6 +300,8 @@ class LLMScreen(ReportScreen):
             return None
         if params["input_mode"] == "prompt":
             return None if params["prompt"].strip() else "Write a prompt before generating."
+        if not self.view["rows"]:
+            return "Import a dataset in Data before generating from rows."
         if len(request["features"]) != 1:
             return "Select exactly one input text column for dataset rows."
         if request["overrides"][request["features"][0]] not in ("text", "categorical"):
