@@ -50,7 +50,7 @@ try {
     & $buildPython -m PyInstaller --clean --noconfirm --windowed --name MLcookbook `
         --distpath $buildDist --workpath $buildWork --specpath $buildSpec `
         --icon $buildIcon --add-data "$buildAssets;gui/assets" --paths $buildRoot --paths $buildSource `
-        --collect-all pyarrow --collect-data transformers `
+        --collect-all pyarrow --collect-data transformers --collect-submodules mlcookbook `
         --copy-metadata torch --copy-metadata transformers --copy-metadata tokenizers `
         --copy-metadata safetensors --copy-metadata huggingface-hub `
         --hidden-import transformers.models.gpt2.modeling_gpt2 `

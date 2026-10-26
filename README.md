@@ -71,6 +71,8 @@ Run `python examples/basic_usage.py` for a complete tour.
 
 Download `MLcookbook-v1.0.0-windows-x64.zip` from the [v1.0.0 release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0), extract the entire archive, and open `MLcookbook/MLcookbook.exe`. Keep the adjacent `_internal` folder with the executable. Python is bundled; no separate Python installation is needed.
 
+That release predates the current Data-first UI and local LLM workflows. Current repository builds include them.
+
 Start with a built-in demo or import CSV/Parquet data. **Save experiment** writes a `.mlcb` snapshot of the dataset, current recipe settings, and last report; **Open experiment** restores it. See the [release notes](CHANGELOG.md) for the v1 scope.
 
 ### From source
@@ -154,7 +156,11 @@ Recipe forms separate data/columns, model settings and preprocessing/evaluation.
 
 **Recipe reference** explains applicability, data assumptions, controls, interpretation and limitations for every ready recipe. Its Python API section starts collapsed. Local LLM settings are grouped by task, runtime, inputs, generation and limits; Movement Study opens its grouped evaluation controls with the final test sealed. These presentation changes retain the existing `.mlcb` format and analytical results.
 
-To review this UI separately from the shortcut build, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. Keep the executable with its `_internal` folder. This preview build leaves the complete `dist/MLcookbook` bundle used by the existing shortcut intact; source launches already use the refreshed UI.
+The Data shell opens before scientific libraries load. First use of an analysis prepares the existing runtime in a background job, with a visible status and navigation locks; it does not run a model. File/snapshot imports also initialize their core work in a worker. A failed initialization retains the current view and can be retried. The Python package keeps the same public names and real functions/classes, resolving each export when requested; `import mlcookbook` alone does not import the scientific stack or optional model runtimes.
+
+Adam's existing Windows shortcut now uses the refreshed UI at `dist/MLcookbook/MLcookbook.exe`. The complete pre-redesign app is preserved at `dist/ui-original/MLcookbook`; earlier UI previews remain in `dist/ui-stage1` through `dist/ui-stage4`. Keep every executable with its matching `_internal` folder.
+
+To review future UI changes separately, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. This preview build leaves the installed `dist/MLcookbook` bundle intact.
 
 A PySide6 desktop shell, launched with a single entry point:
 

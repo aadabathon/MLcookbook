@@ -32,7 +32,7 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
         if _p not in sys.path:
             sys.path.insert(0, _p)
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -64,8 +64,7 @@ def _assets_dir() -> Path:
 
 
 # --- Default datasets ---------------------------------------------------------
-# Each recipe screen opens by running its core function on a small built-in
-# dataset (bundled with scikit-learn, so no new dependency) to show a real result.
+# Built-in datasets are loaded only after an explicit example action.
 
 def _diabetes_frame():
     from sklearn.datasets import load_diabetes
@@ -1205,6 +1204,11 @@ def _screens():
     }
 
 
+def _prepare_runtime():
+    """Resolve the existing analysis functions in a worker, without running them."""
+    _screens()
+
+
 def _default_screen(key, demo=True, setup=False):
     from mlcookbook import Dataset
 
@@ -1353,6 +1357,10 @@ class MLCookbookApp:
         self.imported = None
         self.job = None
         self._job_continuation = None
+        # An embedded/test host may already have loaded the scientific stack.
+        # Ordinary startup checks module names only and imports nothing here.
+        self._runtime_initialized = all(name in sys.modules for name in (
+            "mlcookbook.classification.neural_network", "mlcookbook.regression.neural_network", "mlcookbook.wearable"))
         self.screen = None
         self.key = "recipes"
         self.data_options = {}
@@ -1447,11 +1455,29 @@ class MLCookbookApp:
         self.window.set_status("")
         self._refresh_shell()
 
-    def open_recipe(self, recipe: Recipe, *, remember=True) -> None:
+    def open_recipe(self, recipe: Recipe, *, remember=True, on_ready=None) -> None:
         if self.job is not None:
             return
         factory = SCREEN_FACTORIES.get(recipe.key)
         if factory is None:
+            return
+        if not self._runtime_initialized:
+            prepared = []
+            previous_status = (self.screen._status_message if isinstance(self.screen, ReportScreen) else
+                               self.data_status if isinstance(self.screen, DataScreen) else
+                               self.window.statusBar().currentMessage())
+
+            def accept(_):
+                self._runtime_initialized = True
+                self._set_status(previous_status)
+                prepared.append(True)
+
+            def continue_open():
+                if prepared:
+                    self.open_recipe(recipe, remember=remember, on_ready=on_ready)
+                return self.job is not None
+
+            self._start_job(_prepare_runtime, accept, "Preparing analysis runtime…", continuation=continue_open)
             return
         if remember:
             self._remember_screen()
@@ -1472,6 +1498,8 @@ class MLCookbookApp:
             screen.restore_session(saved["state"])
         self._update_input_context()
         self._refresh_shell()
+        if on_ready is not None:
+            on_ready()
 
     def run_example(self):
         """Restore a cached example, or load/run its first result before switching."""
@@ -1674,13 +1702,14 @@ class MLCookbookApp:
                         "Saving experiment…")
 
     def open_experiment(self, path):
-        from mlcookbook.experiments import load_experiment
-
         previous_status = (self.screen._status_message if isinstance(self.screen, ReportScreen) else
                            self.data_status if isinstance(self.screen, DataScreen) else
                            self.window.statusBar().currentMessage())
 
         def read():
+            _prepare_runtime()
+            from mlcookbook.experiments import load_experiment
+
             loaded = load_experiment(path)
             view = _dataset_view(loaded.dataset, loaded.name)
             view["source"] = deepcopy(loaded.source)
@@ -1691,6 +1720,7 @@ class MLCookbookApp:
             return loaded, view
 
         def accept(opened):
+            self._runtime_initialized = True
             # An independent study preserves the ordinary workspace/session. Do
             # not snapshot the transient "Opening experiment" job status with it.
             self._set_status(previous_status)
@@ -1758,11 +1788,11 @@ class MLCookbookApp:
         self._refresh_shell()
 
     def load_wearable_study(self, path):
-        from mlcookbook import load_wearable_study
-
         if self.job is not None or not isinstance(self.screen, WearableScreen):
             return
         def read():
+            from mlcookbook import load_wearable_study
+
             dataset, imported = load_wearable_study(path)
             name = Path(path).parent.name if Path(path).is_file() else Path(path).name
             view = _dataset_view(dataset, name)
@@ -1808,11 +1838,12 @@ class MLCookbookApp:
                         "Exporting movement evaluation…")
 
     def load_file(self, path, delimiter, encoding, markers=""):
-        from mlcookbook.io import load_dataset_with_report
-
         missing_markers = [m.strip() for m in markers.split(",") if m.strip()]
 
         def read():
+            _prepare_runtime()
+            from mlcookbook.io import load_dataset_with_report
+
             dataset, report = load_dataset_with_report(path, delimiter=delimiter, encoding=encoding,
                                                        missing_markers=missing_markers)
             view = _dataset_view(dataset, Path(path).name, report)
@@ -1823,6 +1854,7 @@ class MLCookbookApp:
         self._start_job(read, self._use_import, "Loading file...")
 
     def _use_import(self, loaded):
+        self._runtime_initialized = True
         self.imported = loaded
         self.data_status = "Dataset loaded. Review the preview and column roles, then choose a recipe."
         # A successful replacement invalidates every recipe's results, even for the same path.
@@ -2006,9 +2038,9 @@ def _startup_options(argv):
 
 def _open_startup(controller, options):
     if options.study or options.movement_study:
-        controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "wearable-study"))
-        if options.study:
-            controller.load_wearable_study(str(Path(options.study).resolve()))
+        controller.open_recipe(next(recipe for recipe in RECIPES if recipe.key == "wearable-study"),
+                               on_ready=(lambda: controller.load_wearable_study(str(Path(options.study).resolve())))
+                               if options.study else None)
     elif options.experiment:
         controller.open_experiment(str(Path(options.experiment).resolve()))
 
@@ -2027,7 +2059,20 @@ def main(argv=None) -> int:
     controller.window.resize(1280, 860)
     controller.window.show()
     QTimer.singleShot(0, lambda: _open_startup(controller, options))
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        # Retire widgets and workers on the GUI thread while QApplication is
+        # still alive, rather than leaving their destruction to interpreter exit.
+        controller.wait_for_job()
+        app.aboutToQuit.disconnect(controller.wait_for_job)
+        if controller.job is not None:
+            controller.job.deleteLater()
+        # Also include hidden candidate screens/dialogs that have not yet been
+        # attached to the main window when a background operation is interrupted.
+        for widget in app.topLevelWidgets():
+            widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 if __name__ == "__main__":

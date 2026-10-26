@@ -99,6 +99,7 @@ def test_preview_build_preserves_the_original_bundle(build_workspace):
     assert "torch" not in [invocation["args"][index + 1] for index, value in enumerate(invocation["args"])
                            if value == "--exclude-module"]
     assert Path(invocation["args"][-1]) == workspace / "app.py"
+    assert invocation["args"][invocation["args"].index("--collect-submodules") + 1] == "mlcookbook"
     assert Path(invocation["args"][invocation["args"].index("--icon") + 1]) == workspace / "gui" / "assets" / "mlcookbook.ico"
     assets = invocation["args"][invocation["args"].index("--add-data") + 1]
     assert Path(assets.split(";")[0]) == workspace / "gui" / "assets"

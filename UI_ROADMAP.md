@@ -116,28 +116,34 @@ For a rejected preview, the existing shortcut bundle remains available. Before p
 
 The 2026-10-24 audit used fresh processes without flushing OS caches. Time to the first titled window was 9.25 s then 2.47–2.49 s for the source entry point, and 2.20 s then 0.87–0.88 s for the packaged app. Separate first-recipe setup took 2.56 s without training. One package-import trace spent 7.73 s in eager scientific imports; Torch was not imported. These are observations, not cold-boot/first-paint guarantees or CI thresholds.
 
-- [ ] Profile source entry, packaged launch, first-recipe initialization and execution separately. Record source/bundle revisions and distinguish window creation from usable first paint.
-- [ ] Reduce unnecessary eager imports and metadata/demo work before a screen can paint. Preserve the root public API and single `python -m mlcookbook` entry point.
-- [ ] Put core work/file I/O in background jobs where appropriate; construct/update widgets on the GUI thread. Preserve progress, cancellation, recovery and clean shutdown.
-- [ ] Keep optional model imports, weight loading, downloads and automatic inference out of ordinary startup/navigation.
-- [ ] Use import/behavior regression tests and repeatable local timing reports. Avoid fragile wall-clock CI assertions; establish budgets after measuring the revised path.
+- [x] Profile source entry, packaged launch, first-recipe initialization and execution separately. Record source/bundle revisions and distinguish window creation from usable first paint.
+- [x] Reduce unnecessary eager imports and metadata/demo work before a screen can paint. Preserve the root public API and single `python -m mlcookbook` entry point.
+- [x] Put core work/file I/O in background jobs where appropriate; construct/update widgets on the GUI thread. Preserve progress, cancellation, recovery and clean shutdown.
+- [x] Keep optional model imports, weight loading, downloads and automatic inference out of ordinary startup/navigation.
+- [x] Use import/behavior regression tests and repeatable local timing reports. Avoid fragile wall-clock CI assertions; establish budgets after measuring the revised path.
 
 **Acceptance:** the shell/setup remain responsive during initialization, navigation performs no unrequested analysis, and source/packaged timings are compared under the same conditions with remaining cost stated honestly.
 
+**Source checkpoint — 2026-10-26:** 580 tests, Ruff, dependency checks and the library demo passed. All 44 public exports retain their original identities and signatures; an ordinary package import and Data/catalog paint load no scientific stack or optional model runtime. Cold analysis initialization and first file/snapshot reads use workers; GUI construction stays on the GUI thread. Actual-entry subprocess tests cover first paint, responsiveness, failed initialization/retry, ordered study handoffs and shutdown during initialization. Three fresh-process local samples (no OS-cache flush) measured source Data usability at a median 2.654→0.913 s. First recipe usability is 0.067→2.036 s because imports moved to first use; its deferred-work GUI heartbeat gap was about 0.062 s. These are local observations, not cold-boot guarantees or CI thresholds. Frozen measurements use a separately identified instrumented bundle runtime. The stage 4 bundle and 122-file source baseline are preserved in `dist/ui-stage4/MLcookbook` and `ui-stage5/baseline/`.
+
+**Frozen observations:** median Data usability was 0.987→0.933 s; first recipe usability was 1.329→1.191 s. Candidate first-recipe samples were 8.382/1.191/1.179 s, so first-use initialization can still take several seconds. The median maximum GUI heartbeat gap improved from 1.314 s to 0.065 s (all candidate samples below 0.1 s). No packaged launch-speed improvement is claimed. A separate explicit warm linear example took 0.397 s overall: 0.175 s loading and 0.080 s analysis/formatting. Reports identify fresh-process/no-cache-flush conditions and the exact archived source/bundle inputs: `ui-stage5/startup-baseline-and-source.json`, `startup-candidate-source.json` and `startup-candidate-frozen.json`.
+
 ## 6. Compatibility and Windows delivery
 
-- [ ] Run full pytest and Ruff using `.venv/Scripts/python.exe`; distinguish baseline issues from new regressions.
-- [ ] Verify Save/Open for every recipe, old `.mlcb` files, unrun controls, stale reports, roles, scroll/expanded state and offline results. Keep internal parameter/section keys stable or add explicit migrations; visible captions can change independently.
-- [ ] Check import success/failure/replacement, navigation locks, worker errors, cancellation and closing during work.
-- [ ] Check Movement Study isolation, group-aware evaluation, sealed defaults, and `--study`, `--movement-study` and `--experiment` handoffs. Opening/restoring must not train automatically.
-- [ ] Inspect native Windows layouts at 1280×860 and the supported minimum, with process-local scaling checks for common Windows scaling settings. Check keyboard/focus, contrast, dialogs, long names, tables and numeric precision.
-- [ ] Rebuild a separate candidate, verify bundled application modules against reviewed source, and launch-check it. Check real local inference when affected. Preserve the previous complete bundle before promoting a candidate to the shortcut's path.
-- [ ] Update README, TUTORIAL, ADAM and relevant AGENTS conventions for implemented behavior. Keep roadmap checkboxes factual. Commit/push only when asked.
+- [x] Run full pytest and Ruff using `.venv/Scripts/python.exe`; distinguish baseline issues from new regressions.
+- [x] Verify Save/Open for every recipe, old `.mlcb` files, unrun controls, stale reports, roles, scroll/expanded state and offline results. Keep internal parameter/section keys stable or add explicit migrations; visible captions can change independently.
+- [x] Check import success/failure/replacement, navigation locks, worker errors, cancellation and closing during work.
+- [x] Check Movement Study isolation, group-aware evaluation, sealed defaults, and `--study`, `--movement-study` and `--experiment` handoffs. Opening/restoring must not train automatically.
+- [x] Inspect native Windows layouts at 1280×860 and the supported minimum, with process-local scaling checks for common Windows scaling settings. Check keyboard/focus, contrast, dialogs, long names, tables and numeric precision.
+- [x] Rebuild a separate candidate, verify bundled application modules against reviewed source, and launch-check it. Check real local inference when affected. Preserve the previous complete bundle before promoting a candidate to the shortcut's path.
+- [x] Update README, TUTORIAL, ADAM and relevant AGENTS conventions for implemented behavior. Keep roadmap checkboxes factual. Commit/push only when asked.
 
 **Acceptance:** Adam can work with his own data, configure an analysis, inspect/reopen results, and return to a prior UI build without losing data, experiments or unrelated source changes.
 
+**Delivery checkpoint — 2026-10-26:** 580 tests and the latest focused shutdown checks passed, with 60 existing SVC warnings. Stage 5 added 18 native startup states across three scale factors; all 27 GUI files remain byte-identical to the stage 4 visual review, and 51 protected analytical/plot files are unchanged (only the root import mechanism changed). The final executable's 48 checked modules match source and it passed three normal nondebug launch/close runs. Frozen checks resolved all 44 exports and verified saved/offline workflows, sealed study restoration without evaluation and CPU inference. Actual-main checks cover closing while imports are active. Explicit teardown fixes a native shutdown fault found in an earlier candidate; no GC disabling or forced-success exit was added. The hash-verified complete bundle is installed at the shortcut target `dist/MLcookbook`; the original complete app is preserved at `dist/ui-original/MLcookbook`. Evidence and rollback identities are under `ui-stage5/`.
+
 ## First implementation slice and scope
 
-Stages 0–4 are implemented at Adam's request, with separate source checkpoints and Windows previews. Stage 5's startup/first-use profiling is next. Recipe navigation is setup-only; examples and analyses run explicitly. The current forms/reference pass does not implement startup optimization.
+Stages 0–6 are implemented at Adam's request, with separate source checkpoints, preserved Windows bundles and a verified installation at the existing shortcut target. Recipe navigation is setup-only; examples and analyses run explicitly. Further roadmap features require a new request.
 
 This pass adds no new inference engine, graph execution/editor, REST service, mandatory lessons, dependency, alternate entry point, model installation/download, or multi-dataset project format. Preserve statistical/leakage boundaries, typed results, saved experiments and the existing presentation/core separation. Broader additions require a separate explicit request.

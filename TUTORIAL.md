@@ -4,7 +4,7 @@ A hands-on guide to all twelve desktop recipes, including the three Local LLM en
 
 This guide describes current source and local Windows builds. The published v1.0.0 download predates Local LLMs. See the [README](README.md) for installation, model setup, and the Python API overview.
 
-The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The existing shortcut still opens its previous bundle. Complete earlier previews are preserved at `dist/ui-stage1/MLcookbook`, `dist/ui-stage2/MLcookbook` and `dist/ui-stage3/MLcookbook`, each with its matching runtime. Examples require an explicit action.
+The existing Windows shortcut opens the refreshed UI at `dist/MLcookbook/MLcookbook.exe`. The complete pre-redesign app is preserved at `dist/ui-original/MLcookbook`. Earlier UI previews remain at `dist/ui-stage1/MLcookbook` through `dist/ui-stage4/MLcookbook`, each with its matching runtime. Future review builds use `dist/ui-preview/MLcookbook`. Examples require an explicit action.
 
 ## Start with your data
 
@@ -15,6 +15,8 @@ The current UI preview is `dist/ui-preview/MLcookbook/MLcookbook.exe`. The exist
 5. Use **Save experiment…** from a recipe to retain its data snapshot, controls and last result. Data alone is not a saved workspace/project. A successful file replacement clears previous recipe sessions; a failed import keeps them.
 
 The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** line on each recipe identifies what that screen will use: a file/snapshot, a built-in example, a typed LLM prompt or a Movement Study. Study imports and reserved groups stay separate; opening a saved study preserves an existing active tabular dataset. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
+
+On first use, **Preparing analysis runtime…** may appear while scientific libraries initialize in the background. The current page stays visible and navigation locks until preparation finishes. This does not train a model or load LLM weights. A failed preparation leaves the page available for retry. File and experiment imports show their own loading status while performing initialization and reading data.
 
 ## Your first experiment
 
