@@ -100,6 +100,8 @@ class ReportScreen(QWidget):
     run_requested = Signal(dict)
     cancel_requested = Signal()
     configuration_changed = Signal()
+    example_requested = Signal()
+    workspace_requested = Signal()
 
     def __init__(
         self,
@@ -133,6 +135,10 @@ class ReportScreen(QWidget):
         self.sections: dict[str, QPushButton] = {}
         self.engine = engine
         self.is_example = False
+        self._examples_available = False
+        self._using_example = False
+        self._has_workspace = False
+        self._has_example = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD, theme.SPACE_LG, theme.SPACE_MD)
@@ -167,8 +173,24 @@ class ReportScreen(QWidget):
         self.input_context.setObjectName("HelpText")
         self.input_context.setTextFormat(Qt.TextFormat.PlainText)
         self.input_context.setWordWrap(True)
+        self.input_context.setMinimumWidth(0)
+        self.input_context.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.input_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        outer.addWidget(self.input_context)
+        input_row = QHBoxLayout()
+        input_row.addWidget(self.input_context, stretch=1)
+        self.example_button = QPushButton("Run example")
+        self.example_button.setToolTip("Run this recipe with its bundled dataset. Your data and choices are kept.")
+        self.example_button.clicked.connect(self.example_requested)
+        self.example_button.hide()
+        self.example_button.setEnabled(False)
+        input_row.addWidget(self.example_button)
+        self.workspace_button = QPushButton("Use my data")
+        self.workspace_button.setToolTip("Return to this recipe with your active dataset and previous choices.")
+        self.workspace_button.clicked.connect(self.workspace_requested)
+        self.workspace_button.hide()
+        self.workspace_button.setEnabled(False)
+        input_row.addWidget(self.workspace_button)
+        outer.addLayout(input_row)
 
         actions = self._build_actions()
         body = QHBoxLayout()
@@ -490,6 +512,9 @@ class ReportScreen(QWidget):
         self.view = view
         self._columns = view["columns"]
         self.badge.setText(f"{view['name']} · {view['rows']} rows · {len(self._columns)} columns")
+        self.badge.setVisible(bool(self._columns))
+        self.preview_button.setEnabled(bool(view["rows"]))
+        self.checks_button.setEnabled(bool(self._columns or view.get("notes") or view.get("issues")))
         check_count = len(view.get("notes", [])) + len(view.get("issues", []))
         self.checks_button.setText(f"Data checks ({check_count})")
         self.target.blockSignals(True)
@@ -644,11 +669,33 @@ class ReportScreen(QWidget):
     def set_input_context(self, text: str):
         self.input_context.setText(text)
 
+    def set_example_actions(self, *, available: bool, using_example: bool, has_workspace: bool, has_example: bool = False):
+        """Render the coordinator's source choice without changing recipe state."""
+        self._examples_available = available
+        self._using_example = using_example
+        self._has_workspace = has_workspace
+        self._has_example = has_example
+        self._update_example_actions()
+        self._update_result_state()
+
+    def _update_example_actions(self):
+        example = self._examples_available and not self._using_example
+        workspace = self._examples_available and self._using_example and self._has_workspace
+        self.example_button.setVisible(example)
+        self.example_button.setText("View example" if self._has_example else "Run example")
+        self.example_button.setToolTip("Restore the example's settings and last result without rerunning."
+                                       if self._has_example else "Run this recipe with its bundled dataset. Your data and choices are kept.")
+        self.workspace_button.setVisible(workspace)
+        self.example_button.setEnabled(example and not self._busy)
+        self.workspace_button.setEnabled(workspace and not self._busy)
+
     def _update_result_state(self):
         if not hasattr(self, "result_state"):
             return
         if not self._report:
-            text = "No results yet · choose your columns, then run"
+            text = ("Open a dataset in Data or run the built-in example."
+                    if self._examples_available and not self._columns and not self._using_example else
+                    "No results yet · choose your columns, then run")
         elif self.request() != self._report_request:
             text = "Settings changed · showing the previous result"
         else:
@@ -704,6 +751,7 @@ class ReportScreen(QWidget):
         self._busy = busy
         self.form_panel.setEnabled(not busy)
         self.back_button.setEnabled(not busy)
+        self._update_example_actions()
         self.progress.setVisible(busy)
         if not busy:
             self.cancel_button.hide()

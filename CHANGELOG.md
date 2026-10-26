@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recipe navigation is setup-only. Classical examples run only on **Run example**, preserve the user's active dataset and per-source settings/results, and provide **Use my data**. Saved examples reopen independently; typed LLM prompts use empty storage and row workflows require imported data.
+
 - Data-first sidebar with direct Recipes/Local LLMs/Movement Study navigation. Import/inspect CSV or Parquet before choosing an analysis, retain source-role and input identity boundaries, preserve recipe state through navigation, and lock routes during jobs. Imported/restored recipes skip preset-data construction. Saved Movement Studies retain an existing active ordinary dataset.
 
 - First UI roadmap stage: shared sans-serif typography and spacing, neutral surfaces, sentence-case headings, quieter recipe cards, readable plot/tree labels, and preserved report values/warnings. `build_windows.ps1 -Preview` creates a separate review bundle without replacing the shortcut's app.

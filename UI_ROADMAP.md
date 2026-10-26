@@ -33,7 +33,7 @@ Implement one explicitly requested stage at a time, with relevant tests, native 
 
 ## 0. Baseline and rollback
 
-The current `main` checkout is based on `68846f8` and includes uncommitted Movement Study integration plus untracked wearable modules. **The last commit alone is not a rollback point for the current application. A chat fork does not isolate Git changes.**
+The initial checkpoint was taken from `main` at `68846f8` with uncommitted Movement Study integration and untracked wearable modules. HEAD alone did not capture that application; the archives below preserve that dirty working tree. A chat fork does not isolate Git changes. The delivery PR records the Movement prerequisite and UI stages separately.
 
 - [x] Preserve all tracked and non-ignored untracked source files without changing Git: 112 files, per-file SHA-256 hashes, the base revision/status, and a tracked binary patch. The archive was read back and verified.
 - [x] Establish the current test baseline: **456 pytest tests passed**, Ruff passed; 60 existing sklearn SVC deprecation warnings. No application behavior changed in this planning pass.
@@ -85,14 +85,18 @@ For a rejected preview, the existing shortcut bundle remains available. Before p
 
 ## 3. Recipe setup and explicit examples
 
-- [ ] Retain algorithm-based cards and browsing. Add concise applicability/context where useful without replacing the catalog with a beginner task picker.
-- [ ] Show an honest setup state when a recipe has no suitable data, with import and explicit example actions. Do not construct a demo merely to populate a screen that will use imported data.
-- [ ] Load/run bundled examples only after an explicit example action. Identify their source and provide a direct path back to the user's data.
-- [ ] An example action preserves the user's ordinary dataset and recipe selections so returning restores that work. Never relabel an example result as having used the ordinary dataset.
-- [ ] Keep technical settings available with useful defaults and logical grouping. Schema roles and core validation determine applicability; do not silently coerce values or claim an automatically chosen best method.
-- [ ] Preserve dataset-free single-prompt LLM generation and dedicated Movement Study setup; their prerequisites differ from ordinary tabular recipes.
+- [x] Retain algorithm-based cards and browsing, concise method descriptions and source context without a beginner task picker.
+- [x] Show an honest setup state with import and explicit example actions. Navigation constructs no preset and performs no analysis; empty classical setup cannot Run/Save.
+- [x] Load/run examples only after **Run example**, identify their source, and provide **Use my data** for an existing active dataset.
+- [x] Preserve the ordinary dataset, own/example selections, results and unrun edits separately. Failures leave the displayed result/context intact. Saved examples reopen independently without becoming ordinary data.
+- [x] Keep technical settings and defaults, schema-role/core validation and visible stale results; no silent coercion or automatic best-method selection.
+- [x] Preserve dataset-free typed LLM generation, with empty typed storage and explicit dataset requirements for rows/structured tasks, plus dedicated Movement Study setup/holdout isolation.
 
 **Acceptance:** navigating to a recipe does not train a model. Own-data and explicitly requested example runs work with correct source labels and normal cancellation/recovery. Returning restores the last report and unrun edits. LLM prompts still work without a dataset.
+
+**Source verification — 2026-10-25:** 528 pytest cases passed, Ruff and dependency checks passed; the 60 existing SVC deprecation warnings remain. Native Windows inspection covered 96 states at 100%/125%/150%, including minimum-size setup/loading/actions, own/example transitions, failures and offline saved examples. Invalid cached targets/roles can be viewed without training, repaired and rerun while ordinary work stays intact. No clipping flags, Qt/Python warnings or forced window expansion were observed. The 118-file stage 2 source checkpoint is in `ui-stage3/baseline/`; its complete build is preserved at `dist/ui-stage2/MLcookbook` alongside stage 1 and the original shortcut bundle. The PR groups the pre-existing Movement prerequisite and each UI stage into separate commits, as Adam requested.
+
+**Windows delivery:** the rebuilt preview's 47 checked modules match final source; native startup and normal close passed. Its exact frozen runtime passed first example execution, cached-invalid repair without unrequested analysis, explicit rerun, own-data restoration, independent saved examples, source-free sealed-study restoration with zero evaluations and real offline CPU generation. The helper exited normally and was removed. All 6,216 original production files remain unchanged. Evidence: `ui-stage3/packaging-validation.json`; candidate SHA-256 `610f487e338f1e056af6584f5cc0d1837b48bf014330912e4f27300366055a44`.
 
 ## 4. Forms, reports and technical reference
 
@@ -130,6 +134,6 @@ The 2026-10-24 audit used fresh processes without flushing OS caches. Time to th
 
 ## First implementation slice and scope
 
-Stages 0–2 are implemented at Adam's request, with separate source checkpoints and Windows previews. Stage 3's explicit examples are the next reviewable slice. Classical first visits without imported data still run bundled demos; own-data visits now bypass their construction.
+Stages 0–3 are implemented at Adam's request, with separate source checkpoints and Windows previews. Stage 4's forms/reference organization is the next reviewable slice. Recipe navigation is now setup-only; examples and analyses run explicitly.
 
 This pass adds no new inference engine, graph execution/editor, REST service, mandatory lessons, dependency, alternate entry point, model installation/download, or multi-dataset project format. Preserve statistical/leakage boundaries, typed results, saved experiments and the existing presentation/core separation. Broader additions require a separate explicit request.

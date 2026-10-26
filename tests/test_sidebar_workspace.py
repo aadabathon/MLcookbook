@@ -396,6 +396,8 @@ def test_typed_prompt_and_dataset_rows_have_distinct_effective_input(controller,
 
 def test_example_input_does_not_appear_as_an_active_ordinary_dataset(controller, qt):
     open_recipe(controller, "linear-regression", qt)
+    controller.run_example()
+    finish(controller, qt)
     assert controller.screen.is_example
     assert "built-in example" in controller.screen.input_context.text()
     assert controller.imported is None

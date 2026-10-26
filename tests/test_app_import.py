@@ -160,6 +160,11 @@ def test_text_workflow_presets_bind_selected_columns(controller, ollama_server, 
 def open_recipe(controller, key):
     controller.open_recipe(next(r for r in RECIPES if r.key == key))
     finish(controller, QApplication.instance())
+    # These legacy recipe checks explicitly exercise the bundled example.
+    # Setup-only navigation is covered independently in test_explicit_examples.
+    if key not in ("llm", "wearable-study") and not controller.screen.view["columns"]:
+        controller.run_example()
+        finish(controller, QApplication.instance())
 
 
 @pytest.mark.parametrize("suffix", ["csv", "parquet"])
@@ -248,6 +253,9 @@ def test_llm_opens_setup_without_loading_a_model(controller, monkeypatch):
     assert not screen.columns.isHidden()
     screen.param_widgets["model_path"].setText("local-model")
     screen.columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    assert not screen.run_button.isEnabled()
+    assert "Import a dataset" in screen._problem()
+    screen.param_widgets["input_mode"].setCurrentIndex(0)
     assert screen.run_button.isEnabled()
 
 
@@ -915,7 +923,7 @@ def test_actions_stay_visible_with_expanded_settings(controller, qt, size):
         qt.setStyleSheet(original)
 
 
-def test_demo_opens_and_runs_in_background(controller, qt, monkeypatch):
+def test_explicit_demo_runs_in_background(controller, qt, monkeypatch):
     from threading import Event, current_thread, main_thread
     started, release = Event(), Event()
     threads = []
@@ -929,7 +937,13 @@ def test_demo_opens_and_runs_in_background(controller, qt, monkeypatch):
     monkeypatch.setitem(app.REPORT_BUILDERS, "linear-regression", demo)
     try:
         controller.open_recipe(next(r for r in RECIPES if r.key == "linear-regression"))
-        assert started.wait(5)
+        assert controller.job is None and not started.is_set()
+        controller.run_example()
+        deadline = time.monotonic() + 5
+        while not started.is_set() and time.monotonic() < deadline:
+            qt.processEvents()
+            time.sleep(.005)
+        assert started.is_set()
         assert controller.window._screen is controller.screen
         assert controller.job is not None
         assert not controller.screen.run_button.isEnabled()
@@ -1056,6 +1070,11 @@ def test_experiment_reopens_in_new_app_without_training(controller, qt, tmp_path
     from mlcookbook.core.results import to_jsonable
 
     open_recipe(controller, key)
+    if key == "wearable-study":
+        from tests.test_wearable import make_export
+
+        controller.load_wearable_study(str(make_export(tmp_path / "study")))
+        finish(controller, qt)
     screen = controller.screen
     screen.sections["import"].setChecked(True)
     screen.markers.setText("?, -999")

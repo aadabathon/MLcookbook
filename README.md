@@ -146,7 +146,9 @@ The [UI roadmap](UI_ROADMAP.md) now includes a persistent sidebar with **Data** 
 
 Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening an ordinary saved experiment makes its embedded snapshot active, while opening a Movement Study snapshot retains any existing ordinary dataset. Data's CSV options persist separately from recipe controls.
 
-The shared visual system keeps sans-serif typography, neutral surfaces, sentence-case headings, clear focus states and restrained accent colors. Ready cards omit decorative symbols and repeated badges. With an imported dataset, a recipe opens directly on that data without constructing an example. Without one, classical recipes still run their bundled demos; making examples opt-in is the next stage.
+Opening a recipe never constructs a preset or runs an analysis. It restores your last view or waits for data and settings. **Run example** explicitly loads and runs a bundled dataset in the background. Afterward, **View example** restores that example's settings/results without rerunning, so even invalid unrun edits can be reopened and repaired. **Use my data** restores the recipe's own-data results and unrun edits. Examples stay separate from the active dataset; saved examples reopen offline without becoming ordinary input. Typed LLM prompts work without imported rows; row and structured workflows require a dataset.
+
+The shared visual system keeps sans-serif typography, neutral surfaces, sentence-case headings, clear focus states and restrained accent colors. Ready cards omit decorative symbols and repeated badges.
 
 To review this UI separately from the shortcut build, run `./build_windows.ps1 -Preview`, then open `dist/ui-preview/MLcookbook/MLcookbook.exe`. Keep the executable with its `_internal` folder. This preview build leaves the complete `dist/MLcookbook` bundle used by the existing shortcut intact; source launches already use the refreshed UI.
 
@@ -163,7 +165,7 @@ Three layers, one seam:
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window, navigation, background jobs, the built-in demo datasets (`DEMOS`), and the report builders (`REPORT_BUILDERS`) that turn core results into plain report dicts.
 
-Twelve recipes are ready. Ten classical recipes open on built-in scikit-learn datasets, then accept CSV/Parquet files. Local LLMs waits for a chosen local model. Movement Study waits for a verified wearable export and preserves its fixed group splits:
+Twelve recipes are ready. Ten classical recipes accept CSV/Parquet files and offer explicit bundled examples. Local LLMs waits for a chosen local model. Movement Study waits for a verified wearable export and preserves its fixed group splits:
 
 | Recipe | Demo data | Report |
 |---|---|---|
