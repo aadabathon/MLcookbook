@@ -167,13 +167,8 @@ class ReportScreen(QWidget):
         heading.setObjectName("ScreenTitle")
         outer.addWidget(heading)
 
-        subtitle = QLabel(engine.get("description", engine.get("summary", "")))
-        subtitle.setObjectName("ScreenSubtitle")
-        subtitle.setWordWrap(True)
-        outer.addWidget(subtitle)
-
         self.input_context = QLabel()
-        self.input_context.setObjectName("HelpText")
+        self.input_context.setObjectName("InputContext")
         self.input_context.setTextFormat(Qt.TextFormat.PlainText)
         self.input_context.setWordWrap(True)
         self.input_context.setMinimumWidth(0)
@@ -181,6 +176,10 @@ class ReportScreen(QWidget):
         self.input_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         input_row = QHBoxLayout()
         input_row.addWidget(self.input_context, stretch=1)
+        self.load_button = QPushButton("Open dataset…")
+        self.load_button.setToolTip("Open a CSV or Parquet file. CSV options are in the form below.")
+        self.load_button.clicked.connect(self._choose_file)
+        input_row.addWidget(self.load_button)
         self.example_button = QPushButton("Run example")
         self.example_button.setToolTip("Run this recipe with its bundled dataset. Your data and choices are kept.")
         self.example_button.clicked.connect(self.example_requested)
@@ -204,7 +203,7 @@ class ReportScreen(QWidget):
         results = QWidget()
         self.result_layout = QVBoxLayout(results)
         self.result_layout.setContentsMargins(0, 0, 0, 0)
-        self.result_state = QLabel("No results yet")
+        self.result_state = QLabel("No completed run")
         self.result_state.setObjectName("ResultState")
         self.result_state.setWordWrap(True)
         self.result_state.setTextFormat(Qt.TextFormat.PlainText)
@@ -321,16 +320,6 @@ class ReportScreen(QWidget):
         form = QVBoxLayout(panel)
         form.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, 0)
         form.setSpacing(theme.SPACE_XS)
-        self.data_heading = self._section_label("Data and columns")
-        form.addWidget(self.data_heading)
-        self.badge = QLabel(report.get("dataset", ""))
-        self.badge.setObjectName("DatasetBadge")
-        self.badge.setWordWrap(True)
-        self.badge.setTextFormat(Qt.TextFormat.PlainText)
-        form.addWidget(self.badge)
-        self.load_button = QPushButton("Open CSV / Parquet...")
-        self.load_button.clicked.connect(self._choose_file)
-        form.addWidget(self.load_button)
         import_options = QWidget()
         import_layout = QVBoxLayout(import_options)
         import_layout.setContentsMargins(0, 0, 0, 0)
@@ -387,14 +376,11 @@ class ReportScreen(QWidget):
 
         self.columns_label = self._section_label("Features and column types" if supervised else "Columns and types")
         form.addWidget(self.columns_label)
-        help_label = QLabel(
+        self.columns = QTableWidget(0, 3)
+        self._set_columns_help(
             "Check input features. Uncheck IDs or columns that reveal the answer. Types describe roles; values are not converted."
             if supervised else "Check the columns to analyze. Types describe roles; values are not converted."
         )
-        help_label.setWordWrap(True)
-        self.columns_help = help_label
-        form.addWidget(help_label)
-        self.columns = QTableWidget(0, 3)
         self.columns.setHorizontalHeaderLabels(["Use / column", "Type", "Missing"])
         self.columns.verticalHeader().setVisible(False)
         self.columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -419,10 +405,12 @@ class ReportScreen(QWidget):
         evaluation_layout.setSpacing(theme.SPACE_XS)
         self.evaluation_form = QFormLayout()
         self.evaluation_form.setSpacing(theme.SPACE_XS)
+        self.evaluation_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         if self._params:
             grid = QFormLayout()
             self.param_form = grid
             grid.setSpacing(theme.SPACE_XS)
+            grid.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             for spec in self._params:
                 widget = self._param_widget(spec)
                 label = QLabel(spec["label"])
@@ -556,8 +544,8 @@ class ReportScreen(QWidget):
     def set_dataset(self, view: dict, *, target: str | None = None):
         self.view = view
         self._columns = view["columns"]
-        self.badge.setText(f"{view['name']} · {view['rows']} rows · {len(self._columns)} columns")
-        self.badge.setVisible(bool(self._columns))
+        prefix = "Input: built-in example · " if self.is_example else "Input: "
+        self.set_input_context(prefix + view["name"])
         self.preview_button.setEnabled(bool(view["rows"]))
         self.checks_button.setEnabled(bool(self._columns or view.get("notes") or view.get("issues")))
         check_count = len(view.get("notes", [])) + len(view.get("issues", []))
@@ -705,10 +693,17 @@ class ReportScreen(QWidget):
         self._update_result_state()
         self._update_evaluation_summary()
         if hasattr(self, "status") and self._columns:
-            self.set_status(self._problem() or "Ready to run with these selections.")
+            self.set_status(self._problem() or "")
         self.configuration_changed.emit()
 
-    def set_input_context(self, text: str):
+    def _set_columns_help(self, text: str):
+        self.columns.setToolTip(text)
+        self.columns.setAccessibleDescription(text)
+        self.columns_label.setToolTip(text)
+
+    def set_input_context(self, text: str, *, include_shape: bool = True):
+        if include_shape and self._columns:
+            text += f" · {self.view['rows']} rows · {len(self._columns)} columns"
         self.input_context.setText(text)
 
     def set_example_actions(self, *, available: bool, using_example: bool, has_workspace: bool, has_example: bool = False):
@@ -735,9 +730,7 @@ class ReportScreen(QWidget):
         if not hasattr(self, "result_state"):
             return
         if not self._report:
-            text = ("Open a dataset in Data or run the built-in example."
-                    if self._examples_available and not self._columns and not self._using_example else
-                    "No results yet · choose your columns, then run")
+            text = "No completed run"
         elif self.request() != self._report_request:
             text = "Settings changed · showing the previous result"
         else:
@@ -745,11 +738,11 @@ class ReportScreen(QWidget):
         if self.is_example:
             text = "Built-in example · " + text
         self.result_state.setText(text)
+        self.result_state.setVisible(not self._report or self.request() != self._report_request)
 
     def _update_run(self):
         self.run_button.setEnabled(bool(self._columns) and self._problem() is None and not self._busy)
-        self.run_button.setToolTip("Choose a target that fits the task (or columns, for unsupervised recipes) "
-                                   "and at least one feature.")
+        self.run_button.setToolTip(self._problem() or "Run with the current data and settings.")
 
     def _request_run(self):
         self.run_requested.emit(self.request())
@@ -808,6 +801,7 @@ class ReportScreen(QWidget):
     def set_busy(self, busy: bool):
         self._busy = busy
         self.form_panel.setEnabled(not busy)
+        self.load_button.setEnabled(not busy)
         self.back_button.setEnabled(not busy)
         self._update_example_actions()
         self.progress.setVisible(busy)
@@ -971,11 +965,6 @@ class ReportScreen(QWidget):
         column.setSpacing(theme.SPACE_MD)
 
         if not report:
-            prompt = QLabel("Choose your target and features, then run an analysis to see results here."
-                            if self._fixed_task != "unsupervised" else
-                            "Choose the columns to analyze, then run to see results here.")
-            prompt.setWordWrap(True)
-            column.addWidget(prompt)
             checks = list(self.view.get("notes", [])) + list(self.view.get("issues", []))
             if checks:
                 column.addWidget(self._section_label("Data checks"))

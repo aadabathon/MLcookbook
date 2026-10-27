@@ -24,11 +24,10 @@ class WearableScreen(ReportScreen):
                          min_features=0, cross_validation=False, preprocessing=False,
                          settings_title="Grouped evaluation settings")
         self.load_button.setText("Open movement study…")
-        self.data_heading.setText("Study data")
+        self.load_button.setToolTip("Open the export.json produced by the wearable pipeline.")
         self.sections["settings"].setChecked(True)
         self.sections["import"].hide()
         self.columns.hide()
-        self.columns_help.hide()
         self.columns_label.setText("Fixed study contract")
         note = QLabel("Open the export.json produced by the wearable pipeline. Human labels, predictor columns "
                       "and whole-person/session splits stay fixed. IDs and times cannot become predictors. "

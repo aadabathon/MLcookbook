@@ -910,12 +910,15 @@ def test_actions_stay_visible_with_expanded_settings(controller, qt, size):
         screen = controller.screen
         for section in screen.sections.values():
             section.setChecked(True)
+        assert screen.result_state.isHidden()
+        screen.param_widgets["max_epochs"].stepUp()
+        assert "previous result" in screen.result_state.text()
         qt.processEvents()
         assert (controller.window.width(), controller.window.height()) == size
         for position in (0, screen.form_panel.verticalScrollBar().maximum()):
             screen.form_panel.verticalScrollBar().setValue(position)
             qt.processEvents()
-            for widget in (screen.run_button, screen.status, screen.result_state):
+            for widget in (screen.run_button, screen.status, screen.result_state, screen.input_context, screen.load_button):
                 bounds = QRect(widget.mapTo(controller.window, QPoint(0, 0)), widget.size())
                 assert widget.isVisible()
                 assert controller.window.rect().contains(bounds)

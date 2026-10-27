@@ -150,7 +150,7 @@ Data shows source roles read-only. Adjust role overrides inside each recipe; tho
 
 Opening a recipe never constructs a preset or runs an analysis. It restores your last view or waits for data and settings. **Run example** explicitly loads and runs a bundled dataset in the background. Afterward, **View example** restores that example's settings/results without rerunning, so even invalid unrun edits can be reopened and repaired. **Use my data** restores the recipe's own-data results and unrun edits. Examples stay separate from the active dataset; saved examples reopen offline without becoming ordinary input. Typed LLM prompts work without imported rows; row and structured workflows require a dataset.
 
-The shared visual system keeps sans-serif typography, neutral surfaces, sentence-case headings, clear focus states and restrained accent colors. Ready cards omit decorative symbols and repeated badges.
+The shared visual system uses ink-black/violet surfaces, selective serif headings, Segoe controls/plots and clear focus states. Greek/math recipe marks and violet selection/action accents retain the app's identity; ready cards omit repeated availability badges. Analytical chart colors remain independent of the interface accents.
 
 Recipe forms separate data/columns, model settings and preprocessing/evaluation. Preprocessing, the training-CV setting and the split/seed context stay accessible when model settings are collapsed. Model Comparison's editable split and seed sit beside evaluation controls. The result banner identifies stale results; the footer reports readiness, progress or an actionable error. **Run details** expands the displayed report's data/settings and any recorded timestamp/runtime information. This disclosure is temporary and does not change saved experiment settings.
 
@@ -195,6 +195,8 @@ Twelve recipes are ready. Ten classical recipes accept CSV/Parquet files and off
 Reports include a short explanation of the result, followed by the recipe's visuals, metrics, and detailed tables. Every report ends with the preprocessing table (what was fitted on which rows) and any warnings; a warning summary above the report also opens the complete warning list. Supervised reports include cross-validation (mean ± SD over folds of the training rows). Long tables scroll within a bounded area.
 
 ### Analyze your own data
+
+The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
 1. Import CSV/Parquet from **Data**, then open a recipe. Nothing runs automatically. For another CSV delimiter, encoding or missing-value markers (e.g. `?, -999`), expand **CSV import options** before opening the file. **Run example** is a separate explicit action.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.

@@ -1248,7 +1248,7 @@ def _default_screen(key, demo=True, setup=False):
         screen.set_dataset(_dataset_view(screen.dataset, screen.dataset_name))
         screen.set_status("Choose a local model and write a prompt." if key == "llm" else
                           "Open a movement study export." if key == "wearable-study" else
-                          "Open a dataset in Data or run the built-in example.")
+                          "")
         return screen
     make_frame, name, target, positive = DEMOS[key]
     dataset = Dataset(make_frame())
@@ -1539,7 +1539,7 @@ class MLCookbookApp:
 
             def accept(report):
                 candidate.show_report(report, request=request)
-                candidate.set_status("Built-in example. Analysis complete. Your active dataset and choices are kept.")
+                candidate.set_status("Analysis complete.")
                 self.screen = candidate
                 self._connect_screen(candidate)
                 self.window.show_screen(candidate)
@@ -1598,19 +1598,20 @@ class MLCookbookApp:
         if not isinstance(screen, ReportScreen):
             return
         params = screen.request()["params"] if isinstance(screen, LLMScreen) else {}
-        if params.get("workflow") == "generate" and params.get("input_mode") == "prompt":
+        typed_prompt = params.get("workflow") == "generate" and params.get("input_mode") == "prompt"
+        if typed_prompt:
             text = "Input: typed prompt"
         elif isinstance(screen, WearableScreen):
             text = ("Input: Movement Study · " + screen.dataset_name + " · fixed group holdouts"
-                    if screen.source.get("kind") == "wearable_study" else "Input: open a Movement Study export")
+                    if screen.source.get("kind") == "wearable_study" else "Input: no Movement Study selected")
         elif screen.is_example:
             text = "Input: built-in example · " + screen.dataset_name
         elif screen.source.get("kind") == "empty":
-            text = "Input: choose a dataset in Data"
+            text = "Input: no dataset selected"
         else:
             prefix = "Input: saved dataset snapshot · " if screen.view.get("snapshot_fingerprint") else "Input: "
             text = prefix + screen.dataset_name
-        screen.set_input_context(text)
+        screen.set_input_context(text, include_shape=not typed_prompt)
 
     def _remember_screen(self):
         if isinstance(self.screen, DataScreen):
@@ -1874,7 +1875,7 @@ class MLCookbookApp:
         self.screen.dataset_name = name
         self.screen.set_dataset(view)
         self.screen.show_report({})
-        self.screen.set_status("File loaded. Review the data checks and column types, choose your columns, then run.")
+        self.screen.set_status("File loaded.")
         self._update_input_context()
 
     def connect_local_llm(self, backend, base_url, selected):
@@ -1952,7 +1953,6 @@ class MLCookbookApp:
             if len(history) > 10:
                 report["warnings"].append("Keeping the ten most recent runs in this experiment. Export runs you want to archive separately.")
         self.screen.show_report(report, request=request)
-        prefix = "Built-in example. " if self.screen.is_example else ""
         if "workflow_run" in report:
             rows = report["workflow_run"]["rows"]
             valid = sum(row["status"] == "valid" for row in rows)
@@ -1960,7 +1960,7 @@ class MLCookbookApp:
             self.screen.set_status(("Batch cancelled; completed rows retained. " if cancelled else "Text workflow complete. ") +
                                    f"{valid} of {len(rows)} source rows validated. Review row outcomes before accepting columns.")
         else:
-            self.screen.set_status(prefix + "Analysis complete. Results reflect the settings used for this run.")
+            self.screen.set_status("Analysis complete.")
 
     def workflow_action(self, action, payload):
         from mlcookbook.core.dataset import Dataset
