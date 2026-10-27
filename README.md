@@ -198,6 +198,10 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
+### The Kitchen
+
+**Kitchen** in the sidebar is the native graph workspace. Its first milestone connects independent dataset snapshots, optional column/role selection, regression model comparison and inspectable reports. It supports branching, typed connections, per-node state, run-to-selected, undo/redo and atomic `.mlck` graph saves that reopen offline without fitting. Recipe `.mlcb` files retain their original format. See [The Kitchen guide](KITCHEN.md) for a complete workflow, controls, limitations and the submodule-only Python API.
+
 1. Import CSV/Parquet from **Data**, then open a recipe. Nothing runs automatically. For another CSV delimiter, encoding or missing-value markers (e.g. `?, -999`), expand **CSV import options** before opening the file. **Run example** is a separate explicit action.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.
 3. Choose the target and features. Decision trees, random forests, SVMs, and neural networks pick classification or regression from the target (a numeric target with more than 20 values means regression) and let you switch. Classification works with 2 to 20 classes: two classes let you pick the positive class; more run as multiclass.

@@ -106,6 +106,15 @@ def stylesheet() -> str:
     QLabel#EngineInfo {{ font-family: {MONO}; font-size: 13px; color: {TEXT_MUTED}; padding: 6px 0; }}
     QLabel#FieldLabel {{ font-size: 14px; font-weight: 500; color: {TEXT_MUTED}; }}
     QLabel#HelpText, QLabel#InputContext {{ font-size: 13px; color: {TEXT_MUTED}; }}
+    QTabWidget#KitchenInspector::pane {{ border: none; }}
+    QTabWidget#KitchenInspector QTabBar::tab {{
+        background: {BG}; color: {TEXT_MUTED}; border: 1px solid transparent;
+        border-radius: 4px; padding: 7px 12px;
+    }}
+    QTabWidget#KitchenInspector QTabBar::tab:selected {{
+        background: {UI_SELECTION}; color: {UI_ACCENT}; border-color: {UI_BORDER};
+    }}
+    QTabWidget#KitchenInspector QTabBar::tab:focus {{ border-color: {BORDER_ACCENT}; }}
     QFrame#ActionBar {{ border-top: 1px solid {BORDER}; }}
     QLabel#ResultState {{ font-size: 13px; color: {TEXT_MUTED}; }}
     QLabel#ResultSummary {{ background-color: {SURFACE}; padding: 12px; border-radius: 0px; border-left: 2px solid {UI_ACCENT}; }}

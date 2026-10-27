@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 import sys
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -43,6 +44,7 @@ from gui.recipes import RECIPES, Recipe
 from gui.screens.association_scan import AssociationScanScreen
 from gui.screens.data import DataScreen
 from gui.screens.decision_tree import DecisionTreeScreen
+from gui.screens.kitchen import KitchenScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
 from gui.screens.llm import LLMScreen
@@ -837,32 +839,56 @@ def _comparison_report(dataset, request, name):
     result = compare_regressors(dataset, target=request["target"], features=request["features"],
                                 preprocessing=_config(request), cv_folds=request["cv_folds"],
                                 **request["params"])
+    return _comparison_data_report(result.to_dict(), name, len(dataset.df))
+
+
+def _comparison_data_report(result: dict, name: str, rows: int) -> dict:
+    """Format existing comparison data; inspecting a Kitchen record never fits."""
     names = {"ridge": "Ridge", "random_forest": "Random forest"}
-    chosen = names[result.selected_model]
+    chosen = names[result["selected_model"]]
+    candidates = result["candidates"]
+    low = min(result["test_actual"] + result["test_predicted"])
+    high = max(result["test_actual"] + result["test_predicted"])
+    preprocessing = result["preprocessing"]
+    steps = []
+    for col in preprocessing["columns"]:
+        for index, step in enumerate(col["steps"]):
+            outputs = col["output_features"]
+            shown = (", ".join(outputs) if len(outputs) <= 3 else f"{len(outputs)} columns") if index == 0 else ""
+            steps.append([col["column"] if index == 0 else "", step, shown])
+    metrics = [{"title": f"{chosen} · {label} · {result[key]['n_obs']} rows",
+                "items": [(caption, _num(result[key][metric], digits))
+                          for caption, metric, digits in (("R²", "r2", 3), ("RMSE", "rmse", 2), ("MAE", "mae", 2))]}
+               for key, label in (("test_metrics", "final test set"), ("train_metrics", "training set"))]
+    ridge, forest = candidates[0]["parameters"], candidates[1]["parameters"]
     return {
-        **_base(result, dataset, name, f"Shared split · seed {result.random_state} · "
-                f"{len(result.train_rows)} train / {len(result.test_rows)} test rows · {len(result.folds)} CV folds"),
+        "dataset": f"{name} · {rows} rows", "target": result["target"], "features": ", ".join(result["features"]),
+        "settings": f"Shared split · seed {result['random_state']} · {len(result['train_rows'])} train / "
+                    f"{len(result['test_rows'])} test rows · {len(result['folds'])} CV folds",
         "summary": f"{chosen} had the lowest mean training-CV RMSE and was selected before test evaluation. "
                    "Both candidates use identical folds and preprocessing choices.",
         "plots": [{"title": "Model comparison · training cross-validation", "x_label": "fold", "y_label": "RMSE (lower is better)",
-                   "series": [{"kind": "line", "color": color, "label": names[candidate.model],
-                               "points": [(fold.fold, fold.scores["rmse"]) for fold in candidate.cross_validation.folds]}
-                              for candidate, color in zip(result.candidates, ("accent", "alt"))]},
-                  _actual_vs_predicted(result)],
-        "metric_groups": [_regression_group(f"{chosen} · final test set", result.test_metrics),
-                          _regression_group(f"{chosen} · training set", result.train_metrics)],
+                   "series": [{"kind": "line", "color": color, "label": names[candidate["model"]],
+                               "points": [(fold["fold"], fold["scores"]["rmse"]) for fold in candidate["cross_validation"]["folds"]]}
+                              for candidate, color in zip(candidates, ("accent", "alt"))]},
+                  {"title": "Actual vs predicted · held-out rows", "x_label": f"predicted {result['target']}",
+                   "y_label": f"actual {result['target']}", "series": [
+                       {"kind": "line", "color": "muted", "label": "perfect fit", "points": [(low, low), (high, high)]},
+                       {"kind": "points", "color": "accent", "label": "test rows",
+                        "points": _sample(list(zip(result["test_predicted"], result["test_actual"])))}]}],
+        "metric_groups": metrics,
         "tables": [{"title": "Select by cross-validation · mean ± sample SD", "headers": ["MODEL", "RMSE", "MAE", "R²"],
-                    "rows": [[names[c.model] + (" · selected" if c.model == result.selected_model else ""),
-                              *[f"{_num(c.cross_validation.mean[m])} ± {_num(c.cross_validation.std[m])}"
-                                for m in ("rmse", "mae", "r2")]] for c in result.candidates]},
+                    "rows": [[names[c["model"]] + (" · selected" if c["model"] == result["selected_model"] else ""),
+                              *[f"{_num(c['cross_validation']['mean'][m])} ± {_num(c['cross_validation']['std'][m])}"
+                                for m in ("rmse", "mae", "r2")]] for c in candidates]},
                    {"title": "Candidate settings", "headers": ["MODEL", "SETTINGS"],
-                    "rows": [["Ridge", f"Penalty strength: {request['params']['alpha']:g}"],
-                             ["Random forest", f"{request['params']['n_estimators']} trees · "
-                              f"depth: {request['params']['max_depth'] or 'unlimited'} · "
-                              f"min leaf: {request['params']['min_samples_leaf']}"]]},
-                   _preprocessing_table(result.preprocessing)],
-        "warnings": result.warnings,
-        "comparison": result.to_dict(),  # retained in the saved experiment, including exact row/fold membership
+                    "rows": [["Ridge", f"Penalty strength: {ridge['alpha']:g}"],
+                             ["Random forest", f"{forest['n_estimators']} trees · depth: {forest['max_depth'] or 'unlimited'} · "
+                              f"min leaf: {forest['min_samples_leaf']}"]]},
+                   {"title": f"Preprocessing · fitted on {preprocessing['n_rows_fitted']} rows · "
+                             f"{preprocessing['n_output_features']} model columns",
+                    "headers": ["COLUMN", "STEP (FITTED VALUES)", "BECOMES"], "rows": steps, "stretch_column": 1}],
+        "warnings": list(result["warnings"]), "comparison": deepcopy(result),
     }
 
 
@@ -1368,6 +1394,9 @@ class MLCookbookApp:
         self.sessions: dict[str, dict] = {}
         self.workspace_sessions: dict[str, dict] = {}
         self.example_sessions: dict[str, dict] = {}
+        self.kitchen = None
+        self.kitchen_hashes, self.kitchen_views = {}, {}
+        self.kitchen_history = ([], [])
         self.window.experiment_open_requested.connect(self.open_experiment)
         self.window.experiment_save_requested.connect(self.save_experiment)
         self.window.navigation_requested.connect(self.navigate)
@@ -1381,6 +1410,8 @@ class MLCookbookApp:
             self.show_data_page()
         elif key == "recipes":
             self.show_front_page()
+        elif key == "kitchen":
+            self.show_kitchen()
         elif key in ("llm", "wearable-study"):
             self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key))
 
@@ -1394,6 +1425,8 @@ class MLCookbookApp:
                                             using_example=self.screen.is_example,
                                             has_workspace=self.imported is not None,
                                             has_example=self.key in self.example_sessions)
+        elif isinstance(self.screen, KitchenScreen):
+            self.screen.set_active_available(self.imported is not None)
         if self.imported is None:
             self.window.set_dataset_context("", "")
         else:
@@ -1442,6 +1475,235 @@ class MLCookbookApp:
     def wait_for_job(self):
         if self.job is not None:
             self.job.wait()
+
+    def show_kitchen(self, *, remember=True):
+        if self.job is not None:
+            return
+        if not self._runtime_initialized:
+            previous = (self.screen._status_message if isinstance(self.screen, (ReportScreen, KitchenScreen)) else
+                        self.data_status if isinstance(self.screen, DataScreen) else "")
+
+            def accept(_):
+                self._runtime_initialized = True
+                self._set_status(previous)
+
+            def continued():
+                if self._runtime_initialized:
+                    self.show_kitchen()
+                return False
+
+            self._start_job(_prepare_runtime, accept, "Preparing Kitchen runtime…", continuation=continued)
+            return
+        from mlcookbook.kitchen import KitchenDocument, default_settings
+
+        if remember:
+            self._remember_screen()
+        if self.kitchen is None:
+            self.kitchen = KitchenDocument()
+        screen = KitchenScreen({kind: default_settings(kind) for kind in ("dataset", "select", "comparison", "report")})
+        screen.set_editor({"graph": self.kitchen.graph.to_dict(), "layout": self.kitchen.layout, "selected": self.kitchen.selected})
+        screen._undo, screen._redo = deepcopy(self.kitchen_history)
+        screen._update_actions()
+        self._connect_kitchen(screen)
+        self.screen, self.key = screen, "kitchen"
+        self.window.show_screen(screen)
+        self.window.set_status("")
+        self._refresh_kitchen()
+        self._refresh_shell()
+        QTimer.singleShot(0, screen.canvas, screen.canvas.fit_graph)
+
+    def _connect_kitchen(self, screen):
+        screen.changed.connect(self._kitchen_changed)
+        screen.selection_changed.connect(self._kitchen_selected)
+        screen.capture_requested.connect(self.capture_kitchen_snapshot)
+        screen.run_requested.connect(self.run_kitchen)
+        screen.cancel_requested.connect(self.cancel_analysis)
+        screen.save_requested.connect(self.save_kitchen)
+        screen.open_requested.connect(self.open_kitchen)
+
+    def _kitchen_changed(self, state):
+        from mlcookbook.kitchen import graph_from_dict
+
+        graph = graph_from_dict(state["graph"])
+        self.kitchen.graph, self.kitchen.layout, self.kitchen.selected = graph, deepcopy(state["layout"]), state["selected"]
+        self._refresh_kitchen()
+        if self.job is None:
+            self.screen.set_status("")
+
+    def _kitchen_selected(self, key):
+        self.kitchen.selected = key
+        self._refresh_kitchen()
+
+    @staticmethod
+    def _kitchen_columns(document, views, key):
+        nodes = {n.id: n for n in document.graph.nodes}
+        parents = {e.target: e.source for e in document.graph.edges}
+
+        def output(identifier):
+            node = nodes.get(identifier)
+            if node is None:
+                return []
+            if node.kind == "dataset":
+                return deepcopy(views.get(node.settings["snapshot"], {}).get("columns", []))
+            if node.kind == "select":
+                available = {c["name"]: c for c in output(parents.get(identifier))}
+                return [dict(available[name], type=node.settings["roles"].get(name, available[name]["type"]))
+                        for name in node.settings["columns"] if name in available]
+            return []
+
+        node = nodes.get(key)
+        if node is None:
+            return {}
+        snapshot = node.settings.get("snapshot")
+        info = document.snapshot_info.get(snapshot, {})
+        view = views.get(snapshot, {})
+        return {"columns": output(parents.get(key)),
+                "error": document.run.attempts.get(key, {}).get("error", ""),
+                "identity": f"{info['name']} · {view['rows']} rows · {len(view['columns'])} columns"
+                            if info and view else "No snapshot selected"}
+
+    @staticmethod
+    def _kitchen_report(document, key):
+        record = document.run.records.get(key)
+        if record is None:
+            return {}
+        payload = record.payload
+        name = document.snapshot_info.get(payload.get("snapshot_id"), {}).get("name", "Kitchen snapshot")
+        if record.kind in ("comparison", "report"):
+            report = _comparison_data_report(payload, name, payload["input_rows"])
+        else:
+            report = {"dataset": name, "features": ", ".join(c["name"] for c in payload["columns"]),
+                      "summary": f"{payload['rows']} rows · {len(payload['columns'])} columns. Values and row order retained.",
+                      "tables": [{"title": "Columns and roles", "headers": ["Column", "Role", "Dtype"],
+                                  "rows": [[c["name"], c["type"], c["dtype"]] for c in payload["columns"]]},
+                                 {"title": "Preview · first 20 rows", "headers": [c["name"] for c in payload["columns"]],
+                                  "rows": payload["preview"]}], "warnings": list(record.warnings)}
+        report["run_details"] = [f"Node: {record.node_id} · {record.kind}", "Completed (UTC): " + record.completed_utc,
+                                 "Configuration/input fingerprint: " + record.fingerprint,
+                                 "Recorded settings: " + json.dumps(record.settings, ensure_ascii=False),
+                                 "Runtime: " + " · ".join(f"{k} {v}" for k, v in record.versions.items())]
+        report["warnings"] = list(dict.fromkeys([*report.get("warnings", []), *document.warnings, *document.run.warnings]))
+        error = document.run.attempts.get(key, {}).get("error")
+        if error:
+            report["warnings"].append("Last attempt: " + error)
+        return report
+
+    def _refresh_kitchen(self):
+        if not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import node_states
+
+        states = node_states(self.kitchen.graph, self.kitchen_hashes, self.kitchen.run)
+        self.screen.set_states(states)
+        key = self.kitchen.selected
+        context = self._kitchen_columns(self.kitchen, self.kitchen_views, key)
+        self.screen.set_context(context, report=self._kitchen_report(self.kitchen, key), state=states.get(key, "unrun"))
+
+    def capture_kitchen_snapshot(self, node_id):
+        if self.imported is None or self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        dataset, name, view = self.imported
+
+        def copy_snapshot():
+            from uuid import uuid4
+
+            from mlcookbook.core.dataset import Dataset
+            from mlcookbook.core.fingerprint import dataset_fingerprint
+
+            copied = Dataset(dataset.df, overrides={c.name: c.var_type for c in dataset.schema().columns})
+            return uuid4().hex, copied, dataset_fingerprint(copied), _dataset_view(copied, name)
+
+        def accept(value):
+            key, copied, fingerprint, copied_view = value
+            self.kitchen.snapshots[key] = copied
+            self.kitchen.snapshot_info[key] = {"name": name, "source": deepcopy(view.get("source", {}))}
+            self.kitchen_hashes[key], self.kitchen_views[key] = fingerprint, copied_view
+            self.screen.install_snapshot(node_id, key)
+            self._set_status("Dataset snapshot captured. Changing active data later will not replace it.")
+
+        self._start_job(copy_snapshot, accept, "Capturing dataset snapshot…")
+
+    def run_kitchen(self, to_node=None):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import run_graph
+
+        document = self.kitchen
+
+        def execute():
+            return run_graph(document.graph, document.snapshots, previous=document.run, to_node=to_node,
+                             stop_requested=self.job.isInterruptionRequested, on_progress=self.job.progress.emit)
+
+        def progress(event):
+            states = dict(self.screen._states)
+            states[event["node"]] = event["state"]
+            self.screen.set_states(states)
+            self.screen.result_state.setText(f"{event['node']} · {event['state']}" +
+                                            (" · previous completed output retained" if document.selected in document.run.records else ""))
+            self.screen.result_state.show()
+            self._set_status(f"{event['node']} · {event['state']}" + (": " + event["error"] if event["error"] else ""))
+
+        def accept(execution):
+            document.run = execution.run
+            self._refresh_kitchen()
+            self.screen.inspector.setCurrentIndex(1)
+            failed = [f"{key}: {attempt['error']}" for key, attempt in execution.run.attempts.items()
+                      if key in execution.requested_nodes and attempt["state"] == "failed"]
+            self._set_status("; ".join(failed) if failed else "Cancelled between operations; completed results kept."
+                             if execution.run.warnings else "Workflow complete.")
+
+        self._start_job(execute, accept, "Validating workflow…", cancellable=True, on_progress=progress)
+
+    def save_kitchen(self, path):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import KitchenDocument, KitchenRun
+        from mlcookbook.kitchen_io import save_kitchen
+
+        self._remember_screen()
+        doc = self.kitchen
+        ids = {n.id for n in doc.graph.nodes}
+        run = KitchenRun({k: v for k, v in doc.run.records.items() if k in ids},
+                         {k: v for k, v in doc.run.attempts.items() if k in ids},
+                         [k for k in doc.run.execution_order if k in ids], doc.run.warnings)
+        saved = KitchenDocument(doc.graph, doc.snapshots, doc.snapshot_info, run, doc.layout, doc.selected, doc.warnings)
+        self._start_job(lambda: save_kitchen(path, saved), lambda _: self._set_status(f"Saved {Path(path).name}."), "Saving Kitchen…")
+
+    def open_kitchen(self, path):
+        if self.job is not None:
+            return
+
+        def read():
+            _prepare_runtime()
+            from mlcookbook.core.fingerprint import dataset_fingerprint
+            from mlcookbook.kitchen_io import load_kitchen
+
+            doc = load_kitchen(path)
+            KitchenScreen.validate_editor({"graph": doc.graph.to_dict()})
+            # Validate every renderer input before replacing the current document.
+            for key in doc.run.records:
+                self._kitchen_report(doc, key)
+            hashes = {key: dataset_fingerprint(data) for key, data in doc.snapshots.items()}
+            views = {key: _dataset_view(data, doc.snapshot_info[key]["name"]) for key, data in doc.snapshots.items()}
+            return doc, hashes, views
+
+        opened = []
+
+        def accept(value):
+            self._runtime_initialized = True
+            self._remember_screen()
+            self.kitchen, self.kitchen_hashes, self.kitchen_views = value
+            self.kitchen_history = ([], [])
+            opened.append(True)
+
+        def continued():
+            if opened:
+                # The worker has retired; do not overwrite the new graph with the old screen.
+                self.show_kitchen(remember=False)
+                self._set_status(f"Opened {Path(path).name}; results restored without execution.")
+            return False
+
+        self._start_job(read, accept, "Opening Kitchen…", continuation=continued)
 
     def show_front_page(self) -> None:
         if self.job is not None:
@@ -1616,6 +1878,10 @@ class MLCookbookApp:
     def _remember_screen(self):
         if isinstance(self.screen, DataScreen):
             self.data_options = self.screen.import_options()
+        elif isinstance(self.screen, KitchenScreen):
+            state = self.screen.state()
+            self.kitchen.layout, self.kitchen.selected = state["layout"], state["selected"]
+            self.kitchen_history = deepcopy((self.screen._undo, self.screen._redo))
         elif isinstance(self.screen, ReportScreen):
             snapshot = {
                 "dataset": self.screen.dataset, "name": self.screen.dataset_name,
@@ -1636,7 +1902,7 @@ class MLCookbookApp:
         screen = self.screen
         if screen is not None:
             screen.set_busy(True)
-            if isinstance(screen, ReportScreen):
+            if isinstance(screen, (ReportScreen, KitchenScreen)):
                 screen.set_cancellable(cancellable)
         else:
             self.window._screen.setEnabled(False)
@@ -1939,7 +2205,10 @@ class MLCookbookApp:
     def cancel_analysis(self):
         if self.job is not None:
             self.job.requestInterruption()
-            self.screen.set_cancellable(False)
+            if isinstance(self.screen, KitchenScreen):
+                self.screen.cancel_button.setEnabled(False)
+            else:
+                self.screen.set_cancellable(False)
             self._set_status("Stopping after the current model operation…")
 
     def _show_result(self, report, request):

@@ -4,6 +4,12 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## Kitchen milestone 1 — 2026-10-27
+
+The [Kitchen guide](KITCHEN.md) describes the first native composable graph: dataset snapshots, column/role selection, regression comparison and reports. The UI-free DAG validates before fitting, executes sequentially, tracks old completed artifacts separately from current attempts and saves `.mlck` documents without changing recipe experiments. The canvas/inspector uses the accepted visual baseline and existing report renderer; Data, ordinary/example sessions and sealed Movement studies stay separate. Source baseline/recovery is under `2026/10/27/01a17b8b-9fbf-74e3-9d5d-7de89734da3c/kitchen/` in the visualizations directory.
+
+The first source checkpoint passed **630 tests**, Ruff and native journeys at common Windows scales; the 60 existing SVC warnings remain. It includes failed/cancelled attempt restoration, non-cancellable file jobs, large-canvas recovery, exact editor-setting restoration and source-free graph reopening. Adam subsequently requested commit/push and continued development toward explicit data-vector composition; the four-operation checkpoint is a foundation, not completion of that broader platform request. The existing shortcut bundle remains the accepted UI build while a separate final Kitchen candidate is prepared.
+
 ## Original character and text cleanup — 2026-10-26
 
 Adam requested restoration of the original visual character together with removal of floating, repetitive text. The app now uses ink-black/violet surfaces and Palatino for its wordmark, page/recipe headings and small mathematical marks. Body controls, metric values and QPainter plots retain Segoe. Corners and emphasis remain restrained.

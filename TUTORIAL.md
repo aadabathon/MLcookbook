@@ -20,6 +20,8 @@ On first use, **Preparing analysis runtime…** may appear while scientific libr
 
 ## Your first experiment
 
+For connected operations rather than one recipe, use [The Kitchen walkthrough](KITCHEN.md). Import through Data, capture a dataset node, select columns, connect a comparison and inspect its report. Kitchen graphs save as `.mlck`; recipe experiments below save as `.mlcb`.
+
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
 2. Click **Recipes → Linear Regression**. Opening it does not run an analysis. Choose target/features for your imported file and **Run Analysis**, or click **Run example** for the bundled diabetes example predicting `progression`. Example loading and analysis run in the background.
 3. Read the short result summary, actual-versus-predicted plot, test metrics, and warnings. Expand **Model settings** to try ridge or lasso. **Preprocessing & validation...** stays accessible below model settings; the adjacent summary identifies the test split, seed and training-CV folds.

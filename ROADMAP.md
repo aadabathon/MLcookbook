@@ -86,6 +86,8 @@ Final verification: **440 pytest tests passed**, Ruff/dependency checks passed, 
 
 ### 4. Workflow graph core and persistence
 
+**Kitchen milestone 1 — 2026-10-27:** the requested first Dataset → optional Select columns/roles → Regression comparison → Report path is implemented with a typed UI-free DAG, deterministic preflight/execution, per-node provenance/staleness, between-operation cancellation and independent `.mlck` persistence. Native canvas/inspector editing, typed connection checks, undo/redo and offline reopening are present. These are the first four operations; the LLM/derive branch and broader kernels remain unimplemented at this checkpoint, so the full stages below are not marked complete. See [KITCHEN.md](KITCHEN.md).
+
 - [ ] Define a small, versioned graph document: node IDs, known node kinds, plain settings, typed input/output ports, edges, and references to dataset/result artifacts. Use dataclasses and an explicit mapping of supported operations.
 - [ ] First node set: **Dataset snapshot**, **Select columns / roles**, **LLM generation**, **Validate / derive columns**, **Existing analysis recipe**, and **Report**. Existing analysis nodes call the current core workflows and return result data.
 - [ ] Validate required inputs, port types, missing columns, unknown node kinds, and cycles before expensive execution. Run a directed acyclic graph in a deterministic order, one active job initially, with per-node status and cancellation.
