@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
-    QHBoxLayout,
+    QGridLayout,
     QHeaderView,
     QLabel,
     QPlainTextEdit,
@@ -153,9 +153,10 @@ class ReportView(QScrollArea):
         layout.setSpacing(theme.SPACE_XS)
         layout.addWidget(self._section_label(group["title"]))
 
-        row = QHBoxLayout()
-        row.setSpacing(theme.SPACE_SM)
-        for label, value in group["items"]:
+        tiles = QGridLayout()
+        tiles.setSpacing(theme.SPACE_SM)
+        columns = min(3, len(group["items"]))
+        for index, (label, value) in enumerate(group["items"]):
             tile = QFrame()
             tile.setObjectName("MetricTile")
             tile_layout = QVBoxLayout(tile)
@@ -168,8 +169,10 @@ class ReportView(QScrollArea):
             caption.setWordWrap(True)
             tile_layout.addWidget(number)
             tile_layout.addWidget(caption)
-            row.addWidget(tile)
-        layout.addLayout(row)
+            tiles.addWidget(tile, index // columns, index % columns)
+        for index in range(columns):
+            tiles.setColumnStretch(index, 1)
+        layout.addLayout(tiles)
         return box
 
 

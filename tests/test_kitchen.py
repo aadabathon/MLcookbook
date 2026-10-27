@@ -135,10 +135,11 @@ def test_saved_stale_graph_reopens_without_sources_or_fitting(data, tmp_path, mo
     import mlcookbook.kitchen as kitchen
 
     plan = graph()
-    run = run_graph(plan, {"own": data}).run
+    execution = run_graph(plan, {"own": data})
+    run = execution.run
     changed = replace(plan, nodes=[replace(n, settings=n.settings | {"alpha": 5.0}) if n.id == "compare" else n for n in plan.nodes])
     doc = KitchenDocument(changed, {"own": data}, {"own": {"name": "my.csv", "source": {"path": "missing.csv"}}},
-                           run, {"source": [10.0, -20.0]}, "report")
+                           run, {"source": [10.0, -20.0]}, "report", artifacts=execution.artifacts)
     path = tmp_path / "research.mlck"
     save_kitchen(path, doc)
     monkeypatch.setattr(kitchen, "compare_regressors", lambda *a, **kw: pytest.fail("Open must not fit"))
@@ -193,7 +194,8 @@ def test_damaged_documents_are_rejected_without_execution(data, tmp_path, monkey
     import mlcookbook.kitchen as kitchen
 
     path = tmp_path / "original.mlck"
-    doc = KitchenDocument(graph(), {"own": data}, {"own": {"name": "own.csv", "source": {}}}, run_graph(graph(), {"own": data}).run)
+    doc = KitchenDocument(graph(), {"own": data}, {"own": {"name": "own.csv", "source": {}}})
+    doc.accept_execution(run_graph(graph(), {"own": data}))
     save_kitchen(path, doc)
     with zipfile.ZipFile(path) as archive:
         contents = {name: archive.read(name) for name in archive.namelist()}
@@ -226,7 +228,8 @@ def test_damaged_documents_are_rejected_without_execution(data, tmp_path, monkey
 def test_latest_failed_or_cancelled_attempt_survives_reopen_beside_older_result(data, tmp_path, monkeypatch, cancel):
     import mlcookbook.kitchen as kitchen
 
-    previous = run_graph(graph(), {"own": data}).run
+    original = run_graph(graph(), {"own": data})
+    previous = original.run
     changed = replace(graph(), nodes=[replace(n, settings=n.settings | {"alpha": 4.0}) if n.id == "compare" else n
                                       for n in graph().nodes])
     progress = []
@@ -236,7 +239,7 @@ def test_latest_failed_or_cancelled_attempt_survives_reopen_beside_older_result(
     expected = "cancelled" if cancel else "failed"
     assert node_states(changed, {"own": dataset_fingerprint(data)}, run)["compare"] == expected
     path = tmp_path / "attempt.mlck"
-    save_kitchen(path, KitchenDocument(changed, {"own": data}, {"own": {"name": "own", "source": {}}}, run))
+    save_kitchen(path, KitchenDocument(changed, {"own": data}, {"own": {"name": "own", "source": {}}}, run, artifacts=original.artifacts))
     loaded = load_kitchen(path)
     assert node_states(loaded.graph, {"own": dataset_fingerprint(loaded.snapshots["own"])}, loaded.run)["compare"] == expected
     assert loaded.run.records["compare"] == previous.records["compare"]

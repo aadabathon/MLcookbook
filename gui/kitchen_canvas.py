@@ -14,21 +14,65 @@ from PySide6.QtWidgets import (
 
 from gui import theme
 
-NODE_LABELS = {"dataset": "Dataset snapshot", "select": "Select columns", "comparison": "Model comparison", "report": "Report"}
-NODE_SYMBOLS = {"dataset": "D", "select": "π", "comparison": "⇄", "report": "Σ"}
-NODE_PORTS = {"dataset": (None, "data"), "select": ("data", "data"),
-              "comparison": ("data", "result"), "report": ("result", None)}
+NODE_LABELS = {"dataset": "Dataset snapshot", "select": "Select columns", "column": "Column vector",
+               "map": "Vector map", "combine": "Combine vectors", "build": "Build dataset", "add_column": "Add column",
+               "filter": "Filter rows", "linear": "Linear regression", "comparison": "Model comparison",
+               "summary": "Vector summary", "correlation": "Correlation", "report": "Report"}
+NODE_SYMBOLS = {"dataset": "D", "select": "π", "column": "v", "map": "ƒ", "combine": "⊕", "build": "⊞",
+                "add_column": "+", "filter": "σ", "linear": "β", "comparison": "⇄", "summary": "μ", "correlation": "ρ", "report": "Σ"}
+NODE_PORTS = {
+    "dataset": ({}, {"data": "dataset"}), "select": ({"data": "dataset"}, {"data": "dataset"}),
+    "column": ({"data": "dataset"}, {"vector": "vector", "missing": "vector"}),
+    "map": ({"vector": "vector"}, {"vector": "vector"}),
+    "combine": ({"left": "vector", "right": "vector"}, {"vector": "vector"}),
+    "build": ({"vector": "vector"}, {"data": "dataset"}),
+    "add_column": ({"data": "dataset", "vector": "vector"}, {"data": "dataset"}),
+    "filter": ({"data": "dataset", "mask": "vector"}, {"data": "dataset"}),
+    "linear": ({"data": "dataset"}, {"result": "analysis"}),
+    "comparison": ({"data": "dataset"}, {"result": "analysis"}),
+    "summary": ({"vector": "vector"}, {"result": "analysis"}),
+    "correlation": ({"left": "vector", "right": "vector"}, {"result": "analysis"}),
+    "report": ({"result": "analysis"}, {}),
+}
+PORT_COLORS = {"dataset": theme.UI_ACCENT, "vector": theme.PLOT_ALT, "analysis": theme.ACCENT_SOFT}
+
+
+def node_caption(node):
+    """A short description of the configured operation, without analytical work."""
+    kind, settings = node["kind"], node["settings"]
+    if kind == "dataset":
+        return "Dataset bound" if settings["snapshot"] else "No dataset bound"
+    if kind == "column":
+        return settings["column"] or "No column selected"
+    if kind == "select":
+        return ", ".join(settings["columns"]) or "No columns selected"
+    if kind in ("build", "add_column"):
+        return settings["name"] or "Column name required"
+    if kind in ("linear", "comparison"):
+        return (settings["target"] + " ← " + ", ".join(settings["features"])) if settings["target"] else "No target selected"
+    if kind == "map":
+        operation, value = settings["operation"], settings["value"]
+        constants = {"add": "+", "multiply": "×", "greater_than": ">", "less_than": "<", "equal": "="}
+        return f"vector {constants[operation]} {value:g}" if operation in constants else f"{operation}(vector)"
+    if kind == "combine":
+        symbol = {"add": "+", "subtract": "−", "multiply": "×", "divide": "/", "greater_than": ">",
+                  "less_than": "<", "equal": "="}[settings["operation"]]
+        return f"left {symbol} right"
+    if kind == "correlation":
+        return f"{settings['method'].capitalize()} · {settings['confidence_level']:.0%} confidence"
+    return {"filter": "Keep rows where mask is true", "summary": "Describe connected vector",
+            "report": "Inspect connected analysis"}.get(kind, "")
 
 
 class PortItem(QGraphicsEllipseItem):
-    def __init__(self, node, name, output):
+    def __init__(self, node, name, kind, output, index):
         super().__init__(-6, -6, 12, 12, node)
         self._node, self.name, self.output = weakref.ref(node), name, output
-        self.setPos(210 if output else 0, 65)
-        color = theme.UI_ACCENT if name == "data" else theme.PLOT_ALT
+        self.setPos(node.rect().width() if output else 0, 82 + index * 26)
+        color = PORT_COLORS[kind]
         self.setBrush(QColor(color))
         self.setPen(QPen(QColor(theme.BG), 2))
-        self.setToolTip(("Output: " if output else "Input: ") + ("dataset" if name == "data" else "comparison result"))
+        self.setToolTip(("Output " if output else "Input ") + name + " · " + kind)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
     @property
@@ -38,16 +82,24 @@ class PortItem(QGraphicsEllipseItem):
 
 class NodeItem(QGraphicsRectItem):
     def __init__(self, node, canvas):
-        super().__init__(0, 0, 210, 104)
+        incoming, outgoing = NODE_PORTS[node["kind"]]
+        super().__init__(0, 0, 230, 126 + 26 * max(0, max(len(incoming), len(outgoing)) - 1))
         self.node, self._canvas, self.state = node, weakref.ref(canvas), "unrun"
-        self.ports = {}
+        self.caption = node_caption(node)
+        self.ports, self.input_ports, self.output_ports = {}, {}, {}
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        self.setToolTip(f"{node['id']} · {NODE_LABELS[node['kind']]}")
-        incoming, outgoing = NODE_PORTS[node["kind"]]
-        for name, output in ((incoming, False), (outgoing, True)):
-            if name:
-                self.ports[output] = PortItem(self, name, output)
+        self.set_caption(self.caption)
+        for definitions, output in ((incoming, False), (outgoing, True)):
+            mapping = self.output_ports if output else self.input_ports
+            for index, (name, kind) in enumerate(definitions.items()):
+                mapping[name] = PortItem(self, name, kind, output, index)
+                self.ports.setdefault(output, mapping[name])  # first-port compatibility for gestures/tests
+
+    def set_caption(self, caption):
+        self.caption = caption
+        self.setToolTip(f"{self.node['id']} · {NODE_LABELS[self.node['kind']]}\n{caption}")
+        self.update()
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -56,14 +108,22 @@ class NodeItem(QGraphicsRectItem):
         painter.drawRoundedRect(self.rect(), 5, 5)
         painter.setFont(QFont("Palatino Linotype", 13))
         painter.setPen(QColor(theme.TEXT))
-        painter.drawText(QRectF(14, 10, 185, 30), Qt.AlignmentFlag.AlignLeft,
-                         NODE_SYMBOLS[self.node["kind"]] + "  " + NODE_LABELS[self.node["kind"]])
+        title = NODE_SYMBOLS[self.node["kind"]] + "  " + NODE_LABELS[self.node["kind"]]
+        painter.drawText(QRectF(14, 8, 202, 27), Qt.AlignmentFlag.AlignLeft,
+                         painter.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, 202))
         painter.setFont(QFont(theme.FONT_FAMILY, theme.PLOT_POINT_SIZE))
+        painter.setPen(QColor(theme.TEXT_MUTED))
+        painter.drawText(QRectF(14, 38, 202, 20),
+                         painter.fontMetrics().elidedText(self.caption, Qt.TextElideMode.ElideRight, 202))
         painter.setPen(QColor(theme.WARNING if self.state in ("stale", "failed", "blocked", "cancelled") else
                               theme.UI_ACCENT if self.state == "running" else theme.TEXT_MUTED))
-        painter.drawText(QRectF(15, 43, 180, 22), self.state.capitalize())
+        painter.drawText(QRectF(14, self.rect().height() - 22, 202, 18),
+                         f"{self.node['id']} · {self.state.capitalize()}")
         painter.setPen(QColor(theme.TEXT_FAINT))
-        painter.drawText(QRectF(15, 73, 180, 20), self.node["id"])
+        for mapping, output in ((self.input_ports, False), (self.output_ports, True)):
+            for name, port in mapping.items():
+                rect = QRectF(14 if not output else 110, port.pos().y() - 8, 106, 20)
+                painter.drawText(rect, Qt.AlignmentFlag.AlignRight if output else Qt.AlignmentFlag.AlignLeft, name)
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
@@ -97,6 +157,7 @@ class KitchenCanvas(QGraphicsView):
         self.nodes, self.edges, self._link = {}, [], None
         self._loading = False
         self._positions = {}
+        self._captions = {}
 
     def set_graph(self, graph, layout, selected=None, states=None):
         self._loading = True
@@ -107,12 +168,14 @@ class KitchenCanvas(QGraphicsView):
             item = NodeItem(node, self)
             self.nodes[node["id"]] = item
             self.scene().addItem(item)
+            item.set_caption(self._captions.get(node["id"], node_caption(node)))
             item.setPos(*layout.get(node["id"], [index * 255, 0]))
             item.state = (states or {}).get(node["id"], "unrun")
             item.setSelected(node["id"] == selected)
         for index, edge in enumerate(graph["edges"]):
             line = QGraphicsPathItem()
-            line.setPen(QPen(QColor(theme.UI_ACCENT if edge["source_port"] == "data" else theme.PLOT_ALT), 2))
+            kind = NODE_PORTS[self.nodes[edge["source"]].node["kind"]][1][edge["source_port"]]
+            line.setPen(QPen(QColor(PORT_COLORS[kind]), 2))
             line.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
             line.setData(0, index)
             line.setZValue(-1)
@@ -121,6 +184,18 @@ class KitchenCanvas(QGraphicsView):
         self.update_edges()
         self._positions = self.positions()
         self._loading = False
+
+    def update_nodes(self, nodes):
+        """Refresh edited captions without replacing items or losing selection."""
+        for node in nodes:
+            item = self.nodes.get(node["id"])
+            if item is not None:
+                item.node = node
+                item.set_caption(self._captions.get(node["id"], node_caption(node)))
+
+    def set_captions(self, captions):
+        self._captions = dict(captions)
+        self.update_nodes([item.node for item in self.nodes.values()])
 
     @staticmethod
     def curve(start, end):
@@ -133,7 +208,7 @@ class KitchenCanvas(QGraphicsView):
         for line, edge in self.edges:
             source, target = self.nodes.get(edge["source"]), self.nodes.get(edge["target"])
             if source and target:
-                line.setPath(self.curve(source.ports[True].scenePos(), target.ports[False].scenePos()))
+                line.setPath(self.curve(source.output_ports[edge["source_port"]].scenePos(), target.input_ports[edge["target_port"]].scenePos()))
         bounds = self.scene().itemsBoundingRect().adjusted(-400, -300, 400, 300)
         self.setSceneRect(bounds.united(QRectF(-1000, -800, 5000, 3000)))
 
@@ -224,7 +299,9 @@ class KitchenCanvas(QGraphicsView):
         elif event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) and self.nodes:
             keys = list(self.nodes)
             current = next((i for i, key in enumerate(keys) if self.nodes[key].isSelected()), -1)
-            key = keys[(current + (-1 if event.key() == Qt.Key.Key_Left else 1)) % len(keys)]
+            backward = event.key() == Qt.Key.Key_Left
+            position = (-1 if backward else 0) if current < 0 else (current + (-1 if backward else 1)) % len(keys)
+            key = keys[position]
             self.scene().clearSelection()
             self.nodes[key].setSelected(True)
             self.ensureVisible(self.nodes[key])
@@ -234,9 +311,12 @@ class KitchenCanvas(QGraphicsView):
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if not event.angleDelta().y():
+                event.accept()
+                return
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
             current = self.transform().m11()
-            zoom = max(0.1, min(2.5, current * factor))
+            zoom = max(min(0.001, current), min(2.5, current * factor))
             self.scale(zoom / current, zoom / current)
             event.accept()
         else:

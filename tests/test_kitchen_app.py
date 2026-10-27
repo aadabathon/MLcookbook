@@ -345,12 +345,18 @@ def test_large_canvas_positions_remain_reachable_and_fit_can_be_zoomed(controlle
     assert screen.canvas.sceneRect().contains(item.sceneBoundingRect())
     screen.canvas.fit_graph()
     qt.processEvents()
-    assert screen.canvas.transform().m11() < 0.1
+    fitted_scale = screen.canvas.transform().m11()
+    assert fitted_scale < 0.1
+    event = QWheelEvent(QPointF(100, 100), QPointF(100, 100), QPoint(), QPoint(0, -120),
+                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                        Qt.ScrollPhase.ScrollUpdate, False)
+    QApplication.sendEvent(screen.canvas.viewport(), event)
+    assert screen.canvas.transform().m11() < fitted_scale
     event = QWheelEvent(QPointF(100, 100), QPointF(100, 100), QPoint(), QPoint(0, 120),
                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
                         Qt.ScrollPhase.ScrollUpdate, False)
     QApplication.sendEvent(screen.canvas.viewport(), event)
-    assert screen.canvas.transform().m11() >= 0.1
+    assert screen.canvas.transform().m11() == pytest.approx(fitted_scale)
     screen.canvas.ensureVisible(item)
     qt.processEvents()
     assert screen.canvas.viewport().rect().contains(screen.canvas.mapFromScene(item.sceneBoundingRect().center()))
@@ -390,3 +396,210 @@ def test_non_cancellable_file_jobs_do_not_show_or_enable_cancel(controller, qt, 
     finally:
         release.set()
         finish(controller, qt)
+
+
+def test_column_missing_port_gesture_and_keyboard_selection_are_independent(controller, qt):
+    controller.navigate("kitchen")
+    finish(controller, qt)
+    screen = controller.screen
+    source, column, filtered = add(screen, "dataset"), add(screen, "column"), add(screen, "filter")
+    screen.connect_nodes({"source": source, "source_port": "data", "target": column, "target_port": "data"})
+    screen.connect_nodes({"source": source, "source_port": "data", "target": filtered, "target_port": "data"})
+    screen.canvas.fit_graph()
+    qt.processEvents()
+    output = screen.canvas.mapFromScene(screen.canvas.nodes[column].output_ports["missing"].scenePos())
+    incoming = screen.canvas.mapFromScene(screen.canvas.nodes[filtered].input_ports["mask"].scenePos())
+    QTest.mouseClick(screen.canvas.viewport(), Qt.MouseButton.LeftButton, pos=output)
+    QTest.mouseClick(screen.canvas.viewport(), Qt.MouseButton.LeftButton, pos=incoming)
+    assert controller.kitchen.graph.edges[-1].source_port == "missing"
+    assert controller.kitchen.graph.edges[-1].target_port == "mask"
+    screen.canvas.scene().clearSelection()
+    screen.canvas.setFocus()
+    QTest.keyClick(screen.canvas, Qt.Key.Key_Left)
+    assert screen.editor["selected"] == filtered
+    screen.canvas.scene().clearSelection()
+    QTest.keyClick(screen.canvas, Qt.Key.Key_Right)
+    assert screen.editor["selected"] == source
+    QTest.keyClick(screen.canvas, Qt.Key.Key_Left)
+    assert screen.editor["selected"] == filtered
+
+
+def _vector_workflow(controller, qt, tmp_path):
+    frame = pd.DataFrame({"x": pd.array([None, *range(2, 49)], dtype="Float64"),
+                          "z": [2., 0., *([2.] * 46)], "y": [3 * i + i % 3 for i in range(48)]},
+                         index=[4, 4, 2, 9] * 12)
+    path = tmp_path / "vectors.parquet"
+    frame.to_parquet(path, index=True)
+    controller.load_file(str(path), ",", "utf-8", "")
+    finish(controller, qt)
+    controller.navigate("kitchen")
+    finish(controller, qt)
+    screen = controller.screen
+    keys = {}
+    keys["source"] = add(screen, "dataset")
+    screen.capture_button.click()
+    finish(controller, qt)
+
+    def connect(source, source_port, target, target_port):
+        screen.connect_nodes({"source": keys[source], "source_port": source_port,
+                              "target": keys[target], "target_port": target_port})
+
+    for label, name in (("x", "x"), ("z", "z")):
+        keys[label] = add(screen, "column")
+        connect("source", "data", label, "data")
+        screen.controls["column"].setCurrentIndex(screen.controls["column"].findData(name))
+    keys["square"] = add(screen, "map")
+    connect("x", "vector", "square", "vector")
+    screen.controls["operation"].setCurrentIndex(screen.controls["operation"].findData("square"))
+    assert not screen.controls["value"].isVisibleTo(screen)
+    assert screen.canvas.nodes[keys["square"]].caption == "square(vector)"
+    keys["ratio"] = add(screen, "combine")
+    connect("square", "vector", "ratio", "left")
+    connect("z", "vector", "ratio", "right")
+    screen.controls["operation"].setCurrentIndex(screen.controls["operation"].findData("divide"))
+    screen.controls["invalid"].setCurrentIndex(screen.controls["invalid"].findData("missing"))
+    keys["append"] = add(screen, "add_column")
+    connect("source", "data", "append", "data")
+    connect("ratio", "vector", "append", "vector")
+    screen.controls["name"].setFocus()
+    screen.controls["name"].selectAll()
+    QTest.keyClicks(screen.controls["name"], "ratio")
+    assert screen.controls["name"].text() == "ratio"
+    assert next(n.settings for n in controller.kitchen.graph.nodes if n.id == keys["append"])["name"] == "ratio"
+    assert screen.canvas.nodes[keys["append"]].caption == "ratio"
+    keys["linear"] = add(screen, "linear")
+    connect("append", "data", "linear", "data")
+    screen.controls["target"].setCurrentIndex(screen.controls["target"].findData("y"))
+    features = screen.controls["features"]
+    row = next(i for i in range(features.rowCount()) if features.item(i, 0).text() == "ratio")
+    features.item(row, 0).setCheckState(Qt.CheckState.Checked)
+    screen.controls["cv_folds"].setValue(2)
+    keys["report"] = add(screen, "report")
+    connect("linear", "result", "report", "result")
+    keys["summary"] = add(screen, "summary")
+    connect("ratio", "vector", "summary", "vector")
+    keys["build"] = add(screen, "build")
+    connect("ratio", "vector", "build", "vector")
+    screen.controls["name"].setText("ratio_only")
+    keys["correlation"] = add(screen, "correlation")
+    connect("x", "vector", "correlation", "left")
+    connect("z", "vector", "correlation", "right")
+    screen.controls["method"].setCurrentIndex(screen.controls["method"].findData("spearman"))
+    screen.controls["confidence_level"].setValue(.999)
+    keys["threshold"] = add(screen, "map")
+    connect("x", "vector", "threshold", "vector")
+    screen.controls["operation"].setCurrentIndex(screen.controls["operation"].findData("greater_than"))
+    screen.controls["value"].setValue(10.)
+    assert screen.controls["value"].isVisibleTo(screen)
+    keys["filtered"] = add(screen, "filter")
+    connect("source", "data", "filtered", "data")
+    connect("threshold", "vector", "filtered", "mask")
+    return path, frame, keys
+
+
+def test_branching_vectors_inspection_export_use_and_stale_reopen(controller, qt, tmp_path, monkeypatch):
+    import json
+
+    from PySide6.QtWidgets import QFileDialog
+
+    import mlcookbook.kitchen as kitchen
+
+    path, source_frame, keys = _vector_workflow(controller, qt, tmp_path)
+    screen = controller.screen
+    original, calls = kitchen.linear_regression, []
+
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(kitchen, "linear_regression", counted)
+    screen.run_button.click()
+    finish(controller, qt)
+    assert len(calls) == 1 and set(screen._states.values()) == {"completed"}
+    filtered_record = controller.kitchen.run.records[keys["filtered"]]
+    assert filtered_record.payload["rows"] == 38
+    built_record = controller.kitchen.run.records[keys["build"]]
+    assert [column["name"] for column in built_record.payload["columns"]] == ["ratio_only"]
+    select(screen, keys["correlation"])
+    assert screen.controls["confidence_level"].value() == .999
+    assert controller.kitchen.run.records[keys["correlation"]].settings["method"] == "spearman"
+    assert screen.output.findChildren(PlotWidget)
+    select(screen, keys["x"])
+    choice = next(i for i in range(screen.output_port.count()) if screen.output_port.itemData(i)["port"] == "missing")
+    screen.output_port.setCurrentIndex(choice)
+    assert screen.output_port.currentData()["port"] == "missing"
+    shown = controller._kitchen_report(controller.kitchen, keys["x"], "missing")
+    assert len(shown["tables"]) == 1 and "boolean" in shown["tables"][0]["title"]
+    controller._refresh_kitchen()
+    assert screen.output_port.currentData()["port"] == "missing" and len(calls) == 1
+
+    select(screen, keys["ratio"])
+    vector_path = tmp_path / "ratio.parquet"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(vector_path), "Parquet (*.parquet)"))
+    screen.export_button.click()
+    finish(controller, qt)
+    exported = pd.read_parquet(vector_path)
+    expected = pd.Series(pd.array([None, None, *((i + 1) ** 2 / 2 for i in range(2, 48))], dtype="Float64"))
+    pd.testing.assert_series_equal(exported.iloc[:, 0].reset_index(drop=True), expected, check_names=False)
+    assert exported.index.equals(source_frame.index)
+
+    select(screen, keys["append"])
+    assert screen.warning_button.isVisibleTo(screen) and screen.accept_button.isEnabled()
+    screen.controls["name"].setText("edited_ratio")
+    assert screen._states[keys["append"]] == screen._states[keys["linear"]] == "stale"
+    assert "last completed" in screen.result_state.text() and not screen.accept_button.isEnabled()
+    assert screen.export_button.isEnabled()
+    old_path = tmp_path / "previous.parquet"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(old_path), "Parquet (*.parquet)"))
+    screen.export_button.click()
+    finish(controller, qt)
+    assert "ratio" in pd.read_parquet(old_path) and "edited_ratio" not in pd.read_parquet(old_path)
+    assert "last completed output" in screen.status.text()
+
+    saved = tmp_path / "vectors.mlck"
+    controller.save_kitchen(str(saved))
+    finish(controller, qt)
+    snapshot_ids = set(controller.kitchen.snapshots)
+    path.unlink()
+    controller.open_kitchen(str(saved))
+    finish(controller, qt)
+    screen = controller.screen
+    assert len(calls) == 1 and screen._states[keys["append"]] == "stale"
+    assert not screen.accept_button.isEnabled() and screen.export_button.isEnabled()
+    screen.controls["name"].setText("ratio")
+    assert screen._states[keys["append"]] == "completed" and screen.accept_button.isEnabled()
+    screen.accept_button.click()
+    finish(controller, qt)
+    assert set(controller.kitchen.snapshots) == snapshot_ids
+    accepted = controller.imported[0].df
+    assert list(accepted.columns) == ["x", "z", "y", "ratio"] and accepted.index.equals(source_frame.index)
+    pd.testing.assert_series_equal(accepted["ratio"].reset_index(drop=True), expected, check_names=False)
+    assert len(calls) == 1
+
+    select(screen, keys["report"])
+    analysis_path = tmp_path / "analysis.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(analysis_path), "JSON (*.json)"))
+    screen.export_button.click()
+    finish(controller, qt)
+    result = json.loads(analysis_path.read_text(encoding="utf-8"))
+    assert result["format"] == "mlcookbook-kitchen-output" and result["port"] == "result"
+    assert result["completed"]["payload"]["analysis_kind"] == "linear"
+
+
+@pytest.mark.parametrize("state", ["failed", "cancelled"])
+def test_retained_output_actions_follow_completed_provenance_after_unsuccessful_attempt(controller, qt, tmp_path, state):
+    _, keys = setup_graph(controller, qt, tmp_path)
+    screen = controller.screen
+    select(screen, keys[0])
+    screen.run_selected_button.click()
+    finish(controller, qt)
+    context = controller._kitchen_columns(controller.kitchen, controller.kitchen_views, keys[0])
+    report = controller._kitchen_report(controller.kitchen, keys[0])
+    inspected = []
+    screen.inspect_requested.connect(lambda node, port: inspected.append((node, port)))
+    screen.set_context(context | {"current_output": False}, report=report, state=state)
+    assert screen.export_button.isEnabled() and not screen.accept_button.isEnabled()
+    assert "earlier settings" in screen.accept_button.toolTip()
+    screen.set_context(context | {"current_output": True}, report=report, state=state)
+    assert screen.accept_button.isEnabled()
+    assert inspected == []  # programmatic refresh never masquerades as a user's port choice

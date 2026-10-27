@@ -13,6 +13,7 @@ from __future__ import annotations
 import warnings as python_warnings
 from dataclasses import dataclass, field
 
+import numpy as np
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import Lasso, LinearRegression, Ridge
 from sklearn.model_selection import train_test_split
@@ -56,6 +57,8 @@ class LinearRegressionResult(Result):
     preprocessing: PreprocessingSummary
     cross_validation: CrossValidationResult | None  # on the training rows only
     warnings: list[str] = field(default_factory=list)
+    train_rows: list[int] = field(default_factory=list)  # source positions, independent of index labels
+    test_rows: list[int] = field(default_factory=list)
 
 
 def linear_regression(
@@ -107,8 +110,9 @@ def linear_regression(
 
     X = frame[features]
     y = frame[target]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
+    source_rows = np.flatnonzero(dataset.df[target].notna().to_numpy())
+    X_train, X_test, y_train, y_test, train_rows, test_rows = train_test_split(
+        X, y, source_rows, test_size=test_size, random_state=random_state
     )
 
     def make_model() -> Pipeline:
@@ -157,5 +161,6 @@ def linear_regression(
         residual_diagnostics=diagnostics,
         preprocessing=describe_preprocessor(model.named_steps["preprocess"], X_train, dataset, config),
         cross_validation=cross_validation,
+        train_rows=train_rows.tolist(), test_rows=test_rows.tolist(),
         warnings=warnings,
     )

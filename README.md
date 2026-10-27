@@ -200,7 +200,9 @@ The interface uses ink-black surfaces, violet accents and serif headings, with p
 
 ### The Kitchen
 
-**Kitchen** in the sidebar is the native graph workspace. Its first milestone connects independent dataset snapshots, optional column/role selection, regression model comparison and inspectable reports. It supports branching, typed connections, per-node state, run-to-selected, undo/redo and atomic `.mlck` graph saves that reopen offline without fitting. Recipe `.mlcb` files retain their original format. See [The Kitchen guide](KITCHEN.md) for a complete workflow, controls, limitations and the submodule-only Python API.
+**Kitchen** in the sidebar is the native graph workspace. Bind a dataset snapshot, extract columns as vectors, branch through row-wise maps/combinations, assemble or filter a dataset, then connect a summary, correlation, linear regression or model comparison to a report. Its 13 operation kinds have named dataset/vector/analysis ports, per-node state, run-to-selected and undo/redo. Completed vectors and derived datasets are retained in full, including older outputs needed by stale results.
+
+**Export…** writes a completed output as Parquet/CSV values or analysis JSON. **Use dataset** explicitly passes a completed dataset to Data and the recipe catalog while keeping the Kitchen source and results. Version-2 `.mlck` saves retain graph/layout/settings, source snapshots, checksummed typed Parquet outputs and positional lineage; reopening executes no nodes. Version-1 Kitchen previews remain readable, and recipe `.mlcb` files retain their format. See [The Kitchen guide](KITCHEN.md) for the operation list, a feature-engineering workflow, controls, bounds and the submodule-only API.
 
 1. Import CSV/Parquet from **Data**, then open a recipe. Nothing runs automatically. For another CSV delimiter, encoding or missing-value markers (e.g. `?, -999`), expand **CSV import options** before opening the file. **Run example** is a separate explicit action.
 2. Review the **data checks** (import conversions and quality issues) and each column's type. Columns that look like IDs, are constant, or are entirely missing start unchecked. Types are editable roles, not conversions of the underlying values.
@@ -238,7 +240,7 @@ A standalone Windows build (PyInstaller) is produced into `dist/MLcookbook/MLcoo
 
 Saving is explicit and captures **one recipe**, not every open recipe session. It also works for all other recipes and for configurations that have not been run yet. Files use a versioned ZIP containing JSON metadata/results and a typed Parquet snapshot; no fitted model objects or executable Python are stored. Saves replace existing files atomically. Failed opens leave your current dataset and report intact. Successfully opening an experiment clears previous in-memory recipe sessions and makes its dataset available to the other recipes. A saved file contains the dataset itself, so its size and contents follow your data.
 
-The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Classification comparison, arbitrary workflow graphs, fitted-model persistence, and CSV result export remain future work.
+The comparison currently supports ridge and random forest regression. Both use the same preprocessing choices (standard scaling by default), unlike the standalone forest recipe's default of no scaling. Repeated tuning after inspecting the test score weakens its independence; reserve new held-out data for a final assessment. Kitchen can compose supported data/vector operations around this comparison. Classification comparison and fitted-model persistence remain future work; standalone recipe experiments still save one recipe at a time.
 
 ```python
 from mlcookbook import compare_regressors
@@ -296,7 +298,7 @@ result = generate_text(data, model_path="models/SmolLM2-135M-Instruct",
                        prompt="Summarize:", text_column="notes", max_rows=3)
 ```
 
-This is an inference workflow: no sklearn preprocessing, train/test split, cross-validation, training, or accuracy evaluation is performed. Generated text can be wrong. PyTorch uses float32 on CPU and float16 on CUDA; hardware/software changes and time limits can affect repeatability even with a recorded seed. Training/fine-tuning, embeddings, and graph composition remain separate future work. The existing Neural Networks recipe continues to use scikit-learn's MLP.
+This is an inference workflow: no sklearn preprocessing, train/test split, cross-validation, training, or accuracy evaluation is performed. Generated text can be wrong. PyTorch uses float32 on CPU and float16 on CUDA; hardware/software changes and time limits can affect repeatability even with a recorded seed. Training/fine-tuning, embeddings and LLM graph nodes remain separate future work. The existing Neural Networks recipe continues to use scikit-learn's MLP.
 
 ### Local LLM generation with Ollama
 
@@ -378,7 +380,7 @@ The row limit is **1–10 source positions**, including blank/skipped rows, for 
 
 **Export current run** writes UTF-8 JSON with source values, row outcomes, metadata and metrics. `.mlcb` remains the typed, checksummed source snapshot and offline-reopening format. Generated columns can still reveal target information: inspect inputs and freeze prompt/model choices before assessing held-out predictions.
 
-The [roadmap](ROADMAP.md#local-llm-and-workflow-graphs) continues with graph execution and a native Qt canvas for connecting these operations to existing recipes.
+The [Kitchen](KITCHEN.md) now composes tabular/vector operations and selected analyses in a native Qt canvas. Adding these LLM extraction/validation/derivation operations as graph nodes remains a later [roadmap](ROADMAP.md#local-llm-and-workflow-graphs) milestone; their existing Local LLMs screen remains usable independently.
 
 The same operations are available without Qt:
 

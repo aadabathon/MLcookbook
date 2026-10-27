@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Kitchen vector composition: named dataset/vector/analysis ports; column and missing-mask outputs; row-local arithmetic/comparisons, dataset assembly/filtering, summaries, correlation and linear regression beside model comparison. Exact positional lineage preserves duplicate indices. Full completed outputs and stale input provenance use version-2 `.mlck` checked Parquet artifacts, with version-1 preview loading retained. Completed outputs can be exported or explicitly reused as active data. Final completion-pass validation is recorded in ADAM.md.
+
 - Kitchen graph milestone 1: native typed dataset/select/comparison/report nodes, branching, editable canvas/inspector, run-to-selected, per-node state/cancellation, undo/redo and independent atomic `.mlck` snapshot/result persistence. Pure report rendering is shared with existing recipes. Existing experiments, startup and statistical fitting boundaries are preserved.
 
 - Restore the ink-black/violet palette and serif display headings while retaining Segoe controls/plots and the Data-first workflow. Remove generic subtitles and duplicate setup text; consolidate recipe input identity and Open into one row. Show stale-result warnings when settings change and keep the footer quiet after valid edits. Existing experiment keys, warning access and startup fixes are preserved.

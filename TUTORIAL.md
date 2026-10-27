@@ -20,7 +20,7 @@ On first use, **Preparing analysis runtime…** may appear while scientific libr
 
 ## Your first experiment
 
-For connected operations rather than one recipe, use [The Kitchen walkthrough](KITCHEN.md). Import through Data, capture a dataset node, select columns, connect a comparison and inspect its report. Kitchen graphs save as `.mlck`; recipe experiments below save as `.mlcb`.
+For connected operations, use [The Kitchen walkthrough](KITCHEN.md). Import through Data, capture a dataset, extract column vectors, transform/combine them, assemble a derived dataset and connect an analysis/report branch. You can also export a completed output or **Use dataset** to send it to any recipe below. Kitchen graphs save as `.mlck`, with full typed outputs and row lineage; recipe experiments save as `.mlcb`. Neither format trains on open.
 
 1. Launch ML Cookbook from your shortcut, or run `.venv/Scripts/python.exe -m mlcookbook` from the repository.
 2. Click **Recipes → Linear Regression**. Opening it does not run an analysis. Choose target/features for your imported file and **Run Analysis**, or click **Run example** for the bundled diabetes example predicting `progression`. Example loading and analysis run in the background.
@@ -403,18 +403,18 @@ For Python equivalents of the classical prediction recipes, see the [API tour](e
 | A restored LLM result cannot rerun | Reopening restores text, while rerunning still needs the external model/server and any explicitly selected hash file |
 | A source change is absent from the shortcut | The shortcut launches a frozen build; see the packaging commands under [Daily workflow](ADAM.md#daily-workflow) |
 
-## What comes next: workflows and model visualization
+## Workflows and future model visualization
 
-Repeatable LLM data workflows are implemented above. The next [roadmap](ROADMAP.md#local-llm-and-workflow-graphs) milestone adds execution and persistence of connected recipes, followed by a Qt graph editor. Graph nodes and connections are planned capabilities, not current buttons.
+Repeatable LLM data workflows are implemented above. [The Kitchen](KITCHEN.md) now provides a native graph for dataset snapshots, vectors, row-wise transforms, dataset assembly and selected analyses, with editable connections and saved full outputs. Adding LLM extraction/validation/derivation as graph nodes remains a later [roadmap](ROADMAP.md#local-llm-and-workflow-graphs) milestone.
 
 A workflow graph and a neural-network graph answer different questions:
 
 | View | What its nodes represent | What you would inspect |
 |---|---|---|
-| Workflow graph | Dataset, LLM extraction, validation, analysis, report | Data lineage, selected columns, settings, node outcomes |
+| Current Kitchen graph | Dataset, column vectors, transforms, assembly, analysis, report | Data lineage, selected columns, settings, node outcomes |
 | Model graph | Layers and tensor operations inside one model | Connections, tensor shapes, parameter counts, captured operations |
 
-The planned outer workflow could look like this:
+The planned LLM extension could look like this:
 
 ```mermaid
 flowchart LR

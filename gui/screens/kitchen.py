@@ -1,5 +1,6 @@
 """Kitchen editor and selected-node inspector. No analytical imports or execution."""
 from copy import deepcopy
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -37,6 +39,11 @@ COMPARISON_PARAMS = [
     ("test_size", "Test fraction", 0.05, 0.5, 2), ("random_state", "Random seed", 0, 2147483647, None),
     ("cv_folds", "Training CV folds", 2, 20, None),
 ]
+MAP_OPTIONS = [("Add constant", "add"), ("Multiply by constant", "multiply"), ("Natural log", "log"),
+               ("Exponential", "exp"), ("Square root", "sqrt"), ("Absolute value", "abs"), ("Square", "square"),
+               ("Greater than constant", "greater_than"), ("Less than constant", "less_than"), ("Equals constant", "equal")]
+BINARY_OPTIONS = [("Add", "add"), ("Subtract", "subtract"), ("Multiply", "multiply"), ("Divide", "divide"),
+                  ("Greater than", "greater_than"), ("Less than", "less_than"), ("Equals", "equal")]
 
 
 class KitchenScreen(QWidget):
@@ -47,6 +54,9 @@ class KitchenScreen(QWidget):
     cancel_requested = Signal()
     save_requested = Signal(str)
     open_requested = Signal(str)
+    export_requested = Signal(str, str, str)
+    accept_requested = Signal(str, str)
+    inspect_requested = Signal(str, str)
 
     def __init__(self, templates, parent=None):
         super().__init__(parent)
@@ -56,6 +66,7 @@ class KitchenScreen(QWidget):
         self._states, self._context, self._busy, self._building = {}, {}, False, False
         self._status_message = ""
         self._has_active = False
+        self._output_state = "unrun"
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD, theme.SPACE_LG, theme.SPACE_MD)
         title = QHBoxLayout()
@@ -128,6 +139,22 @@ class KitchenScreen(QWidget):
         self.warning_button.hide()
         self._warnings = []
         inspector_layout.addWidget(self.warning_button)
+        self.output_tools = QWidget()
+        output_row = QHBoxLayout(self.output_tools)
+        output_row.setContentsMargins(0, 0, 0, 0)
+        self.output_port = QComboBox()
+        self.output_port.setAccessibleName("Completed output port")
+        self.output_port.currentIndexChanged.connect(self._output_changed)
+        output_row.addWidget(self.output_port, stretch=1)
+        self.export_button = QPushButton("Export…")
+        self.export_button.clicked.connect(self._export)
+        output_row.addWidget(self.export_button)
+        self.accept_button = QPushButton("Use dataset")
+        self.accept_button.setToolTip("Make this completed output the active dataset for recipes; the Kitchen source is retained.")
+        self.accept_button.clicked.connect(self._accept_output)
+        output_row.addWidget(self.accept_button)
+        self.output_tools.hide()
+        inspector_layout.addWidget(self.output_tools)
         inspector_layout.addWidget(self.inspector)
         self.splitter.addWidget(inspector_panel)
         self.splitter.setSizes([600, 410])
@@ -183,13 +210,23 @@ class KitchenScreen(QWidget):
     def validate_editor(state):
         """Reject API-only settings the controls cannot restore exactly."""
         for node in state["graph"]["nodes"]:
-            if node["kind"] == "comparison":
+            if node["kind"] in ("comparison", "linear"):
                 for key, _, low, high, decimals in COMPARISON_PARAMS:
+                    if key not in node["settings"]:
+                        continue
                     value = node["settings"][key]
                     value = 0 if key == "max_depth" and value is None else value
                     if not low <= value <= high or (decimals is not None and value != round(value, decimals)):
                         raise ValueError(f"{node['id']}: {key} cannot be restored exactly by the Kitchen editor. "
                                          f"Supported range: {low}–{high}" + (f", {decimals} decimal places." if decimals is not None else "."))
+            elif node["kind"] == "map":
+                value = node["settings"]["value"]
+                if not -1e12 <= value <= 1e12 or value != round(value, 6):
+                    raise ValueError(f"{node['id']}: scalar cannot be restored exactly (±1e12, six decimals).")
+            elif node["kind"] == "correlation":
+                value = node["settings"]["confidence_level"]
+                if not .0001 <= value <= .9999 or value != round(value, 4):
+                    raise ValueError(f"{node['id']}: confidence level cannot be restored exactly (.0001–.9999, four decimals).")
 
     def _commit(self, state, *, redraw=True, internal=False):
         if (self._busy and not internal) or state == self.editor:
@@ -201,6 +238,8 @@ class KitchenScreen(QWidget):
         if redraw:
             self.canvas.set_graph(self.editor["graph"], self.editor["layout"], self.editor["selected"], self._states)
             self._build_settings()
+        else:
+            self.canvas.update_nodes(self.editor["graph"]["nodes"])
         self._update_actions()
         self.changed.emit(self.state())
 
@@ -235,7 +274,7 @@ class KitchenScreen(QWidget):
             index += 1
         key = f"n{index}"
         state["graph"]["nodes"].append({"id": key, "kind": kind, "settings": deepcopy(self.templates[kind])})
-        state["layout"][key] = [((index - 1) % 2) * 260, ((index - 1) // 2) * 155]
+        state["layout"][key] = [((index - 1) % 2) * 280, ((index - 1) // 2) * 195]
         state["selected"] = key
         self._context = {}
         self._commit(state)
@@ -260,12 +299,12 @@ class KitchenScreen(QWidget):
         nodes = {n["id"]: n for n in self.editor["graph"]["nodes"]}
         if edge["source"] not in nodes or edge["target"] not in nodes:
             return
-        output = NODE_PORTS[nodes[edge["source"]]["kind"]][1]
-        incoming = NODE_PORTS[nodes[edge["target"]]["kind"]][0]
-        if not output or output != incoming or edge["source_port"] != output or edge["target_port"] != incoming:
-            self.set_status("Incompatible ports: dataset → dataset, result → report.")
+        output = NODE_PORTS[nodes[edge["source"]]["kind"]][1].get(edge["source_port"])
+        incoming = NODE_PORTS[nodes[edge["target"]]["kind"]][0].get(edge["target_port"])
+        if not output or output != incoming:
+            self.set_status("Incompatible ports: connect datasets, vectors or analysis results to the same input type.")
             return
-        if any(e["target"] == edge["target"] for e in self.editor["graph"]["edges"]):
+        if any(e["target"] == edge["target"] and e["target_port"] == edge["target_port"] for e in self.editor["graph"]["edges"]):
             self.set_status("That input is already connected. Select its connection and Delete it first.")
             return
         children = {}
@@ -293,10 +332,10 @@ class KitchenScreen(QWidget):
         for node in self.editor["graph"]["nodes"]:
             incoming, output = NODE_PORTS[node["kind"]]
             label = f"{node['id']} · {NODE_LABELS[node['kind']]}"
-            if output:
-                source.addItem(label + " / " + output, (node["id"], output))
-            if incoming:
-                target.addItem(label + " / " + incoming, (node["id"], incoming))
+            for port, kind in output.items():
+                source.addItem(label + f" / {port} ({kind})", (node["id"], port))
+            for port, kind in incoming.items():
+                target.addItem(label + f" / {port} ({kind})", (node["id"], port))
         form.addRow("From output", source)
         form.addRow("To input", target)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -326,9 +365,14 @@ class KitchenScreen(QWidget):
         return next((n for n in self.editor["graph"]["nodes"] if n["id"] == self.editor["selected"]), None)
 
     def set_context(self, context, *, report=None, state="unrun"):
-        if context != self._context:
-            self._context = deepcopy(context)
+        presentation = {"completed_outputs", "selected_output", "node_captions", "current_output", "error"}
+        changed = {k: v for k, v in context.items() if k not in presentation} != \
+                  {k: v for k, v in self._context.items() if k not in presentation}
+        self._context = deepcopy(context)
+        if changed:
             self._build_settings()
+        self.canvas.set_captions(context.get("node_captions", {}))
+        self._output_state = state
         self.result_state.setText(state.capitalize() + (" · showing the last completed output" if state in ("stale", "failed", "cancelled", "blocked") and report else "") +
                                   (": " + context["error"][:180] if state == "failed" and context.get("error") else ""))
         self.result_state.setToolTip(context.get("error", ""))
@@ -336,6 +380,17 @@ class KitchenScreen(QWidget):
         self._warnings = list((report or {}).get("warnings", []))
         self.warning_button.setText(f"{len(self._warnings)} warning{'s' if len(self._warnings) != 1 else ''} · Review")
         self.warning_button.setVisible(bool(self._warnings))
+        previous_port = context.get("selected_output", (self.output_port.currentData() or {}).get("port"))
+        self.output_port.blockSignals(True)
+        self.output_port.clear()
+        for output in context.get("completed_outputs", []):
+            self.output_port.addItem(output["port"] + " · " + output["kind"], output)
+        for i in range(self.output_port.count()):
+            if self.output_port.itemData(i)["port"] == previous_port:
+                self.output_port.setCurrentIndex(i)
+        self.output_port.blockSignals(False)
+        self.output_tools.setVisible(bool(self.output_port.count()))
+        self._output_choice()
         index = self.inspector.currentIndex()
         old = self.output
         self.output = ReportView(report or {})
@@ -367,6 +422,11 @@ class KitchenScreen(QWidget):
             heading.setTextFormat(Qt.TextFormat.PlainText)
             layout.addWidget(heading)
             s, columns = node["settings"], self._context.get("columns", [])
+            for port, vector in self._context.get("vectors", {}).items():
+                label = QLabel(f"{port}: {vector.get('name', 'not connected')} · {vector.get('role', 'vector')}")
+                label.setWordWrap(True)
+                label.setTextFormat(Qt.TextFormat.PlainText)
+                layout.addWidget(label)
             if node["kind"] == "dataset":
                 self.capture_button = QPushButton("Use active dataset")
                 self.capture_button.setToolTip("Capture the ordinary dataset shown in Data. Later imports do not replace this snapshot.")
@@ -377,8 +437,8 @@ class KitchenScreen(QWidget):
                 identity.setWordWrap(True)
                 identity.setTextFormat(Qt.TextFormat.PlainText)
                 layout.addWidget(identity)
-            elif node["kind"] in ("select", "comparison"):
-                if node["kind"] == "comparison":
+            elif node["kind"] in ("select", "comparison", "linear"):
+                if node["kind"] in ("comparison", "linear"):
                     form = QFormLayout()
                     form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
                     target = QComboBox()
@@ -393,10 +453,14 @@ class KitchenScreen(QWidget):
                     form.addRow("Target", target)
                     layout.addLayout(form)
                 self._column_controls(layout, node, columns)
-                if node["kind"] == "comparison":
+                if node["kind"] in ("comparison", "linear"):
                     form = QFormLayout()
                     form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+                    if node["kind"] == "linear":
+                        self._choice(form, "penalty", "Penalty", [("Ordinary least squares", "none"), ("Ridge", "ridge"), ("Lasso", "lasso")], s["penalty"])
                     for key, label, low, high, decimals in COMPARISON_PARAMS:
+                        if key not in s:
+                            continue
                         widget = QSpinBox() if decimals is None else QDoubleSpinBox()
                         if decimals is not None:
                             widget.setDecimals(decimals)
@@ -412,14 +476,72 @@ class KitchenScreen(QWidget):
                     preprocessing = QPushButton("Preprocessing && validation…")
                     preprocessing.clicked.connect(self._preprocessing)
                     layout.addWidget(preprocessing)
+            elif node["kind"] == "column":
+                form = QFormLayout()
+                form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+                options = [(c["name"], c["name"]) for c in columns]
+                if s["column"] and not any(value == s["column"] for _, value in options):
+                    options.append((s["column"] + " (missing)", s["column"]))
+                self._choice(form, "column", "Column", [("Choose column…", ""), *options], s["column"])
+                layout.addLayout(form)
+            elif node["kind"] in ("map", "combine", "build", "add_column", "correlation"):
+                form = QFormLayout()
+                form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+                if node["kind"] in ("map", "combine"):
+                    self._choice(form, "operation", "Operation", MAP_OPTIONS if node["kind"] == "map" else BINARY_OPTIONS, s["operation"])
+                    if node["kind"] == "map":
+                        scalar = QDoubleSpinBox()
+                        scalar.setDecimals(6)
+                        scalar.setRange(-1e12, 1e12)
+                        scalar.setValue(s["value"])
+                        scalar.valueChanged.connect(self._settings_edited)
+                        self.controls["value"] = scalar
+                        form.addRow("Constant", scalar)
+                        self._constant_label = form.labelForField(scalar)
+                    self._choice(form, "invalid", "Invalid results", [("Stop with error", "error"), ("Mark missing and warn", "missing")], s["invalid"])
+                elif node["kind"] == "correlation":
+                    self._choice(form, "method", "Method", [("Pearson", "pearson"), ("Spearman", "spearman")], s["method"])
+                    confidence = QDoubleSpinBox()
+                    confidence.setRange(.0001, .9999)
+                    confidence.setDecimals(4)
+                    confidence.setSingleStep(.01)
+                    confidence.setValue(s["confidence_level"])
+                    confidence.valueChanged.connect(self._settings_edited)
+                    self.controls["confidence_level"] = confidence
+                    form.addRow("Confidence level", confidence)
+                else:
+                    name = QLineEdit(s["name"])
+                    name.setMaxLength(200)
+                    name.textChanged.connect(self._settings_edited)
+                    self.controls["name"] = name
+                    form.addRow("Column name", name)
+                layout.addLayout(form)
             else:
-                button = QPushButton("Inspect completed report")
+                button = QPushButton({"filter": "Inspect filtered dataset", "summary": "Inspect vector summary"}.get(
+                    node["kind"], "Inspect completed report"))
                 button.clicked.connect(self._inspect_output)
                 layout.addWidget(button)
         layout.addStretch()
         self.settings_scroll.setWidget(panel)
         panel.setEnabled(not self._busy)
+        self._update_map_fields()
         self._building = False
+
+    def _update_map_fields(self):
+        node = self._node()
+        if node and node["kind"] == "map" and "value" in self.controls:
+            visible = self.controls["operation"].currentData() in ("add", "multiply", "greater_than", "less_than", "equal")
+            self.controls["value"].setVisible(visible)
+            self._constant_label.setVisible(visible)
+
+    def _choice(self, form, key, label, options, current):
+        combo = QComboBox()
+        for text, value in options:
+            combo.addItem(text, value)
+        combo.setCurrentIndex(combo.findData(current))
+        combo.currentIndexChanged.connect(self._settings_edited)
+        self.controls[key] = combo
+        form.addRow(label, combo)
 
     def _column_controls(self, layout, node, columns):
         s = node["settings"]
@@ -472,9 +594,18 @@ class KitchenScreen(QWidget):
         if self._building or self._busy:
             return
         state, node = self.state(), self._node()
-        if not node or node["kind"] not in ("select", "comparison"):
+        if not node:
             return
         s = deepcopy(node["settings"])
+        if node["kind"] not in ("select", "comparison", "linear"):
+            for key, widget in self.controls.items():
+                s[key] = widget.currentData() if isinstance(widget, QComboBox) else widget.text() if isinstance(widget, QLineEdit) else widget.value()
+            for candidate in state["graph"]["nodes"]:
+                if candidate["id"] == node["id"]:
+                    candidate["settings"] = s
+            self._update_map_fields()
+            self._commit(state, redraw=False)
+            return
         key = "columns" if node["kind"] == "select" else "features"
         table = self.controls[key]
         checked = [table.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(table.rowCount())
@@ -488,7 +619,7 @@ class KitchenScreen(QWidget):
             s["features"] = [name for name in s["features"] if name != s["target"]]
             for setting, widget in self.controls.items():
                 if setting not in ("target", "features"):
-                    s[setting] = widget.value() or None if setting == "max_depth" else widget.value()
+                    s[setting] = (widget.value() or None) if setting == "max_depth" else widget.currentData() if isinstance(widget, QComboBox) else widget.value()
             self._target_checks(s)
         for candidate in state["graph"]["nodes"]:
             if candidate["id"] == node["id"]:
@@ -515,7 +646,7 @@ class KitchenScreen(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             preprocessing, folds = dialog.values()
             if folds is None or folds < 2:
-                self.set_status("Model comparison requires at least two training CV folds.")
+                self.set_status("Kitchen regression nodes require at least two training CV folds.")
             else:
                 state = self.state()
                 for candidate in state["graph"]["nodes"]:
@@ -530,6 +661,39 @@ class KitchenScreen(QWidget):
 
     def _inspect_output(self):
         self.inspector.setCurrentIndex(1)
+
+    def _output_choice(self):
+        output = self.output_port.currentData() or {}
+        current = self._context.get("current_output", self._output_state != "stale")
+        self.export_button.setEnabled(not self._busy and bool(output))
+        self.export_button.setToolTip("Export the last completed output, including when current edits are unrun.")
+        self.accept_button.setEnabled(not self._busy and output.get("kind") == "dataset" and current)
+        self.accept_button.setToolTip("Run the edited path before using its dataset. The displayed output belongs to earlier settings."
+                                      if not current else
+                                      "Make this completed output the active dataset for recipes; the Kitchen source is retained.")
+
+    def _output_changed(self):
+        self._output_choice()
+        output = self.output_port.currentData()
+        if output and self.editor["selected"] and not self._busy:
+            self.inspect_requested.emit(self.editor["selected"], output["port"])
+
+    def _accept_output(self):
+        output = self.output_port.currentData()
+        if output and self.editor["selected"] and not self._busy and self._context.get("current_output", self._output_state != "stale"):
+            self.accept_requested.emit(self.editor["selected"], output["port"])
+
+    def _export(self):
+        output = self.output_port.currentData()
+        if not output or not self.editor["selected"] or self._busy:
+            return
+        analysis = output["kind"] == "analysis"
+        filters = "JSON (*.json)" if analysis else "Parquet (*.parquet);;CSV values (*.csv)"
+        path, chosen = QFileDialog.getSaveFileName(self, "Export completed output", "node-output.json" if analysis else "node-output.parquet", filters)
+        if path:
+            if not Path(path).suffix:
+                path += ".json" if analysis else ".csv" if "csv" in chosen else ".parquet"
+            self.export_requested.emit(self.editor["selected"], output["port"], path)
 
     def _show_warnings(self):
         dialog = QDialog(self)
@@ -593,6 +757,8 @@ class KitchenScreen(QWidget):
             self.settings_scroll.widget().setEnabled(not busy)
         self.open_button.setEnabled(not busy)
         self.save_button.setEnabled(not busy)
+        self.output_tools.setEnabled(not busy)
+        self._output_choice()
         if not busy:
             self.set_cancellable(False)
         self.progress.setVisible(busy)
