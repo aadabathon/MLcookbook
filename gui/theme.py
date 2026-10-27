@@ -1,23 +1,28 @@
 """Shared visual system for the native desktop workbench.
 
-Neutral surfaces and a small type scale establish hierarchy. Accent colors
-identify interaction or plotted data; warning colors retain their meaning.
+Ink-black surfaces and serif display headings retain the cookbook's character.
+Controls and plots use Segoe UI; violet interaction and semantic colors stay distinct.
 Widget object names remain stable for saved-screen and presentation contracts.
 """
 from __future__ import annotations
 
-BG = "#18191d"
-SURFACE = "#1d1f24"
-CARD = "#23252b"
-CARD_HOVER = "#2b2e36"
-BORDER = "#3b3f49"
-BORDER_ACCENT = "#b7a3ed"
+BG = "#0a0a10"
+SURFACE = "#101018"
+CARD = "#13121c"
+CARD_HOVER = "#191624"
+BORDER = "#302a40"
 ACCENT = "#b29aef"
 ACCENT_SOFT = "#cbb9f5"
 ACCENT_DIM = "#40364f"
-TEXT = "#edf0f5"
-TEXT_MUTED = "#b9bfcc"
-TEXT_FAINT = "#9ba3b3"
+UI_ACCENT = "#a78bfa"
+UI_PRIMARY = "#9b75e8"
+UI_PRIMARY_HOVER = "#b99af8"
+UI_SELECTION = "#241c35"
+UI_BORDER = "#8c6fbc"
+BORDER_ACCENT = UI_ACCENT
+TEXT = "#eee9f5"
+TEXT_MUTED = "#aaa3b7"
+TEXT_FAINT = "#9991a7"
 WARNING = "#edc58a"
 WARNING_BG = "#2c2822"
 WARNING_BORDER = "#786444"
@@ -28,6 +33,7 @@ CATEGORICAL = ["#8b5cf6", "#2dd4bf", "#f59e0b", "#f472b6", "#60a5fa",
 
 FONT_FAMILY = "Segoe UI"
 SANS = '\"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif'
+SERIF = '\"Palatino Linotype\", \"Book Antiqua\", Georgia, serif'
 MONO = '\"Cascadia Code\", Consolas, \"Courier New\", monospace'
 BODY_POINT_SIZE = 11
 PLOT_POINT_SIZE = 9
@@ -38,7 +44,7 @@ SPACE_SM = 10
 SPACE_MD = 16
 SPACE_LG = 24
 SPACE_XL = 32
-CARD_RADIUS = 8
+CARD_RADIUS = 5
 CARD_MIN_HEIGHT = 174
 CARD_PADDING = 20
 GRID_COLUMNS = 3
@@ -67,26 +73,28 @@ def stylesheet() -> str:
     QFrame#Sidebar QLabel {{ background: transparent; }}
     QPushButton#SidebarButton {{
         background: transparent; color: {TEXT_MUTED}; border: 1px solid transparent;
-        border-radius: 6px; padding: 9px 10px; min-height: 20px; text-align: left;
+        border-radius: 4px; padding: 9px 10px; min-height: 20px; text-align: left;
     }}
     QPushButton#SidebarButton:hover {{ background-color: {CARD_HOVER}; color: {TEXT}; }}
-    QPushButton#SidebarButton:checked {{ background-color: {CARD}; color: {TEXT}; border-color: {BORDER}; }}
+    QPushButton#SidebarButton:checked {{ background-color: {UI_SELECTION}; color: {UI_ACCENT}; border-color: {UI_BORDER}; }}
     QPushButton#SidebarButton:focus {{ border-color: {BORDER_ACCENT}; }}
     QPushButton#SidebarButton:disabled {{ color: {TEXT_FAINT}; }}
     QLabel#SidebarCaption {{ font-size: 13px; color: {TEXT_MUTED}; }}
     QLabel#SidebarDataset {{ font-size: 14px; color: {TEXT}; }}
-    QLabel#Wordmark {{ font-size: 19px; font-weight: 500; color: {TEXT}; }}
-    QLabel#PageTitle, QLabel#ScreenTitle {{ font-size: 24px; font-weight: 500; color: {TEXT}; }}
-    QLabel#PageSubtitle, QLabel#ScreenSubtitle {{ font-size: 14px; color: {TEXT_MUTED}; }}
+    QLabel#Wordmark {{ font-family: {SERIF}; font-size: 22px; font-weight: 400; color: {TEXT}; }}
+    QLabel#PageTitle, QLabel#ScreenTitle {{ font-family: {SERIF}; font-size: 28px; font-weight: 400; color: {TEXT}; }}
 
     QFrame#RecipeCard {{
         background-color: {CARD}; border: 1px solid {BORDER}; border-radius: {CARD_RADIUS}px;
     }}
     QFrame#RecipeCard:hover {{ background-color: {CARD_HOVER}; border-color: {TEXT_FAINT}; }}
+    QFrame#RecipeCard[available="true"]:hover {{ border-color: {UI_BORDER}; }}
     QFrame#RecipeCard:focus {{ border: 2px solid {BORDER_ACCENT}; }}
     QFrame#RecipeCard QLabel {{ background: transparent; }}
-    QLabel#CardTitle {{ font-size: 17px; font-weight: 500; color: {TEXT}; }}
-    QLabel#CardDescription {{ font-size: 14px; color: {TEXT_MUTED}; }}
+    QLabel#RecipeSymbol {{ font-family: {SERIF}; font-size: 25px; font-weight: 400; color: {UI_ACCENT}; }}
+    QLabel#RecipeSymbol[available="false"] {{ color: {TEXT_FAINT}; }}
+    QLabel#CardTitle {{ font-family: {SERIF}; font-size: 20px; font-weight: 400; color: {TEXT}; }}
+    QLabel#CardDescription {{ font-size: 13px; color: {TEXT_MUTED}; }}
     QLabel#StatusPill {{ font-size: 13px; color: {TEXT_MUTED}; padding-top: 4px; }}
 
     QPushButton#BackButton {{
@@ -97,17 +105,22 @@ def stylesheet() -> str:
     QPushButton#BackButton:focus {{ border-color: {BORDER_ACCENT}; }}
     QLabel#EngineInfo {{ font-family: {MONO}; font-size: 13px; color: {TEXT_MUTED}; padding: 6px 0; }}
     QLabel#FieldLabel {{ font-size: 14px; font-weight: 500; color: {TEXT_MUTED}; }}
-    QLabel#HelpText {{ font-size: 13px; color: {TEXT_MUTED}; }}
+    QLabel#HelpText, QLabel#InputContext {{ font-size: 13px; color: {TEXT_MUTED}; }}
+    QTabWidget#KitchenInspector::pane {{ border: none; }}
+    QTabWidget#KitchenInspector QTabBar::tab {{
+        background: {BG}; color: {TEXT_MUTED}; border: 1px solid transparent;
+        border-radius: 4px; padding: 7px 12px;
+    }}
+    QTabWidget#KitchenInspector QTabBar::tab:selected {{
+        background: {UI_SELECTION}; color: {UI_ACCENT}; border-color: {UI_BORDER};
+    }}
+    QTabWidget#KitchenInspector QTabBar::tab:focus {{ border-color: {BORDER_ACCENT}; }}
     QFrame#ActionBar {{ border-top: 1px solid {BORDER}; }}
     QLabel#ResultState {{ font-size: 13px; color: {TEXT_MUTED}; }}
-    QLabel#ResultSummary {{ background-color: {SURFACE}; padding: 12px; border-radius: 6px; }}
-    QLabel#DatasetBadge {{
-        background-color: {SURFACE}; color: {TEXT}; font-size: 13px;
-        border: none; border-radius: 6px; padding: 8px 10px;
-    }}
+    QLabel#ResultSummary {{ background-color: {SURFACE}; padding: 12px; border-radius: 0px; border-left: 2px solid {UI_ACCENT}; }}
 
     QPushButton {{
-        background-color: {CARD}; border: 1px solid {BORDER}; border-radius: 6px;
+        background-color: {CARD}; border: 1px solid {BORDER}; border-radius: 4px;
         padding: 7px 10px; min-height: 18px;
     }}
     QPushButton:hover {{ background-color: {CARD_HOVER}; border-color: {TEXT_FAINT}; }}
@@ -118,23 +131,23 @@ def stylesheet() -> str:
         background-color: {WARNING_BG}; color: {WARNING}; border-color: {WARNING_BORDER}; text-align: left;
     }}
     QPushButton#PrimaryButton {{
-        background-color: {ACCENT}; color: {BG}; border: 1px solid {ACCENT};
-        border-radius: 6px; padding: 9px 16px; font-weight: 500;
+        background-color: {UI_PRIMARY}; color: {BG}; border: 1px solid {UI_PRIMARY};
+        border-radius: 4px; padding: 9px 16px; font-weight: 500;
     }}
-    QPushButton#PrimaryButton:hover {{ background-color: {ACCENT_SOFT}; }}
+    QPushButton#PrimaryButton:hover {{ background-color: {UI_PRIMARY_HOVER}; border-color: {UI_PRIMARY_HOVER}; }}
     QPushButton#PrimaryButton:focus {{ border-color: {TEXT}; }}
     QPushButton#PrimaryButton:disabled {{ background-color: {SURFACE}; border-color: {BORDER}; color: {TEXT_FAINT}; }}
 
     QComboBox, QSpinBox, QDoubleSpinBox {{
         background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER};
-        border-radius: 5px; padding: 5px 7px; min-height: 21px;
+        border-radius: 4px; padding: 5px 7px; min-height: 21px;
     }}
     QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {BORDER_ACCENT}; }}
     QComboBox QAbstractItemView {{
         background-color: {CARD}; color: {TEXT}; selection-background-color: {ACCENT_DIM}; selection-color: {TEXT};
     }}
     QLineEdit, QPlainTextEdit {{
-        background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 5px;
+        background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 4px;
         padding: 8px 10px; selection-background-color: {ACCENT_DIM}; selection-color: {TEXT};
     }}
     QLineEdit:focus, QPlainTextEdit:focus {{ border-color: {BORDER_ACCENT}; }}
@@ -143,7 +156,7 @@ def stylesheet() -> str:
     QProgressBar::chunk {{ background-color: {ACCENT}; }}
     QToolTip {{ background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER}; padding: 6px; font-size: 13px; }}
 
-    QFrame#MetricTile {{ background-color: {SURFACE}; border: none; border-radius: 6px; }}
+    QFrame#MetricTile {{ background-color: {SURFACE}; border: none; border-radius: 4px; }}
     QFrame#MetricTile QLabel {{ background: transparent; }}
     QLabel#MetricValue {{ font-size: 20px; font-weight: 400; color: {TEXT}; }}
     QLabel#MetricLabel {{ font-size: 13px; color: {TEXT_MUTED}; }}

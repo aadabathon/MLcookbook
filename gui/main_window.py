@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(theme.SPACE_XS)
         self.navigation_buttons = {}
         self._navigation_group = QButtonGroup(self)
-        for key, title in (("data", "Data"), ("recipes", "Recipes"),
+        for key, title in (("data", "Data"), ("recipes", "Recipes"), ("kitchen", "Kitchen"),
                            ("llm", "Local LLMs"), ("wearable-study", "Movement Study")):
             button = QPushButton(title)
             button.setObjectName("SidebarButton")

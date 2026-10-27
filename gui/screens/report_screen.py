@@ -60,7 +60,6 @@ from PySide6.QtWidgets import (
 )
 
 from gui import theme
-from gui.plot import BarList, PlotWidget
 from gui.preprocessing_dialog import (
     CV_OPTIONS,
     DEFAULT_CV_FOLDS,
@@ -70,7 +69,8 @@ from gui.preprocessing_dialog import (
     summarize,
 )
 from gui.recipe_reference import RecipeReferenceDialog
-from gui.tree_plot import TreeWidget
+from gui.report_view import METRIC_CAPTIONS as METRIC_CAPTIONS
+from gui.report_view import ReportView
 
 ROLES = ["numeric", "categorical", "boolean", "datetime", "text", "unsupported"]
 FEATURE_ROLES = ("numeric", "categorical", "boolean", "datetime")
@@ -81,19 +81,6 @@ TASK_LABELS = {"classification": "Classification (predict a class)", "regression
 MULTICLASS = "All classes (multiclass)"
 # Presentation aliases for fixed metric captions, including saved older reports.
 # Unknown labels and user-supplied class/column names retain their exact case.
-METRIC_CAPTIONS = {
-    "ACCURACY": "Accuracy", "BALANCED ACC.": "Balanced accuracy", "PRECISION": "Precision", "RECALL": "Recall",
-    "MACRO F1": "Macro F1", "ARCHITECTURE": "Architecture", "QUANTIZATION": "Quantization",
-    "ROWS": "Rows", "TREES": "Trees", "CLUSTERS": "Clusters", "COMPONENTS": "Components",
-    "CONVERGED": "Converged", "EPOCHS": "Epochs", "PARAMETERS": "Parameters", "SUPPORT VECTORS": "Support vectors",
-    "INERTIA": "Inertia", "SILHOUETTE": "Silhouette", "BEST k (SILHOUETTE)": "Best k (silhouette)",
-    "DEPTH RANGE": "Depth range", "LEAF COUNT RANGE": "Leaf count range", "SHARE OF TRAINING ROWS": "Share of training rows",
-    "OUTPUT TOKENS": "Output tokens", "MODEL LOAD": "Model load", "TOKENS / SECOND": "Tokens / second",
-    "TOKENS / WALL SECOND": "Tokens / wall second", "VALID ROWS": "Valid rows", "WALL TIME": "Wall time",
-    "CRAMÉR'S V": "Cramér's V", "NORMALITY p": "Normality p", "SPREAD p": "Spread p", "SPREAD RHO": "Spread RHO",
-    "KRUSKAL p": "Kruskal p", "FISHER p": "Fisher p", "SKEW": "Skew", "EXCESS KURTOSIS": "Excess kurtosis",
-    "TRUST": "Trust", "PC1 SHARE": "PC1 share", "FOR 90%": "For 90%", "EIGENVALUE > 1": "Eigenvalue > 1",
-}
 
 
 class ReportScreen(QWidget):
@@ -167,13 +154,8 @@ class ReportScreen(QWidget):
         heading.setObjectName("ScreenTitle")
         outer.addWidget(heading)
 
-        subtitle = QLabel(engine.get("description", engine.get("summary", "")))
-        subtitle.setObjectName("ScreenSubtitle")
-        subtitle.setWordWrap(True)
-        outer.addWidget(subtitle)
-
         self.input_context = QLabel()
-        self.input_context.setObjectName("HelpText")
+        self.input_context.setObjectName("InputContext")
         self.input_context.setTextFormat(Qt.TextFormat.PlainText)
         self.input_context.setWordWrap(True)
         self.input_context.setMinimumWidth(0)
@@ -181,6 +163,10 @@ class ReportScreen(QWidget):
         self.input_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         input_row = QHBoxLayout()
         input_row.addWidget(self.input_context, stretch=1)
+        self.load_button = QPushButton("Open dataset…")
+        self.load_button.setToolTip("Open a CSV or Parquet file. CSV options are in the form below.")
+        self.load_button.clicked.connect(self._choose_file)
+        input_row.addWidget(self.load_button)
         self.example_button = QPushButton("Run example")
         self.example_button.setToolTip("Run this recipe with its bundled dataset. Your data and choices are kept.")
         self.example_button.clicked.connect(self.example_requested)
@@ -204,7 +190,7 @@ class ReportScreen(QWidget):
         results = QWidget()
         self.result_layout = QVBoxLayout(results)
         self.result_layout.setContentsMargins(0, 0, 0, 0)
-        self.result_state = QLabel("No results yet")
+        self.result_state = QLabel("No completed run")
         self.result_state.setObjectName("ResultState")
         self.result_state.setWordWrap(True)
         self.result_state.setTextFormat(Qt.TextFormat.PlainText)
@@ -321,16 +307,6 @@ class ReportScreen(QWidget):
         form = QVBoxLayout(panel)
         form.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, 0)
         form.setSpacing(theme.SPACE_XS)
-        self.data_heading = self._section_label("Data and columns")
-        form.addWidget(self.data_heading)
-        self.badge = QLabel(report.get("dataset", ""))
-        self.badge.setObjectName("DatasetBadge")
-        self.badge.setWordWrap(True)
-        self.badge.setTextFormat(Qt.TextFormat.PlainText)
-        form.addWidget(self.badge)
-        self.load_button = QPushButton("Open CSV / Parquet...")
-        self.load_button.clicked.connect(self._choose_file)
-        form.addWidget(self.load_button)
         import_options = QWidget()
         import_layout = QVBoxLayout(import_options)
         import_layout.setContentsMargins(0, 0, 0, 0)
@@ -352,13 +328,15 @@ class ReportScreen(QWidget):
         self.markers.setToolTip("Values to read as missing, in addition to empty cells and NA/NaN. Applied when a file is opened.")
         import_layout.addWidget(self.markers)
         form.addWidget(self._expandable("import", "CSV import options", import_options))
-        self.preview_button = QPushButton("Preview first 20 rows...")
+        self.preview_button = QPushButton("Preview…")
+        self.preview_button.setToolTip("Preview the first 20 rows.")
         self.preview_button.clicked.connect(self._preview)
-        inspection = QHBoxLayout()
-        inspection.addWidget(self.preview_button)
+        inspection = QFormLayout()
+        inspection.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        inspection.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.checks_button = QPushButton("Data checks")
         self.checks_button.clicked.connect(self._data_checks)
-        inspection.addWidget(self.checks_button)
+        inspection.addRow(self.preview_button, self.checks_button)
         form.addLayout(inspection)
 
         self.task_label = self._section_label("Task")
@@ -387,14 +365,11 @@ class ReportScreen(QWidget):
 
         self.columns_label = self._section_label("Features and column types" if supervised else "Columns and types")
         form.addWidget(self.columns_label)
-        help_label = QLabel(
+        self.columns = QTableWidget(0, 3)
+        self._set_columns_help(
             "Check input features. Uncheck IDs or columns that reveal the answer. Types describe roles; values are not converted."
             if supervised else "Check the columns to analyze. Types describe roles; values are not converted."
         )
-        help_label.setWordWrap(True)
-        self.columns_help = help_label
-        form.addWidget(help_label)
-        self.columns = QTableWidget(0, 3)
         self.columns.setHorizontalHeaderLabels(["Use / column", "Type", "Missing"])
         self.columns.verticalHeader().setVisible(False)
         self.columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -419,10 +394,14 @@ class ReportScreen(QWidget):
         evaluation_layout.setSpacing(theme.SPACE_XS)
         self.evaluation_form = QFormLayout()
         self.evaluation_form.setSpacing(theme.SPACE_XS)
+        self.evaluation_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.evaluation_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         if self._params:
             grid = QFormLayout()
             self.param_form = grid
             grid.setSpacing(theme.SPACE_XS)
+            grid.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            grid.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
             for spec in self._params:
                 widget = self._param_widget(spec)
                 label = QLabel(spec["label"])
@@ -532,6 +511,14 @@ class ReportScreen(QWidget):
             for label, value in spec["options"]:
                 widget.addItem(label, value)
             widget.currentIndexChanged.connect(self._configuration_changed)
+        if isinstance(widget, QComboBox):
+            # Long choices belong in the popup; they must not widen the form.
+            widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            widget.setMinimumContentsLength(8)
+        policy = widget.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        widget.setSizePolicy(policy)
+        widget.setMinimumWidth(120)
         return widget
 
     def _param_value(self, spec: dict):
@@ -556,8 +543,8 @@ class ReportScreen(QWidget):
     def set_dataset(self, view: dict, *, target: str | None = None):
         self.view = view
         self._columns = view["columns"]
-        self.badge.setText(f"{view['name']} · {view['rows']} rows · {len(self._columns)} columns")
-        self.badge.setVisible(bool(self._columns))
+        prefix = "Input: built-in example · " if self.is_example else "Input: "
+        self.set_input_context(prefix + view["name"])
         self.preview_button.setEnabled(bool(view["rows"]))
         self.checks_button.setEnabled(bool(self._columns or view.get("notes") or view.get("issues")))
         check_count = len(view.get("notes", [])) + len(view.get("issues", []))
@@ -705,10 +692,17 @@ class ReportScreen(QWidget):
         self._update_result_state()
         self._update_evaluation_summary()
         if hasattr(self, "status") and self._columns:
-            self.set_status(self._problem() or "Ready to run with these selections.")
+            self.set_status(self._problem() or "")
         self.configuration_changed.emit()
 
-    def set_input_context(self, text: str):
+    def _set_columns_help(self, text: str):
+        self.columns.setToolTip(text)
+        self.columns.setAccessibleDescription(text)
+        self.columns_label.setToolTip(text)
+
+    def set_input_context(self, text: str, *, include_shape: bool = True):
+        if include_shape and self._columns:
+            text += f" · {self.view['rows']} rows · {len(self._columns)} columns"
         self.input_context.setText(text)
 
     def set_example_actions(self, *, available: bool, using_example: bool, has_workspace: bool, has_example: bool = False):
@@ -735,9 +729,7 @@ class ReportScreen(QWidget):
         if not hasattr(self, "result_state"):
             return
         if not self._report:
-            text = ("Open a dataset in Data or run the built-in example."
-                    if self._examples_available and not self._columns and not self._using_example else
-                    "No results yet · choose your columns, then run")
+            text = "No completed run"
         elif self.request() != self._report_request:
             text = "Settings changed · showing the previous result"
         else:
@@ -745,11 +737,11 @@ class ReportScreen(QWidget):
         if self.is_example:
             text = "Built-in example · " + text
         self.result_state.setText(text)
+        self.result_state.setVisible(not self._report or self.request() != self._report_request)
 
     def _update_run(self):
         self.run_button.setEnabled(bool(self._columns) and self._problem() is None and not self._busy)
-        self.run_button.setToolTip("Choose a target that fits the task (or columns, for unsupervised recipes) "
-                                   "and at least one feature.")
+        self.run_button.setToolTip(self._problem() or "Run with the current data and settings.")
 
     def _request_run(self):
         self.run_requested.emit(self.request())
@@ -808,6 +800,7 @@ class ReportScreen(QWidget):
     def set_busy(self, busy: bool):
         self._busy = busy
         self.form_panel.setEnabled(not busy)
+        self.load_button.setEnabled(not busy)
         self.back_button.setEnabled(not busy)
         self._update_example_actions()
         self.progress.setVisible(busy)
@@ -965,174 +958,10 @@ class ReportScreen(QWidget):
     # --- Right: results ------------------------------------------------------
 
     def _build_report(self, report: dict) -> QWidget:
-        content = QWidget()
-        column = QVBoxLayout(content)
-        column.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, 0)
-        column.setSpacing(theme.SPACE_MD)
+        return ReportView(report, checks=self.view.get("notes", []) + self.view.get("issues", []))
 
-        if not report:
-            prompt = QLabel("Choose your target and features, then run an analysis to see results here."
-                            if self._fixed_task != "unsupervised" else
-                            "Choose the columns to analyze, then run to see results here.")
-            prompt.setWordWrap(True)
-            column.addWidget(prompt)
-            checks = list(self.view.get("notes", [])) + list(self.view.get("issues", []))
-            if checks:
-                column.addWidget(self._section_label("Data checks"))
-                for message in checks:
-                    note = QLabel(f"•  {message}")
-                    note.setWordWrap(True)
-                    column.addWidget(note)
-        else:
-            lines = ["Dataset: " + report.get("dataset", "")]
-            if report.get("target"):
-                lines.append("Target: " + report["target"])
-            lines.append(("Features: " if report.get("target") else "Columns: ") + report.get("features", ""))
-            if report.get("settings"):
-                lines.append("Settings: " + report["settings"])
-            lines.extend(report.get("run_details", []))
-            context = QLabel("\n".join(lines))
-            context.setTextFormat(Qt.TextFormat.PlainText)
-            context.setWordWrap(True)
-            context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            details = QPushButton("▸  Run details")
-            details.setObjectName("RunDetailsToggle")
-            details.setCheckable(True)
-            details.setProperty("disclosure_title", "Run details")
-            details.setToolTip("Inspect the displayed run's data, settings and recorded provenance.")
-            details.toggled.connect(context.setVisible)
-            details.toggled.connect(self._toggle_disclosure)
-            column.addWidget(details)
-            column.addWidget(context)
-            context.hide()
-            if report.get("summary"):
-                summary = QLabel(report["summary"])
-                summary.setObjectName("ResultSummary")
-                summary.setTextFormat(Qt.TextFormat.PlainText)
-                summary.setWordWrap(True)
-                column.addWidget(summary)
-        for section in report.get("text_sections", []):
-            column.addWidget(self._section_label(section["title"]))
-            text = QPlainTextEdit()
-            text.setPlainText(section["text"])
-            text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            text.setReadOnly(True)
-            text.setMinimumHeight(140)
-            text.setMaximumHeight(280)
-            column.addWidget(text)
-        if "tree" in report:  # the diagram leads the report, in its own horizontal scroller
-            column.addWidget(self._tree_view(report["tree"]))
-        for spec in report.get("plots", []):  # graphs next
-            column.addWidget(PlotWidget(spec))
-        for group in report.get("metric_groups", []):
-            column.addWidget(self._metric_group(group))
-        for bars in report.get("bars", []):
-            column.addWidget(self._section_label(bars["title"]))
-            column.addWidget(BarList(bars))
-        for table in report.get("tables", []):
-            column.addWidget(self._table(table))
-        for warning in report.get("warnings", []):
-            note = QLabel(f"⚠  {warning}")
-            note.setObjectName("WarningNote")
-            note.setWordWrap(True)
-            column.addWidget(note)
-        column.addStretch()
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(content)
-        return scroll
 
-    @staticmethod
-    def _tree_view(spec: dict) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_XS)
-        if "legend" in spec:
-            text = spec["legend"] + " &nbsp;·&nbsp; scroll sideways for the full tree"
-        else:
-            text = (
-                f"<span style='color:{theme.PLOT_ALT}'>●</span> {spec.get('negative_label', '')} &nbsp;&nbsp; "
-                f"<span style='color:{theme.ACCENT}'>●</span> {spec.get('positive_label', '')} &nbsp;&nbsp;·&nbsp;&nbsp; "
-                "bar = class mix in the node &nbsp;·&nbsp; left branch = condition true (≤) &nbsp;·&nbsp; "
-                "scroll sideways for the full tree"
-            )
-        legend = QLabel(text)
-        legend.setTextFormat(Qt.TextFormat.RichText)
-        legend.setObjectName("FieldLabel")
-        legend.setWordWrap(True)
-        layout.addWidget(legend)
-        tree = TreeWidget(spec)
-        scroll = QScrollArea()
-        scroll.setWidget(tree)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedHeight(tree.height() + 18)
-        # Open centered on the root once the scroller has its real width.
-        QTimer.singleShot(0, scroll, lambda: scroll.horizontalScrollBar().setValue(scroll.horizontalScrollBar().maximum() // 2))
-        layout.addWidget(scroll)
-        return box
-
-    def _metric_group(self, group: dict) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_XS)
-        layout.addWidget(self._section_label(group["title"]))
-
-        row = QHBoxLayout()
-        row.setSpacing(theme.SPACE_SM)
-        for label, value in group["items"]:
-            tile = QFrame()
-            tile.setObjectName("MetricTile")
-            tile_layout = QVBoxLayout(tile)
-            tile_layout.setSpacing(2)
-            number = QLabel(value)
-            number.setObjectName("MetricValue")
-            number.setWordWrap(True)
-            caption = QLabel(METRIC_CAPTIONS.get(label, label))
-            caption.setObjectName("MetricLabel")
-            caption.setWordWrap(True)
-            tile_layout.addWidget(number)
-            tile_layout.addWidget(caption)
-            row.addWidget(tile)
-        layout.addLayout(row)
-        return box
-
-    def _table(self, spec: dict) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_XS)
-        layout.addWidget(self._section_label(spec["title"]))
-
-        headers, rows = spec["headers"], spec["rows"]
-        table = QTableWidget(len(rows), len(headers))
-        table.setHorizontalHeaderLabels(headers)
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        table.setShowGrid(False)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        stretch = 0 if spec.get("stretch_first") else spec.get("stretch_column")
-        if stretch is not None:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(stretch, QHeaderView.ResizeMode.Stretch)
-        for r, row_values in enumerate(rows):
-            for c, text in enumerate(row_values):
-                item = QTableWidgetItem(text)
-                item.setToolTip(text)
-                if c > 0 and c != stretch:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                table.setItem(r, c, item)
-        row_height = table.verticalHeader().defaultSectionSize()
-        table.setFixedHeight(min(330, table.horizontalHeader().height() + row_height * len(rows) + 4))
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        layout.addWidget(table)
-        return box
 
     @staticmethod
     def _section_label(text: str) -> QLabel:

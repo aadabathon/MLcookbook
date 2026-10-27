@@ -218,8 +218,8 @@ class LLMScreen(ReportScreen):
             return
         structured = self.param_widgets["workflow"].currentData() != "generate"
         rows = structured or self.param_widgets["input_mode"].currentData() == "rows"
-        for widget in (self.data_heading, self.columns, self.columns_label, self.columns_help, self.load_button, self.preview_button,
-                       self.checks_button, self.badge, self.sections["import"].parentWidget()):
+        for widget in (self.columns, self.columns_label, self.load_button, self.preview_button,
+                       self.checks_button, self.sections["import"].parentWidget()):
             widget.setVisible(rows)
         for widget in self.param_rows["max_rows"]:
             widget.setVisible(rows)
@@ -246,9 +246,9 @@ class LLMScreen(ReportScreen):
                 widget.setVisible(backend != "llamacpp" and not structured)
         if hasattr(self, "connection_box"):
             self.connection_box.setVisible(backend in ("ollama", "llamacpp"))
-        self.columns_help.setText("Select only the text columns named in {{bindings}}. Reference labels stay unchecked. "
-                                  "The row limit counts source positions, including blank rows." if structured else
-                                  "Select exactly one text or categorical column containing strings. Blank rows are skipped.")
+        self._set_columns_help("Select only the text columns named in {{bindings}}. Reference labels stay unchecked. "
+                               "The row limit counts source positions, including blank rows." if structured else
+                               "Select exactly one text or categorical column containing strings. Blank rows are skipped.")
         self._update_workflow_actions()
 
     def _configuration_changed(self, *_):
@@ -328,10 +328,6 @@ class LLMScreen(ReportScreen):
             return super()._build_report(report)
         content = QWidget()
         layout = QVBoxLayout(content)
-        label = QLabel("Completed text, row outcomes and recorded model settings will appear here.")
-        label.setWordWrap(True)
-        label.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(label)
         layout.addStretch()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

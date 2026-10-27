@@ -115,13 +115,18 @@ def test_preprocessing_remains_accessible_when_model_settings_are_closed(qt, acc
         _dispose(screen)
 
 
-def test_result_banner_owns_staleness_while_footer_reports_readiness_or_input_errors(qt):
+def test_only_stale_results_need_a_banner_while_footer_keeps_input_errors(qt):
     screen = _screen()
     try:
         screen.show_report(_report())
+        screen.show()
+        qt.processEvents()
+        assert not screen.result_state.isVisibleTo(screen)
+        assert screen.warning_button.isVisibleTo(screen)
         screen.param_widgets["alpha"].setValue(2.)
         assert "Settings changed" in screen.result_state.text()
-        assert screen.status.text() == "Ready to run with these selections."
+        assert screen.result_state.isVisibleTo(screen)
+        assert screen.status.text() == ""
         assert screen.run_button.isEnabled()
         screen.columns.cellWidget(1, 1).setCurrentText("text")
         assert screen.status.text() == "Regression needs a numeric target."
@@ -130,8 +135,75 @@ def test_result_banner_owns_staleness_while_footer_reports_readiness_or_input_er
         screen.columns.cellWidget(1, 1).setCurrentText("numeric")
         screen.param_widgets["alpha"].setValue(1.)
         assert "match current settings" in screen.result_state.text()
-        assert screen.status.text() == "Ready to run with these selections."
+        assert not screen.result_state.isVisibleTo(screen)
+        assert screen.warning_button.isVisibleTo(screen)
+        assert screen.status.text() == ""
         assert screen.run_button.isEnabled()
+    finally:
+        _dispose(screen)
+
+
+def test_recipe_setup_has_one_input_identity_and_one_empty_result_state(qt):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    screen = _screen()
+    try:
+        screen.show()
+        qt.processEvents()
+        assert not screen.findChildren(QLabel, "ScreenSubtitle")
+        assert not screen.findChildren(QLabel, "DatasetBadge")
+        identities = screen.findChildren(QLabel, "InputContext")
+        assert identities == [screen.input_context]
+        assert screen.input_context.text() == "Input: own measurements.parquet · 12 rows · 2 columns"
+        assert screen.input_context.textFormat() == Qt.TextFormat.PlainText
+        assert screen.input_context.isVisibleTo(screen)
+        assert screen.load_button.isVisibleTo(screen)
+        assert not screen.form_panel.isAncestorOf(screen.load_button)
+        assert screen.result_state.isVisibleTo(screen)
+        assert screen.result_state.text() == "No completed run"
+        assert not screen.report_widget.findChildren(QLabel)
+        assert "Types describe roles; values are not converted." in screen.columns.toolTip()
+        assert screen.columns.accessibleDescription() == screen.columns.toolTip()
+        assert screen.columns_label.toolTip() == screen.columns.toolTip()
+    finally:
+        _dispose(screen)
+
+
+def test_input_row_import_uses_csv_options_and_locks_with_the_form(qt, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    screen = _screen()
+    requests = []
+    screen.load_requested.connect(lambda *args: requests.append(args))
+    path = "C:/own data/measurements.csv"
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (path, ""))
+    try:
+        screen.show_report(_report())
+        screen.sections["import"].setChecked(True)
+        screen.delimiter.setCurrentIndex(screen.delimiter.findData(";"))
+        screen.encoding.setCurrentIndex(screen.encoding.findData("cp1252"))
+        screen.markers.setText("?, -999")
+        before = screen.session_state()
+        screen.load_button.click()
+        assert requests == [(path, ";", "cp1252", "?, -999")]
+        screen.set_status("Reading dataset…")
+        screen.set_busy(True)
+        assert not screen.load_button.isEnabled()
+        assert not screen.form_panel.isEnabled()
+        assert not screen.run_button.isEnabled()
+        screen.load_button.click()
+        assert len(requests) == 1
+        assert screen.status.text() == "Reading dataset…"
+        screen.set_busy(False)
+        assert screen.load_button.isEnabled() and screen.form_panel.isEnabled()
+        assert screen.run_button.isEnabled()
+        after = screen.session_state()
+        assert {key: value for key, value in after.items() if key != "status"} == {
+            key: value for key, value in before.items() if key != "status"}
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+        screen.load_button.click()
+        assert len(requests) == 1
     finally:
         _dispose(screen)
 
@@ -233,9 +305,58 @@ def test_local_llm_backend_visibility_and_saved_output_survive_shared_form_chang
         assert "Settings changed" in screen.result_state.text()
         assert screen.session_state()["report_request"] == previous_request
         assert screen._report == report
-        assert screen.status.text() == "Ready to run with these selections."
+        assert screen.status.text() == ""
     finally:
         _dispose(screen)
+
+
+@pytest.mark.parametrize("backend,input_mode", [
+    ("pytorch", "prompt"), ("ollama", "rows"), ("llamacpp", "prompt"),
+])
+def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, input_mode):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QFont
+
+    import app
+    from gui import theme
+    from gui.main_window import MainWindow
+
+    original_style, original_font = qt.styleSheet(), qt.font()
+    qt.setFont(QFont(theme.FONT_FAMILY, theme.BODY_POINT_SIZE))
+    qt.setStyleSheet(theme.stylesheet())
+    window = MainWindow()
+    screen = app.SCREEN_FACTORIES["llm"](demo=False, setup=True)
+    try:
+        screen.param_widgets["backend"].setCurrentIndex(screen.param_widgets["backend"].findData(backend))
+        screen.param_widgets["input_mode"].setCurrentIndex(screen.param_widgets["input_mode"].findData(input_mode))
+        window.show_screen(screen)
+        window.resize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
+        window.show()
+        qt.processEvents()
+        window.grab()
+        qt.processEvents()
+        assert window.width() == theme.WINDOW_MIN_WIDTH
+        viewport = screen.form_panel.viewport()
+        visible = []
+        for key, row in screen.param_rows.items():
+            for widget in row:
+                if not widget.isVisibleTo(screen):
+                    continue
+                visible.append(key)
+                left = widget.mapTo(viewport, QPoint(0, 0)).x()
+                assert 0 <= left and left + widget.width() <= viewport.width(), (
+                    key, left, widget.width(), viewport.width())
+        assert "backend" in visible and "prompt" in visible
+        assert ("max_rows" in visible) is (input_mode == "rows")
+        for widget in (screen.preview_button, screen.checks_button):
+            if widget.isVisibleTo(screen):
+                left = widget.mapTo(viewport, QPoint(0, 0)).x()
+                assert 0 <= left and left + widget.width() <= viewport.width(), (
+                    widget.text(), left, widget.width(), viewport.width())
+    finally:
+        _dispose(window)
+        qt.setStyleSheet(original_style)
+        qt.setFont(original_font)
 
 
 def test_movement_settings_keep_final_test_sealed_and_grouping_explicit(qt):
@@ -356,7 +477,6 @@ def test_unsupervised_preprocessing_dialog_explains_full_data_fitting_without_ch
 def test_empty_llm_setup_is_actionable_without_presenting_example_data_or_generated_output(qt, monkeypatch, tmp_path):
     from functools import wraps
 
-    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QLabel, QPlainTextEdit
 
     import app
@@ -385,10 +505,9 @@ def test_empty_llm_setup_is_actionable_without_presenting_example_data_or_genera
         assert screen.result_state.text() != screen.status.text()
         assert not screen.warning_button.isVisibleTo(screen)
         assert not screen.report_widget.findChildren(QPlainTextEdit)
-        placeholders = screen.report_widget.findChildren(QLabel)
-        assert len(placeholders) == 1
-        assert placeholders[0].textFormat() == Qt.TextFormat.PlainText
-        assert len(placeholders[0].text().split()) <= 30
+        assert not screen.report_widget.findChildren(QLabel)
+        assert screen.result_state.isVisibleTo(screen)
+        assert screen.result_state.text() == "No completed run"
         requests = []
         screen.run_requested.connect(requests.append)
         screen.param_widgets["model_path"].setText(str(tmp_path / "chosen-later-at-run-time"))

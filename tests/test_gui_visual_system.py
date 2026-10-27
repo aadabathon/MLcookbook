@@ -55,10 +55,23 @@ def _visible_labels(widget):
     return [label.text() for label in widget.findChildren(QLabel) if label.isVisibleTo(widget)]
 
 
+def _contrast(foreground, background):
+    from PySide6.QtGui import QColor
+
+    def luminance(color):
+        channels = QColor(color).getRgbF()[:3]
+        linear = [value / 12.92 if value <= .04045 else ((value + .055) / 1.055) ** 2.4 for value in channels]
+        return sum(value * weight for value, weight in zip(linear, (.2126, .7152, .0722)))
+
+    values = sorted((luminance(foreground), luminance(background)))
+    return (values[1] + .05) / (values[0] + .05)
+
+
 @pytest.mark.parametrize("recipe", _ready_recipes(), ids=lambda recipe: recipe.key)
 def test_ready_cards_keep_accessible_mouse_and_keyboard_actions(styled_qt, recipe):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QLabel
 
     from gui.recipe_card import RecipeCard
 
@@ -72,14 +85,21 @@ def test_ready_cards_keep_accessible_mouse_and_keyboard_actions(styled_qt, recip
         labels = _visible_labels(card)
         assert recipe.title in labels and recipe.description in labels
         assert recipe.status not in labels
-        assert recipe.icon not in labels
+        assert recipe.icon in labels
+        symbol = card.findChild(QLabel, "RecipeSymbol")
+        assert symbol is not None and symbol.text() == recipe.icon
+        assert symbol.textFormat() == Qt.TextFormat.PlainText
+        assert symbol.focusPolicy() == Qt.FocusPolicy.NoFocus
+        assert symbol.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         assert card.accessibleName() == recipe.title
         assert card.accessibleDescription() == recipe.description
         assert card.focusPolicy() == Qt.FocusPolicy.StrongFocus
         QTest.mouseClick(card, Qt.MouseButton.LeftButton, pos=card.rect().center())
+        QTest.mouseClick(card.windowHandle(), Qt.MouseButton.LeftButton,
+                         pos=symbol.mapTo(card, symbol.rect().center()))
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             QTest.keyClick(card, key)
-        assert chosen == [recipe] * 4
+        assert chosen == [recipe] * 5
     finally:
         _dispose(card)
 
@@ -88,6 +108,7 @@ def test_ready_cards_keep_accessible_mouse_and_keyboard_actions(styled_qt, recip
 def test_unavailable_cards_keep_status_without_becoming_actions(styled_qt, variant, status):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QLabel
 
     from gui.recipe_card import RecipeCard
     from gui.recipes import Recipe
@@ -100,13 +121,128 @@ def test_unavailable_cards_keep_status_without_becoming_actions(styled_qt, varia
         card.show()
         styled_qt.processEvents()
         assert status in _visible_labels(card)
+        symbol = card.findChild(QLabel, "RecipeSymbol")
+        assert symbol is not None and symbol.text() == recipe.icon
+        assert symbol.property("available") is False
+        assert symbol.focusPolicy() == Qt.FocusPolicy.NoFocus
         assert card.focusPolicy() == Qt.FocusPolicy.NoFocus
         QTest.mouseClick(card, Qt.MouseButton.LeftButton, pos=card.rect().center())
+        QTest.mouseClick(card.windowHandle(), Qt.MouseButton.LeftButton,
+                         pos=symbol.mapTo(card, symbol.rect().center()))
         QTest.keyClick(card, Qt.Key.Key_Return)
         QTest.keyClick(card, Qt.Key.Key_Space)
         assert not chosen
     finally:
         _dispose(card)
+
+
+def test_primary_and_selected_navigation_states_keep_readable_text(styled_qt):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QPalette
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QPushButton
+
+    from gui import theme
+    from gui.main_window import MainWindow
+
+    window = MainWindow()
+    primary = QPushButton("Run analysis")
+    primary.setObjectName("PrimaryButton")
+    window.show_screen(primary)
+    window.resize(1080, 720)
+
+    def colors(widget):
+        image = widget.grab().toImage()
+        ratio = image.devicePixelRatio()
+        background = image.pixelColor(int(widget.width() / 2 * ratio), int((widget.height() - 5) * ratio))
+        group = QPalette.ColorGroup.Active if widget.isEnabled() else QPalette.ColorGroup.Disabled
+        foreground = widget.palette().color(group, QPalette.ColorRole.ButtonText)
+        return foreground, background
+
+    try:
+        window.show()
+        QTest.mouseMove(window.windowHandle(), QPoint(20, 20))
+        styled_qt.processEvents()
+        foreground, background = colors(primary)
+        assert background.name() == theme.UI_PRIMARY
+        assert _contrast(foreground, background) >= 4.5
+        QTest.mouseMove(window.windowHandle(), primary.mapTo(window, primary.rect().center()))
+        styled_qt.processEvents()
+        foreground, background = colors(primary)
+        assert background.name() == theme.UI_PRIMARY_HOVER
+        assert _contrast(foreground, background) >= 4.5
+        primary.setEnabled(False)
+        styled_qt.processEvents()
+        assert _contrast(*colors(primary)) >= 4.5
+        window.set_navigation("data")
+        selected = window.navigation_buttons["data"]
+        styled_qt.processEvents()
+        foreground, background = colors(selected)
+        assert selected.isChecked() and background.name() == theme.UI_SELECTION
+        assert _contrast(foreground, background) >= 4.5
+        window.set_navigation("data", busy=True)
+        styled_qt.processEvents()
+        assert selected.isChecked() and not selected.isEnabled()
+        foreground, background = colors(selected)
+        assert background.name() == theme.UI_SELECTION
+        assert _contrast(foreground, background) >= 4.5
+    finally:
+        _dispose(window)
+
+
+def test_recipe_symbol_and_focus_colors_remain_distinguishable_from_their_surfaces():
+    from gui import theme
+
+    for background in (theme.CARD, theme.CARD_HOVER, theme.UI_SELECTION):
+        assert _contrast(theme.UI_ACCENT, background) >= 4.5
+    assert _contrast(theme.BORDER_ACCENT, theme.CARD) >= 3
+    assert _contrast(theme.UI_BORDER, theme.CARD_HOVER) >= 3
+
+
+def test_secondary_text_remains_readable_on_restored_dark_surfaces():
+    from gui import theme
+
+    for foreground in (theme.TEXT, theme.TEXT_MUTED, theme.TEXT_FAINT):
+        for background in (theme.BG, theme.SURFACE, theme.CARD, theme.CARD_HOVER):
+            assert _contrast(foreground, background) >= 4.5
+
+
+def test_display_typography_does_not_spread_to_controls_or_report_values(styled_qt):
+    from PySide6.QtWidgets import QLabel
+
+    from gui import theme
+    from gui.main_window import MainWindow
+
+    window, screen = MainWindow(), _screen()
+    window.show_screen(screen)
+    screen.show_report({
+        "dataset": "measurements.parquet", "target": "output", "features": "input",
+        "metric_groups": [{"title": "Test metrics", "items": [("MAE", "0.000012345")] }],
+        "warnings": [],
+    })
+    try:
+        window.show()
+        styled_qt.processEvents()
+        for name in ("Wordmark", "ScreenTitle"):
+            label = window.findChild(QLabel, name)
+            assert label is not None and label.font().families()[0] == "Palatino Linotype"
+        value = screen.report_widget.findChild(QLabel, "MetricValue")
+        assert value is not None and value.text() == "0.000012345"
+        for widget in (screen.run_button, screen.param_widgets["alpha"], value):
+            assert widget.font().families()[0] == theme.FONT_FAMILY
+    finally:
+        _dispose(window)
+
+
+def test_ui_accent_changes_preserve_analytical_series_and_category_colors():
+    from gui import theme
+
+    assert theme.palette("accent") == "#b29aef"
+    assert theme.palette("alt") == "#2dd4bf"
+    assert [theme.palette(f"c{index}") for index in range(10)] == [
+        "#8b5cf6", "#2dd4bf", "#f59e0b", "#f472b6", "#60a5fa",
+        "#a3e635", "#fb7185", "#e879f9", "#facc15", "#94a3b8",
+    ]
 
 
 def _screen():

@@ -53,3 +53,34 @@ def test_result_is_json_serializable(linear_df):
     assert payload["train_metrics"]["n_obs"] == payload["n_train"]
     assert isinstance(payload["coefficients"], dict)
     assert len(payload["test_actual"]) == len(payload["test_predicted"]) == payload["n_test"]
+
+
+def test_source_positions_survive_missing_targets_and_duplicate_index_labels(linear_df):
+    from sklearn.model_selection import train_test_split
+
+    frame = linear_df.copy()
+    frame.iloc[[2, 12], frame.columns.get_loc("y")] = np.nan
+    frame.index = [7] * len(frame)
+    result = linear_regression(Dataset(frame), target="y", features=["x1", "x2"], random_state=23, cv_folds=2)
+    positions = np.flatnonzero(frame.y.notna().to_numpy())
+    train, test = train_test_split(positions, test_size=.25, random_state=23)
+    assert result.train_rows == train.tolist() and result.test_rows == test.tolist()
+    np.testing.assert_allclose(frame.iloc[result.test_rows].y.to_numpy(), result.test_actual)
+    assert set(result.train_rows).isdisjoint(result.test_rows)
+    json.dumps(result.to_dict(), allow_nan=False)
+
+
+def test_result_keeps_legacy_positional_warnings_argument(linear_df):
+    from dataclasses import fields
+
+    from mlcookbook import LinearRegressionResult
+
+    result = linear_regression(Dataset(linear_df), target="y", features=["x1", "x2"], cv_folds=0)
+    legacy = []
+    for field in fields(result):
+        legacy.append(["A legacy result warning."] if field.name == "warnings" else getattr(result, field.name))
+        if field.name == "warnings":
+            break
+    restored = LinearRegressionResult(*legacy)
+    assert restored.warnings == ["A legacy result warning."]
+    assert restored.train_rows == restored.test_rows == []

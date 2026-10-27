@@ -8,7 +8,7 @@ click leads to is decided by app.py, never here.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from gui import theme
 from gui.recipes import Recipe
@@ -21,6 +21,7 @@ class RecipeCard(QFrame):
         super().__init__(parent)
         self.recipe = recipe
         self.setObjectName("RecipeCard")
+        self.setProperty("available", recipe.variant == "ready")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setMinimumHeight(theme.CARD_MIN_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -34,11 +35,23 @@ class RecipeCard(QFrame):
         layout.setContentsMargins(*(theme.CARD_PADDING,) * 4)
         layout.setSpacing(theme.SPACE_SM)
 
+        header = QHBoxLayout()
+        header.setSpacing(theme.SPACE_SM)
+        symbol = QLabel(recipe.icon)
+        symbol.setObjectName("RecipeSymbol")
+        symbol.setProperty("available", recipe.variant == "ready")
+        symbol.setTextFormat(Qt.TextFormat.PlainText)
+        symbol.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        symbol.setFixedWidth(30)
+        symbol.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        symbol.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        header.addWidget(symbol)
         title = QLabel(recipe.title)
         title.setObjectName("CardTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignLeft)
         title.setWordWrap(True)
-        layout.addWidget(title)
+        header.addWidget(title, stretch=1)
+        layout.addLayout(header)
 
         description = QLabel(recipe.description)
         description.setObjectName("CardDescription")

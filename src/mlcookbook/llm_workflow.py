@@ -20,6 +20,7 @@ from uuid import uuid4
 import pandas as pd
 
 from mlcookbook.core.dataset import Dataset
+from mlcookbook.core.fingerprint import dataset_fingerprint
 from mlcookbook.core.results import Result
 
 _BINDING = re.compile(r"\{\{([^{}]+)\}\}")
@@ -44,13 +45,6 @@ class LLMWorkflowResult(Result):
 def _hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
                                      allow_nan=False).encode("utf-8")).hexdigest()
-
-
-def dataset_fingerprint(dataset: Dataset) -> str:
-    """Include values, order, index (including duplicates), dtypes and roles."""
-    snapshot = dataset.df.to_parquet(index=True, engine="pyarrow")
-    roles = {col.name: col.var_type.value for col in dataset.schema().columns}
-    return _hash({"parquet_sha256": hashlib.sha256(snapshot).hexdigest(), "roles": roles})
 
 
 def parse_fields(spec: str) -> list[dict]:

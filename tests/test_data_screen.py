@@ -46,12 +46,48 @@ def _view():
 
 def test_empty_import_first_and_clear_do_not_leave_previous_data(screen):
     assert screen.empty.isVisible() and screen.load_button.isEnabled()
+    assert screen.empty.text() == "No dataset open"
     assert not screen.dataset_panel.isVisible()
     screen.set_dataset(_view())
     assert screen.dataset_panel.isVisible() and not screen.empty.isVisible()
     screen.set_dataset(None)
     assert screen.empty.isVisible() and not screen.source.text()
     assert screen.preview_table.rowCount() == screen.columns_table.rowCount() == 0
+
+
+def test_data_has_one_identity_with_context_help_on_the_columns(screen, qt):
+    from PySide6.QtWidgets import QLabel
+
+    assert not screen.findChildren(QLabel, "PageSubtitle")
+    supplied = _view()
+    supplied.pop("source_summary")
+    screen.set_dataset(supplied)
+    qt.processEvents()
+    assert screen.identity.isVisible() and not screen.empty.isVisible()
+    assert not screen.source.isVisible()
+    assert "Adjust roles" in screen.columns_table.toolTip()
+    assert screen.columns_table.accessibleDescription() == screen.columns_table.toolTip()
+    supplied["source_summary"] = "Snapshot from work.mlcb"
+    screen.set_dataset(supplied)
+    assert screen.source.isVisible() and screen.source.text() == supplied["source_summary"]
+
+
+def test_recipe_catalog_keeps_title_and_actions_without_a_generic_subtitle(qt):
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QLabel
+
+    from gui.front_page import FrontPage
+    from gui.recipe_card import RecipeCard
+    from gui.recipes import RECIPES
+
+    screen = FrontPage()
+    try:
+        assert screen.findChild(QLabel, "PageTitle").text() == "Recipes"
+        assert not screen.findChildren(QLabel, "PageSubtitle")
+        assert len(screen.findChildren(RecipeCard)) == len(RECIPES)
+    finally:
+        screen.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_source_roles_preview_strings_and_checks_stay_read_only(screen, qt):

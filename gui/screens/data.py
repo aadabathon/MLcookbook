@@ -72,7 +72,6 @@ class DataScreen(QWidget):
         self.load_button.clicked.connect(self._choose_file)
         heading.addWidget(self.load_button)
         outer.addLayout(heading)
-        outer.addWidget(_label("Import a CSV or Parquet file, inspect its columns, then choose an analysis.", "PageSubtitle"))
 
         self.import_panel = QWidget()
         import_layout = QVBoxLayout(self.import_panel)
@@ -121,8 +120,7 @@ class DataScreen(QWidget):
         body = QVBoxLayout(content)
         body.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_LG)
         body.setSpacing(theme.SPACE_MD)
-        self.empty = _label("No dataset imported. Open a CSV or Parquet file to inspect it, then choose a recipe.",
-                            "ResultSummary")
+        self.empty = _label("No dataset open", "DatasetBadge")
         body.addWidget(self.empty)
         self.dataset_panel = QWidget()
         dataset = QVBoxLayout(self.dataset_panel)
@@ -145,10 +143,14 @@ class DataScreen(QWidget):
         self.preview_table = _table()
         self.preview_table.horizontalHeader().setStretchLastSection(True)
         dataset.addWidget(self.preview_table)
-        dataset.addWidget(_label("Columns and source roles", "FieldLabel"))
-        dataset.addWidget(_label("These roles describe the active dataset. Adjust roles for an analysis in that recipe; "
-                                 "those choices do not change this source snapshot.", "HelpText"))
+        roles_heading = _label("Columns and source roles", "FieldLabel")
+        roles_help = ("These roles describe the active dataset. Adjust roles for an analysis in that recipe; "
+                      "those choices do not change this source snapshot.")
+        roles_heading.setToolTip(roles_help)
+        dataset.addWidget(roles_heading)
         self.columns_table = _table()
+        self.columns_table.setToolTip(roles_help)
+        self.columns_table.setAccessibleDescription(roles_help)
         dataset.addWidget(self.columns_table)
         body.addWidget(self.dataset_panel)
         body.addStretch()
@@ -211,7 +213,8 @@ class DataScreen(QWidget):
             return
         columns = view.get("columns", [])
         self.identity.setText(f"{view['name']} · {view['rows']} rows · {len(columns)} columns")
-        self.source.setText(view.get("source_summary") or f"Active dataset: {view['name']}")
+        self.source.setText(view.get("source_summary", ""))
+        self.source.setVisible(bool(self.source.text()))
         self.source.setToolTip(self.source.text())
         notes = view.get("notes", []) + view.get("issues", [])
         self.checks_toggle.setText(f"Data checks ({len(notes)})")

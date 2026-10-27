@@ -86,6 +86,10 @@ Final verification: **440 pytest tests passed**, Ruff/dependency checks passed, 
 
 ### 4. Workflow graph core and persistence
 
+**Kitchen milestone 1 — 2026-10-27:** the requested first Dataset → optional Select columns/roles → Regression comparison → Report path is implemented with a typed UI-free DAG, deterministic preflight/execution, per-node provenance/staleness, between-operation cancellation and independent `.mlck` persistence. Native canvas/inspector editing, typed connection checks, undo/redo and offline reopening are present. These are the first four operations; the LLM/derive branch and broader kernels remain unimplemented at this checkpoint, so the full stages below are not marked complete. See [KITCHEN.md](KITCHEN.md).
+
+**Kitchen vector follow-up — explicitly requested:** the completion pass adds column/missing-mask outputs, numeric maps and two-vector combinations, dataset construction/appending, boolean row filtering, vector summaries, correlation and linear regression. Named ports permit branching and recombination with exact positional lineage. Version-2 `.mlck` retains full completed Parquet artifacts and stale provenance; v1 preview documents remain readable. Output export and explicit reuse as ordinary data make the results usable beyond the graph. Verification passed 662 tests, Ruff, 57 native views across common scales and the actual frozen workflow/local-inference checks; the separate preview and evidence are recorded in ADAM.md. The LLM extraction/validation/derivation branch and reusable fitted-model artifacts remain unimplemented, so the full stages below are not declared complete.
+
 - [ ] Define a small, versioned graph document: node IDs, known node kinds, plain settings, typed input/output ports, edges, and references to dataset/result artifacts. Use dataclasses and an explicit mapping of supported operations.
 - [ ] First node set: **Dataset snapshot**, **Select columns / roles**, **LLM generation**, **Validate / derive columns**, **Existing analysis recipe**, and **Report**. Existing analysis nodes call the current core workflows and return result data.
 - [ ] Validate required inputs, port types, missing columns, unknown node kinds, and cycles before expensive execution. Run a directed acyclic graph in a deterministic order, one active job initially, with per-node status and cancellation.
@@ -202,7 +206,7 @@ Saved configurations and reports deserve consideration alongside new formats: im
 
 ### Further model-inference workflows
 
-The requested [local LLM and workflow-graph plan](#local-llm-and-workflow-graphs) above replaces the earlier general GGUF proposal. PyTorch, Ollama and llama.cpp inference plus structured row workflows are implemented; graph composition has explicit future milestones. Model acquisition/redistribution and managed runtime setup remain separate from connecting to an existing local server.
+The requested [local LLM and workflow-graph plan](#local-llm-and-workflow-graphs) above replaces the earlier general GGUF proposal. PyTorch, Ollama and llama.cpp inference plus structured row workflows are implemented. Kitchen supplies tabular/vector composition; adding LLM workflows as graph nodes remains an explicit future milestone. Model acquisition/redistribution and managed runtime setup remain separate from connecting to an existing local server.
 
 ### Silicon Badgers architecture research context
 

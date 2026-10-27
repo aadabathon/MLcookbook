@@ -72,14 +72,8 @@ class FrontPage(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(theme.SPACE_MD)
 
-        text = QVBoxLayout()
-        text.setSpacing(2)
         title = QLabel("Recipes")
         title.setObjectName("PageTitle")
-        subtitle = QLabel("Statistics, machine learning and local models.")
-        subtitle.setObjectName("PageSubtitle")
-        text.addWidget(title)
-        text.addWidget(subtitle)
-        row.addLayout(text)
+        row.addWidget(title)
         row.addStretch()
         return header

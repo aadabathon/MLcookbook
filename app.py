@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 import sys
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -43,6 +44,7 @@ from gui.recipes import RECIPES, Recipe
 from gui.screens.association_scan import AssociationScanScreen
 from gui.screens.data import DataScreen
 from gui.screens.decision_tree import DecisionTreeScreen
+from gui.screens.kitchen import KitchenScreen
 from gui.screens.kmeans import KMeansScreen
 from gui.screens.linear_regression import LinearRegressionScreen
 from gui.screens.llm import LLMScreen
@@ -837,32 +839,90 @@ def _comparison_report(dataset, request, name):
     result = compare_regressors(dataset, target=request["target"], features=request["features"],
                                 preprocessing=_config(request), cv_folds=request["cv_folds"],
                                 **request["params"])
+    return _comparison_data_report(result.to_dict(), name, len(dataset.df))
+
+
+def _comparison_data_report(result: dict, name: str, rows: int) -> dict:
+    """Format existing comparison data; inspecting a Kitchen record never fits."""
     names = {"ridge": "Ridge", "random_forest": "Random forest"}
-    chosen = names[result.selected_model]
+    chosen = names[result["selected_model"]]
+    candidates = result["candidates"]
+    low = min(result["test_actual"] + result["test_predicted"])
+    high = max(result["test_actual"] + result["test_predicted"])
+    preprocessing = result["preprocessing"]
+    steps = []
+    for col in preprocessing["columns"]:
+        for index, step in enumerate(col["steps"]):
+            outputs = col["output_features"]
+            shown = (", ".join(outputs) if len(outputs) <= 3 else f"{len(outputs)} columns") if index == 0 else ""
+            steps.append([col["column"] if index == 0 else "", step, shown])
+    metrics = [{"title": f"{chosen} · {label} · {result[key]['n_obs']} rows",
+                "items": [(caption, _num(result[key][metric], digits))
+                          for caption, metric, digits in (("R²", "r2", 3), ("RMSE", "rmse", 2), ("MAE", "mae", 2))]}
+               for key, label in (("test_metrics", "final test set"), ("train_metrics", "training set"))]
+    ridge, forest = candidates[0]["parameters"], candidates[1]["parameters"]
     return {
-        **_base(result, dataset, name, f"Shared split · seed {result.random_state} · "
-                f"{len(result.train_rows)} train / {len(result.test_rows)} test rows · {len(result.folds)} CV folds"),
+        "dataset": f"{name} · {rows} rows", "target": result["target"], "features": ", ".join(result["features"]),
+        "settings": f"Shared split · seed {result['random_state']} · {len(result['train_rows'])} train / "
+                    f"{len(result['test_rows'])} test rows · {len(result['folds'])} CV folds",
         "summary": f"{chosen} had the lowest mean training-CV RMSE and was selected before test evaluation. "
                    "Both candidates use identical folds and preprocessing choices.",
         "plots": [{"title": "Model comparison · training cross-validation", "x_label": "fold", "y_label": "RMSE (lower is better)",
-                   "series": [{"kind": "line", "color": color, "label": names[candidate.model],
-                               "points": [(fold.fold, fold.scores["rmse"]) for fold in candidate.cross_validation.folds]}
-                              for candidate, color in zip(result.candidates, ("accent", "alt"))]},
-                  _actual_vs_predicted(result)],
-        "metric_groups": [_regression_group(f"{chosen} · final test set", result.test_metrics),
-                          _regression_group(f"{chosen} · training set", result.train_metrics)],
+                   "series": [{"kind": "line", "color": color, "label": names[candidate["model"]],
+                               "points": [(fold["fold"], fold["scores"]["rmse"]) for fold in candidate["cross_validation"]["folds"]]}
+                              for candidate, color in zip(candidates, ("accent", "alt"))]},
+                  {"title": "Actual vs predicted · held-out rows", "x_label": f"predicted {result['target']}",
+                   "y_label": f"actual {result['target']}", "series": [
+                       {"kind": "line", "color": "muted", "label": "perfect fit", "points": [(low, low), (high, high)]},
+                       {"kind": "points", "color": "accent", "label": "test rows",
+                        "points": _sample(list(zip(result["test_predicted"], result["test_actual"])))}]}],
+        "metric_groups": metrics,
         "tables": [{"title": "Select by cross-validation · mean ± sample SD", "headers": ["MODEL", "RMSE", "MAE", "R²"],
-                    "rows": [[names[c.model] + (" · selected" if c.model == result.selected_model else ""),
-                              *[f"{_num(c.cross_validation.mean[m])} ± {_num(c.cross_validation.std[m])}"
-                                for m in ("rmse", "mae", "r2")]] for c in result.candidates]},
+                    "rows": [[names[c["model"]] + (" · selected" if c["model"] == result["selected_model"] else ""),
+                              *[f"{_num(c['cross_validation']['mean'][m])} ± {_num(c['cross_validation']['std'][m])}"
+                                for m in ("rmse", "mae", "r2")]] for c in candidates]},
                    {"title": "Candidate settings", "headers": ["MODEL", "SETTINGS"],
-                    "rows": [["Ridge", f"Penalty strength: {request['params']['alpha']:g}"],
-                             ["Random forest", f"{request['params']['n_estimators']} trees · "
-                              f"depth: {request['params']['max_depth'] or 'unlimited'} · "
-                              f"min leaf: {request['params']['min_samples_leaf']}"]]},
-                   _preprocessing_table(result.preprocessing)],
-        "warnings": result.warnings,
-        "comparison": result.to_dict(),  # retained in the saved experiment, including exact row/fold membership
+                    "rows": [["Ridge", f"Penalty strength: {ridge['alpha']:g}"],
+                             ["Random forest", f"{forest['n_estimators']} trees · depth: {forest['max_depth'] or 'unlimited'} · "
+                              f"min leaf: {forest['min_samples_leaf']}"]]},
+                   {"title": f"Preprocessing · fitted on {preprocessing['n_rows_fitted']} rows · "
+                             f"{preprocessing['n_output_features']} model columns",
+                    "headers": ["COLUMN", "STEP (FITTED VALUES)", "BECOMES"], "rows": steps, "stretch_column": 1}],
+        "warnings": list(result["warnings"]), "comparison": deepcopy(result),
+    }
+
+
+def _kitchen_linear_report(result: dict, name: str) -> dict:
+    """Format a completed linear result, including an offline saved result."""
+    from types import SimpleNamespace
+
+    plotted = SimpleNamespace(target=result["target"], test_actual=result["test_actual"],
+                              test_predicted=result["test_predicted"])
+    preprocessing = result["preprocessing"]
+    fitted = SimpleNamespace(**{**preprocessing, "columns": [SimpleNamespace(**column)
+                                                           for column in preprocessing["columns"]]})
+    metrics = [_regression_group(label, SimpleNamespace(**result[key]))
+               for key, label in (("test_metrics", "Test set"), ("train_metrics", "Training set"))]
+    cv = result["cross_validation"]
+    if cv is not None:
+        metrics.extend(_cv_group(SimpleNamespace(**cv)))
+    diagnostics = result["residual_diagnostics"]
+    metrics.append({"title": f"Residual checks · {diagnostics['n_obs']} training rows", "items": [
+        ("Skew", _num(diagnostics["skewness"], 2)), ("Excess kurtosis", _num(diagnostics["excess_kurtosis"], 2)),
+        ("Normality p", _p(diagnostics["normality_p_value"])), ("Spread rho", _num(diagnostics["spread_correlation"], 2)),
+        ("Spread p", _p(diagnostics["spread_p_value"])),
+    ]})
+    penalty = "Ordinary least squares" if result["alpha"] is None else f"{result['penalty']} · alpha {result['alpha']:g}"
+    mae = _num(result["test_metrics"]["mae"], 2)
+    return {
+        "dataset": f"{name} · {result['input_rows']} rows", "target": result["target"],
+        "features": ", ".join(result["features"]), "settings": penalty,
+        "summary": f"Mean absolute error on {result['n_test']} held-out rows: {mae} in target units.",
+        "plots": [_actual_vs_predicted(plotted), _residual_plot(plotted)], "metric_groups": metrics,
+        "tables": [{"title": f"Coefficients · intercept {_num(result['intercept'], 2)}",
+                    "headers": ["Feature", "Coefficient"], "rows": _coefficient_rows(result["coefficients"])},
+                   _preprocessing_table(fitted)],
+        "warnings": list(result["warnings"]),
     }
 
 
@@ -1248,7 +1308,7 @@ def _default_screen(key, demo=True, setup=False):
         screen.set_dataset(_dataset_view(screen.dataset, screen.dataset_name))
         screen.set_status("Choose a local model and write a prompt." if key == "llm" else
                           "Open a movement study export." if key == "wearable-study" else
-                          "Open a dataset in Data or run the built-in example.")
+                          "")
         return screen
     make_frame, name, target, positive = DEMOS[key]
     dataset = Dataset(make_frame())
@@ -1368,6 +1428,10 @@ class MLCookbookApp:
         self.sessions: dict[str, dict] = {}
         self.workspace_sessions: dict[str, dict] = {}
         self.example_sessions: dict[str, dict] = {}
+        self.kitchen = None
+        self.kitchen_hashes, self.kitchen_views = {}, {}
+        self.kitchen_history = ([], [])
+        self.kitchen_output_ports = {}
         self.window.experiment_open_requested.connect(self.open_experiment)
         self.window.experiment_save_requested.connect(self.save_experiment)
         self.window.navigation_requested.connect(self.navigate)
@@ -1381,6 +1445,8 @@ class MLCookbookApp:
             self.show_data_page()
         elif key == "recipes":
             self.show_front_page()
+        elif key == "kitchen":
+            self.show_kitchen()
         elif key in ("llm", "wearable-study"):
             self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key))
 
@@ -1394,6 +1460,8 @@ class MLCookbookApp:
                                             using_example=self.screen.is_example,
                                             has_workspace=self.imported is not None,
                                             has_example=self.key in self.example_sessions)
+        elif isinstance(self.screen, KitchenScreen):
+            self.screen.set_active_available(self.imported is not None)
         if self.imported is None:
             self.window.set_dataset_context("", "")
         else:
@@ -1416,6 +1484,12 @@ class MLCookbookApp:
                 if source.get("missing_markers"):
                     details.append("Extra missing markers: " + ", ".join(source["missing_markers"]))
             details.append("The workspace holds the imported values; opening Data does not reread the file.")
+        elif source.get("kind") == "kitchen_output":
+            details.append(f"Kitchen output: {source['node_id']} · {source['port']}")
+            details.append("Completed (UTC): " + source["completed_utc"])
+            details.append("Artifact: " + source["artifact_id"])
+            details.append("Configuration/input fingerprint: " + source["configuration_fingerprint"])
+            details.append("This is a completed output snapshot; editing the Kitchen does not replace it.")
         elif source.get("run_id") or source.get("original_source"):
             details.append("Dataset with accepted LLM-generated columns. Review generated values and lineage in Local LLMs.")
             if source.get("run_id"):
@@ -1442,6 +1516,419 @@ class MLCookbookApp:
     def wait_for_job(self):
         if self.job is not None:
             self.job.wait()
+
+    def show_kitchen(self, *, remember=True):
+        if self.job is not None:
+            return
+        if not self._runtime_initialized:
+            previous = (self.screen._status_message if isinstance(self.screen, (ReportScreen, KitchenScreen)) else
+                        self.data_status if isinstance(self.screen, DataScreen) else "")
+
+            def accept(_):
+                self._runtime_initialized = True
+                self._set_status(previous)
+
+            def continued():
+                if self._runtime_initialized:
+                    self.show_kitchen()
+                return False
+
+            self._start_job(_prepare_runtime, accept, "Preparing Kitchen runtime…", continuation=continued)
+            return
+        from mlcookbook.kitchen import PORTS, KitchenDocument, default_settings
+
+        if remember:
+            self._remember_screen()
+        if self.kitchen is None:
+            self.kitchen = KitchenDocument()
+        screen = KitchenScreen({kind: default_settings(kind) for kind in PORTS})
+        screen.set_editor({"graph": self.kitchen.graph.to_dict(), "layout": self.kitchen.layout, "selected": self.kitchen.selected})
+        screen._undo, screen._redo = deepcopy(self.kitchen_history)
+        screen._update_actions()
+        self._connect_kitchen(screen)
+        self.screen, self.key = screen, "kitchen"
+        self.window.show_screen(screen)
+        self.window.set_status("")
+        self._refresh_kitchen()
+        self._refresh_shell()
+        QTimer.singleShot(0, screen.canvas, screen.canvas.fit_graph)
+
+    def _connect_kitchen(self, screen):
+        screen.changed.connect(self._kitchen_changed)
+        screen.selection_changed.connect(self._kitchen_selected)
+        screen.capture_requested.connect(self.capture_kitchen_snapshot)
+        screen.run_requested.connect(self.run_kitchen)
+        screen.cancel_requested.connect(self.cancel_analysis)
+        screen.save_requested.connect(self.save_kitchen)
+        screen.open_requested.connect(self.open_kitchen)
+        screen.export_requested.connect(self.export_kitchen_output)
+        screen.accept_requested.connect(self.accept_kitchen_dataset)
+        screen.inspect_requested.connect(self.inspect_kitchen_output)
+
+    def _kitchen_changed(self, state):
+        from mlcookbook.kitchen import graph_from_dict
+
+        graph = graph_from_dict(state["graph"])
+        self.kitchen.graph, self.kitchen.layout, self.kitchen.selected = graph, deepcopy(state["layout"]), state["selected"]
+        self._refresh_kitchen()
+        if self.job is None:
+            self.screen.set_status("")
+
+    def _kitchen_selected(self, key):
+        self.kitchen.selected = key
+        self._refresh_kitchen()
+
+    @staticmethod
+    def _kitchen_columns(document, views, key):
+        from functools import cache
+
+        nodes = {n.id: n for n in document.graph.nodes}
+        parents = {(e.target, e.target_port): (e.source, e.source_port) for e in document.graph.edges}
+
+        def input_meta(identifier, port):
+            source = parents.get((identifier, port))
+            return output(*source) if source else {}
+
+        @cache
+        def output(identifier, port):
+            node = nodes.get(identifier)
+            if node is None:
+                return {}
+            s = node.settings
+            if node.kind == "dataset":
+                return {"columns": deepcopy(views.get(s["snapshot"], {}).get("columns", []))}
+            if node.kind == "select":
+                available = {c["name"]: c for c in input_meta(identifier, "data").get("columns", [])}
+                return {"columns": [dict(available[name], type=s["roles"].get(name, available[name]["type"]))
+                                    for name in s["columns"] if name in available]}
+            if node.kind == "column":
+                col = next((c for c in input_meta(identifier, "data").get("columns", []) if c["name"] == s["column"]), None)
+                return {"name": (s["column"] + " missing") if port == "missing" else s["column"],
+                        "role": "boolean" if port == "missing" else col["type"] if col else "unknown"}
+            if node.kind in ("map", "combine"):
+                first = input_meta(identifier, "vector" if node.kind == "map" else "left")
+                return {"name": f"{s['operation']}({first.get('name', 'vector')})",
+                        "role": "boolean" if s["operation"] in ("greater_than", "less_than", "equal") else "numeric"}
+            if node.kind == "build":
+                return {"columns": [{"name": s["name"], "type": input_meta(identifier, "vector").get("role", "unsupported")}]}
+            if node.kind == "add_column":
+                columns = list(input_meta(identifier, "data").get("columns", []))
+                if s["name"] not in {c["name"] for c in columns}:
+                    columns.append({"name": s["name"], "type": input_meta(identifier, "vector").get("role", "unsupported")})
+                return {"columns": columns}
+            if node.kind == "filter":
+                return input_meta(identifier, "data")
+            return {}
+
+        node = nodes.get(key)
+        if node is None:
+            return {}
+        snapshot = node.settings.get("snapshot")
+        info = document.snapshot_info.get(snapshot, {})
+        view = views.get(snapshot, {})
+        from mlcookbook.kitchen import PORTS
+        from mlcookbook.kitchen_artifacts import TableArtifact
+
+        record = document.run.records.get(key)
+        completed = []
+        if record:
+            for port, identifier in record.payload.get("outputs", {}).items():
+                artifact = document.artifacts.get(identifier)
+                if artifact is not None:
+                    completed.append({"port": port, "kind": "dataset" if isinstance(artifact, TableArtifact) else "vector"})
+            if record.kind in ("comparison", "linear", "summary", "correlation", "report"):
+                completed.append({"port": "result", "kind": "analysis"})
+        vector_inputs = {port: input_meta(key, port) for port, kind in PORTS[node.kind][0].items() if kind == "vector"}
+        return {"columns": input_meta(key, "data").get("columns", []), "vectors": vector_inputs, "completed_outputs": completed,
+                "error": document.run.attempts.get(key, {}).get("error", ""),
+                "identity": f"{info['name']} · {view['rows']} rows · {len(view['columns'])} columns"
+                            if info and view else "No snapshot selected"}
+
+    @staticmethod
+    def _kitchen_report(document, key, port=None):
+        record = document.run.records.get(key)
+        if record is None:
+            return {}
+        payload = record.payload
+        name = document.snapshot_info.get(payload.get("snapshot_id"), {}).get("name", "Kitchen snapshot")
+        kind = payload.get("analysis_kind", "comparison" if record.kind == "report" else record.kind)
+        if kind == "comparison":
+            report = _comparison_data_report(payload, name, payload["input_rows"])
+        elif kind == "linear":
+            report = _kitchen_linear_report(payload, name)
+        elif kind == "summary":
+            report = {"dataset": name, "features": payload["name"], "summary": f"{payload['n_obs']} observed · "
+                      f"{payload['n_missing']} missing · {payload['n_unique']} distinct values.",
+                      "metric_groups": [{"title": "Descriptive statistics", "items": [
+                          (label.replace("_", " ").capitalize(), _num(value)) for label, value in payload["statistics"].items()]}]
+                      if payload["statistics"] else [],
+                      "tables": [{"title": "Observed value counts · up to 50 levels", "headers": ["Value", "Count"],
+                                  "rows": [[value, str(count)] for value, count in payload["value_counts"]]}],
+                      "warnings": list(record.warnings)}
+        elif kind == "correlation":
+            report = {"dataset": name, "features": payload["left_name"] + ", " + payload["right_name"],
+                      "summary": f"{payload['method'].capitalize()} correlation: {_num(payload['statistic'])} "
+                                 f"across {payload['n_obs']} complete pairs.",
+                      "plots": [{"title": "Paired observations", "x_label": payload["left_name"], "y_label": payload["right_name"],
+                                 "series": [{"kind": "points", "color": "accent", "label": "pairs", "points": payload["points"]}]}],
+                      "metric_groups": [{"title": "Association", "items": [("Coefficient", _num(payload["statistic"])),
+                                            ("p-value", _p(payload["p_value"])), ("CI low", _num(payload["ci_low"])),
+                                            ("CI high", _num(payload["ci_high"]))]}], "warnings": list(record.warnings)}
+        elif "vectors" in payload:
+            tables = []
+            shown = {name: meta for name, meta in payload["vectors"].items() if port is None or name == port}
+            for output_name, meta in shown.items():
+                tables.append({"title": f"{output_name} · {meta['name']} · {meta['role']} · {meta['rows']} rows",
+                               "headers": ["Preview row", "Value"], "rows": [[str(i), value] for i, value in enumerate(meta["preview"])]})
+            report = {"dataset": name, "features": ", ".join(v["name"] for v in shown.values()),
+                      "tables": tables, "warnings": list(record.warnings)}
+        else:
+            report = {"dataset": name, "features": ", ".join(c["name"] for c in payload["columns"]),
+                      "summary": f"{payload['rows']} rows · {len(payload['columns'])} columns.",
+                      "tables": [{"title": "Columns and roles", "headers": ["Column", "Role", "Dtype"],
+                                  "rows": [[c["name"], c["type"], c["dtype"]] for c in payload["columns"]]},
+                                 {"title": "Preview · first 20 rows", "headers": [c["name"] for c in payload["columns"]],
+                                  "rows": payload["preview"]}], "warnings": list(record.warnings)}
+        report["run_details"] = [f"Node: {record.node_id} · {record.kind}", "Completed (UTC): " + record.completed_utc,
+                                 "Configuration/input fingerprint: " + record.fingerprint,
+                                 "Recorded settings: " + json.dumps(record.settings, ensure_ascii=False),
+                                 "Completed input ports: " + json.dumps(record.inputs, ensure_ascii=False),
+                                 "Runtime: " + " · ".join(f"{k} {v}" for k, v in record.versions.items())]
+        report["warnings"] = list(dict.fromkeys([*report.get("warnings", []), *document.warnings, *document.run.warnings]))
+        error = document.run.attempts.get(key, {}).get("error")
+        if error:
+            report["warnings"].append("Last attempt: " + error)
+        return report
+
+    def _refresh_kitchen(self):
+        if not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import graph_fingerprints, node_states
+
+        states = node_states(self.kitchen.graph, self.kitchen_hashes, self.kitchen.run)
+        self.screen.set_states(states)
+        key = self.kitchen.selected
+        context = self._kitchen_columns(self.kitchen, self.kitchen_views, key)
+        record = self.kitchen.run.records.get(key)
+        context["current_output"] = bool(record and graph_fingerprints(self.kitchen.graph, self.kitchen_hashes).get(key) == record.fingerprint)
+        ports = [item["port"] for item in context.get("completed_outputs", [])]
+        selected_port = self.kitchen_output_ports.get(key)
+        if selected_port not in ports:
+            selected_port = ports[0] if ports else None
+        context["selected_output"] = selected_port
+        context["node_captions"] = {node.id: self.kitchen.snapshot_info.get(node.settings.get("snapshot"), {}).get("name", "")
+                                    for node in self.kitchen.graph.nodes if node.kind == "dataset"}
+        self.screen.set_context(context, report=self._kitchen_report(self.kitchen, key, selected_port), state=states.get(key, "unrun"))
+
+    def inspect_kitchen_output(self, node_id, port):
+        if not isinstance(self.screen, KitchenScreen) or node_id != self.kitchen.selected:
+            return
+        self.kitchen_output_ports[node_id] = port
+        self._refresh_kitchen()
+
+    def _completed_kitchen_output(self, node_id, port):
+        if self.kitchen is None or node_id not in self.kitchen.run.records:
+            raise ValueError("Run this node before using its output.")
+        record = self.kitchen.run.records[node_id]
+        if port == "result" and record.kind in ("comparison", "linear", "summary", "correlation", "report"):
+            return record, None
+        identifier = record.payload.get("outputs", {}).get(port)
+        artifact = self.kitchen.artifacts.get(identifier)
+        if artifact is None:
+            raise ValueError("This saved output contains a preview. Run its path to produce a complete output.")
+        return record, artifact
+
+    def export_kitchen_output(self, node_id, port, path):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        try:
+            record, artifact = self._completed_kitchen_output(node_id, port)
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+        from mlcookbook.kitchen import graph_fingerprints
+
+        matches = graph_fingerprints(self.kitchen.graph, self.kitchen_hashes).get(node_id) == record.fingerprint
+
+        def write():
+            import os
+            import tempfile
+
+            import pandas as pd
+
+            from mlcookbook.kitchen_artifacts import TableArtifact
+
+            destination = Path(path)
+            suffix = destination.suffix.lower()
+            if artifact is None and suffix != ".json":
+                raise ValueError("Export an analysis result as JSON.")
+            if artifact is not None and suffix not in (".csv", ".parquet"):
+                raise ValueError("Export values as CSV or Parquet.")
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=f".{destination.name}.",
+                                                 suffix=".tmp", delete=False) as stream:
+                    temporary = Path(stream.name)
+                if artifact is None:
+                    payload = {"format": "mlcookbook-kitchen-output", "port": port,
+                               "current_settings_match": matches, "completed": record.to_dict()}
+                    temporary.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2), encoding="utf-8")
+                else:
+                    frame = artifact.dataset.df if isinstance(artifact, TableArtifact) else pd.DataFrame(
+                        {artifact.name: artifact.values.array}, index=artifact.index)
+                    if suffix == ".csv":
+                        frame.to_csv(temporary, index=False)
+                    else:
+                        frame.to_parquet(temporary, index=True, engine="pyarrow")
+                os.replace(temporary, destination)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+        state = "" if matches else " · last completed output; current settings differ"
+        self._start_job(write, lambda _: self._set_status(f"Exported {Path(path).name}{state}."), "Exporting completed output…")
+
+    def accept_kitchen_dataset(self, node_id, port):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import graph_fingerprints
+        from mlcookbook.kitchen_artifacts import TableArtifact
+
+        try:
+            record, artifact = self._completed_kitchen_output(node_id, port)
+            if not isinstance(artifact, TableArtifact):
+                raise ValueError("Choose a completed dataset output.")
+            if graph_fingerprints(self.kitchen.graph, self.kitchen_hashes).get(node_id) != record.fingerprint:
+                raise ValueError("This output uses older settings. Run its path before using it as active data.")
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+
+        def prepare():
+            from mlcookbook.core.dataset import Dataset
+
+            dataset = Dataset(artifact.dataset.df, overrides={c.name: c.var_type for c in artifact.dataset.schema().columns})
+            name = f"Kitchen · {node_id}"
+            view = _dataset_view(dataset, name)
+            view["source"] = {"kind": "kitchen_output", "node_id": node_id, "port": port, "artifact_id": artifact.id,
+                              "completed_utc": record.completed_utc, "configuration_fingerprint": record.fingerprint,
+                              "settings": deepcopy(record.settings), "source_snapshot_ids": record.payload.get("source_snapshot_ids", [])}
+            view["notes"] = list(dict.fromkeys([*view.get("notes", []), *artifact.warnings, *record.warnings]))
+            return dataset, name, view
+
+        def accept(loaded):
+            self._use_import(loaded)
+            self.data_status = "Completed Kitchen output is active."
+            self._set_status(self.data_status)
+
+        self._start_job(prepare, accept, "Preparing completed dataset…")
+
+    def capture_kitchen_snapshot(self, node_id):
+        if self.imported is None or self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        dataset, name, view = self.imported
+
+        def copy_snapshot():
+            from uuid import uuid4
+
+            from mlcookbook.core.dataset import Dataset
+            from mlcookbook.core.fingerprint import dataset_fingerprint
+
+            copied = Dataset(dataset.df, overrides={c.name: c.var_type for c in dataset.schema().columns})
+            return uuid4().hex, copied, dataset_fingerprint(copied), _dataset_view(copied, name)
+
+        def accept(value):
+            key, copied, fingerprint, copied_view = value
+            self.kitchen.snapshots[key] = copied
+            self.kitchen.snapshot_info[key] = {"name": name, "source": deepcopy(view.get("source", {}))}
+            self.kitchen_hashes[key], self.kitchen_views[key] = fingerprint, copied_view
+            self.screen.install_snapshot(node_id, key)
+            self._set_status("Dataset snapshot captured. Changing active data later will not replace it.")
+
+        self._start_job(copy_snapshot, accept, "Capturing dataset snapshot…")
+
+    def run_kitchen(self, to_node=None):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import run_graph
+
+        document = self.kitchen
+
+        def execute():
+            return run_graph(document.graph, document.snapshots, previous=document.run, to_node=to_node,
+                             stop_requested=self.job.isInterruptionRequested, on_progress=self.job.progress.emit)
+
+        def progress(event):
+            states = dict(self.screen._states)
+            states[event["node"]] = event["state"]
+            self.screen.set_states(states)
+            self.screen.result_state.setText(f"{event['node']} · {event['state']}" +
+                                            (" · previous completed output retained" if document.selected in document.run.records else ""))
+            self.screen.result_state.show()
+            self._set_status(f"{event['node']} · {event['state']}" + (": " + event["error"] if event["error"] else ""))
+
+        def accept(execution):
+            document.accept_execution(execution)
+            self._refresh_kitchen()
+            self.screen.inspector.setCurrentIndex(1)
+            failed = [f"{key}: {attempt['error']}" for key, attempt in execution.run.attempts.items()
+                      if key in execution.requested_nodes and attempt["state"] == "failed"]
+            self._set_status("; ".join(failed) if failed else "Cancelled between operations; completed results kept."
+                             if execution.run.warnings else "Workflow complete.")
+
+        self._start_job(execute, accept, "Validating workflow…", cancellable=True, on_progress=progress)
+
+    def save_kitchen(self, path):
+        if self.job is not None or not isinstance(self.screen, KitchenScreen):
+            return
+        from mlcookbook.kitchen import KitchenDocument, KitchenRun
+        from mlcookbook.kitchen_io import save_kitchen
+
+        self._remember_screen()
+        doc = self.kitchen
+        ids = {n.id for n in doc.graph.nodes}
+        run = KitchenRun({k: v for k, v in doc.run.records.items() if k in ids},
+                         {k: v for k, v in doc.run.attempts.items() if k in ids},
+                         [k for k in doc.run.execution_order if k in ids], doc.run.warnings)
+        saved = KitchenDocument(doc.graph, doc.snapshots, doc.snapshot_info, run, doc.layout, doc.selected, doc.warnings, doc.artifacts)
+        self._start_job(lambda: save_kitchen(path, saved), lambda _: self._set_status(f"Saved {Path(path).name}."), "Saving Kitchen…")
+
+    def open_kitchen(self, path):
+        if self.job is not None:
+            return
+
+        def read():
+            _prepare_runtime()
+            from mlcookbook.core.fingerprint import dataset_fingerprint
+            from mlcookbook.kitchen_io import load_kitchen
+
+            doc = load_kitchen(path)
+            KitchenScreen.validate_editor({"graph": doc.graph.to_dict()})
+            # Validate every renderer input before replacing the current document.
+            for key in doc.run.records:
+                self._kitchen_report(doc, key)
+            hashes = {key: dataset_fingerprint(data) for key, data in doc.snapshots.items()}
+            views = {key: _dataset_view(data, doc.snapshot_info[key]["name"]) for key, data in doc.snapshots.items()}
+            return doc, hashes, views
+
+        opened = []
+
+        def accept(value):
+            self._runtime_initialized = True
+            self._remember_screen()
+            self.kitchen, self.kitchen_hashes, self.kitchen_views = value
+            self.kitchen_history = ([], [])
+            self.kitchen_output_ports = {}
+            opened.append(True)
+
+        def continued():
+            if opened:
+                # The worker has retired; do not overwrite the new graph with the old screen.
+                self.show_kitchen(remember=False)
+                self._set_status(f"Opened {Path(path).name}; results restored without execution.")
+            return False
+
+        self._start_job(read, accept, "Opening Kitchen…", continuation=continued)
 
     def show_front_page(self) -> None:
         if self.job is not None:
@@ -1539,7 +2026,7 @@ class MLCookbookApp:
 
             def accept(report):
                 candidate.show_report(report, request=request)
-                candidate.set_status("Built-in example. Analysis complete. Your active dataset and choices are kept.")
+                candidate.set_status("Analysis complete.")
                 self.screen = candidate
                 self._connect_screen(candidate)
                 self.window.show_screen(candidate)
@@ -1598,23 +2085,28 @@ class MLCookbookApp:
         if not isinstance(screen, ReportScreen):
             return
         params = screen.request()["params"] if isinstance(screen, LLMScreen) else {}
-        if params.get("workflow") == "generate" and params.get("input_mode") == "prompt":
+        typed_prompt = params.get("workflow") == "generate" and params.get("input_mode") == "prompt"
+        if typed_prompt:
             text = "Input: typed prompt"
         elif isinstance(screen, WearableScreen):
             text = ("Input: Movement Study · " + screen.dataset_name + " · fixed group holdouts"
-                    if screen.source.get("kind") == "wearable_study" else "Input: open a Movement Study export")
+                    if screen.source.get("kind") == "wearable_study" else "Input: no Movement Study selected")
         elif screen.is_example:
             text = "Input: built-in example · " + screen.dataset_name
         elif screen.source.get("kind") == "empty":
-            text = "Input: choose a dataset in Data"
+            text = "Input: no dataset selected"
         else:
             prefix = "Input: saved dataset snapshot · " if screen.view.get("snapshot_fingerprint") else "Input: "
             text = prefix + screen.dataset_name
-        screen.set_input_context(text)
+        screen.set_input_context(text, include_shape=not typed_prompt)
 
     def _remember_screen(self):
         if isinstance(self.screen, DataScreen):
             self.data_options = self.screen.import_options()
+        elif isinstance(self.screen, KitchenScreen):
+            state = self.screen.state()
+            self.kitchen.layout, self.kitchen.selected = state["layout"], state["selected"]
+            self.kitchen_history = deepcopy((self.screen._undo, self.screen._redo))
         elif isinstance(self.screen, ReportScreen):
             snapshot = {
                 "dataset": self.screen.dataset, "name": self.screen.dataset_name,
@@ -1635,7 +2127,7 @@ class MLCookbookApp:
         screen = self.screen
         if screen is not None:
             screen.set_busy(True)
-            if isinstance(screen, ReportScreen):
+            if isinstance(screen, (ReportScreen, KitchenScreen)):
                 screen.set_cancellable(cancellable)
         else:
             self.window._screen.setEnabled(False)
@@ -1874,7 +2366,7 @@ class MLCookbookApp:
         self.screen.dataset_name = name
         self.screen.set_dataset(view)
         self.screen.show_report({})
-        self.screen.set_status("File loaded. Review the data checks and column types, choose your columns, then run.")
+        self.screen.set_status("File loaded.")
         self._update_input_context()
 
     def connect_local_llm(self, backend, base_url, selected):
@@ -1938,7 +2430,10 @@ class MLCookbookApp:
     def cancel_analysis(self):
         if self.job is not None:
             self.job.requestInterruption()
-            self.screen.set_cancellable(False)
+            if isinstance(self.screen, KitchenScreen):
+                self.screen.cancel_button.setEnabled(False)
+            else:
+                self.screen.set_cancellable(False)
             self._set_status("Stopping after the current model operation…")
 
     def _show_result(self, report, request):
@@ -1952,7 +2447,6 @@ class MLCookbookApp:
             if len(history) > 10:
                 report["warnings"].append("Keeping the ten most recent runs in this experiment. Export runs you want to archive separately.")
         self.screen.show_report(report, request=request)
-        prefix = "Built-in example. " if self.screen.is_example else ""
         if "workflow_run" in report:
             rows = report["workflow_run"]["rows"]
             valid = sum(row["status"] == "valid" for row in rows)
@@ -1960,7 +2454,7 @@ class MLCookbookApp:
             self.screen.set_status(("Batch cancelled; completed rows retained. " if cancelled else "Text workflow complete. ") +
                                    f"{valid} of {len(rows)} source rows validated. Review row outcomes before accepting columns.")
         else:
-            self.screen.set_status(prefix + "Analysis complete. Results reflect the settings used for this run.")
+            self.screen.set_status("Analysis complete.")
 
     def workflow_action(self, action, payload):
         from mlcookbook.core.dataset import Dataset
