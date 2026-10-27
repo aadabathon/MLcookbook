@@ -198,3 +198,64 @@ def test_complete_linear_report_fits_a_narrow_inspector_after_resizing(qt):
         view.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qt.setStyleSheet(previous)
+
+
+@pytest.mark.parametrize("family,pixels", [("Segoe UI", 16), ("Consolas", 26)])
+def test_metric_tiles_wrap_without_clipping_or_changing_precise_values(qt, family, pixels):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QFrame, QLabel
+
+    from gui import theme
+    from gui.report_view import ReportView
+
+    items = [
+        ("Cross-validation RMSE", "0.12345678901234567890123456789 ± 0.000000000000000000123"),
+        ("Observations", "12345678901234567890123456789012345678901234567890"),
+        ("R²", "0.999999999999999999999999999999999999999"),
+        ("Excess kurtosis", "−1.23456789012345678901234567890"),
+        ("Normality p", "0.000000000000000000000000000000000000001"),
+    ]
+    report = {"metric_groups": [{"title": "Recorded metrics", "items": items}]}
+    recorded = json.dumps(report)
+    previous = qt.styleSheet()
+    qt.setStyleSheet(theme.stylesheet() + f"""
+        QLabel#MetricValue, QLabel#MetricLabel {{
+            font-family: "{family}";
+            font-size: {pixels}px;
+        }}
+    """)
+    view = ReportView(report)
+    try:
+        view.show()
+        row_counts = []
+        for width in (760, 330, 260, 480, 260, 760):
+            view.resize(width, 640)
+            qt.processEvents()
+            viewport = view.viewport()
+            assert view.widget().width() <= viewport.width()
+            tiles = view.findChildren(QFrame, "MetricTile")
+            assert len(tiles) == len(items)
+            rows = {}
+            for tile in tiles:
+                left = tile.mapTo(viewport, QPoint(0, 0)).x()
+                assert 0 <= left and left + tile.width() <= viewport.width()
+                rows.setdefault(tile.y(), []).append(tile)
+                for label in tile.findChildren(QLabel):
+                    assert label.x() >= 0 and label.x() + label.width() <= tile.width()
+                    assert label.y() >= 0 and label.y() + label.height() <= tile.height()
+                    assert label.height() >= label.heightForWidth(label.width())
+            assert all(len(row) <= 3 for row in rows.values())
+            ordered_rows = sorted(rows.items())
+            for (_, row), (next_y, _) in zip(ordered_rows, ordered_rows[1:]):
+                assert max(tile.y() + tile.height() for tile in row) <= next_y
+            row_counts.append(len(rows))
+            assert [label.text() for label in view.findChildren(QLabel, "MetricValue")] == [value for _, value in items]
+            assert [label.text() for label in view.findChildren(QLabel, "MetricLabel")] == [label for label, _ in items]
+        assert row_counts[0] < row_counts[2]
+        assert row_counts[0] == row_counts[-1]
+        assert json.dumps(report) == recorded
+    finally:
+        view.close()
+        view.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        qt.setStyleSheet(previous)

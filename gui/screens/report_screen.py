@@ -328,13 +328,15 @@ class ReportScreen(QWidget):
         self.markers.setToolTip("Values to read as missing, in addition to empty cells and NA/NaN. Applied when a file is opened.")
         import_layout.addWidget(self.markers)
         form.addWidget(self._expandable("import", "CSV import options", import_options))
-        self.preview_button = QPushButton("Preview first 20 rows...")
+        self.preview_button = QPushButton("Preview…")
+        self.preview_button.setToolTip("Preview the first 20 rows.")
         self.preview_button.clicked.connect(self._preview)
-        inspection = QHBoxLayout()
-        inspection.addWidget(self.preview_button)
+        inspection = QFormLayout()
+        inspection.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        inspection.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.checks_button = QPushButton("Data checks")
         self.checks_button.clicked.connect(self._data_checks)
-        inspection.addWidget(self.checks_button)
+        inspection.addRow(self.preview_button, self.checks_button)
         form.addLayout(inspection)
 
         self.task_label = self._section_label("Task")
@@ -393,11 +395,13 @@ class ReportScreen(QWidget):
         self.evaluation_form = QFormLayout()
         self.evaluation_form.setSpacing(theme.SPACE_XS)
         self.evaluation_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.evaluation_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         if self._params:
             grid = QFormLayout()
             self.param_form = grid
             grid.setSpacing(theme.SPACE_XS)
             grid.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            grid.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
             for spec in self._params:
                 widget = self._param_widget(spec)
                 label = QLabel(spec["label"])
@@ -507,6 +511,14 @@ class ReportScreen(QWidget):
             for label, value in spec["options"]:
                 widget.addItem(label, value)
             widget.currentIndexChanged.connect(self._configuration_changed)
+        if isinstance(widget, QComboBox):
+            # Long choices belong in the popup; they must not widen the form.
+            widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            widget.setMinimumContentsLength(8)
+        policy = widget.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        widget.setSizePolicy(policy)
+        widget.setMinimumWidth(120)
         return widget
 
     def _param_value(self, spec: dict):

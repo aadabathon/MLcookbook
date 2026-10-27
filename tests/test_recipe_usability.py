@@ -348,6 +348,11 @@ def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, i
                     key, left, widget.width(), viewport.width())
         assert "backend" in visible and "prompt" in visible
         assert ("max_rows" in visible) is (input_mode == "rows")
+        for widget in (screen.preview_button, screen.checks_button):
+            if widget.isVisibleTo(screen):
+                left = widget.mapTo(viewport, QPoint(0, 0)).x()
+                assert 0 <= left and left + widget.width() <= viewport.width(), (
+                    widget.text(), left, widget.width(), viewport.width())
     finally:
         _dispose(window)
         qt.setStyleSheet(original_style)

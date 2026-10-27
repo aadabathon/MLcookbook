@@ -1,11 +1,12 @@
 """Read-only report renderer shared by recipes and Kitchen results."""
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import QPointF, QRect, QSize, Qt, QTimer, Slot
+from PySide6.QtGui import QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
-    QGridLayout,
     QHeaderView,
     QLabel,
+    QLayout,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -32,6 +33,104 @@ METRIC_CAPTIONS = {
     "KRUSKAL p": "Kruskal p", "FISHER p": "Fisher p", "SKEW": "Skew", "EXCESS KURTOSIS": "Excess kurtosis",
     "TRUST": "Trust", "PC1 SHARE": "PC1 share", "FOR 90%": "For 90%", "EIGENVALUE > 1": "Eigenvalue > 1",
 }
+
+
+class _MetricLabel(QLabel):
+    """Wrap long numeric tokens without changing their recorded text."""
+
+    def __init__(self, text: str):
+        super().__init__(text)
+        self.setWordWrap(True)
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        hint.setWidth(min(hint.width(), self.fontMetrics().horizontalAdvance("00000000")))
+        return hint
+
+    def _text_layout(self, width: int) -> tuple[QTextLayout, float]:
+        layout = QTextLayout(self.text(), self.font())
+        option = QTextOption()
+        option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(option)
+        layout.beginLayout()
+        height = 0.0
+        while True:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(max(1, width))
+            line.setPosition(QPointF(0, height))
+            height += line.height()
+        layout.endLayout()
+        return layout, height
+
+    def heightForWidth(self, width: int) -> int:
+        return int(self._text_layout(width)[1] + 0.999)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(self.palette().windowText().color())
+        layout, _ = self._text_layout(self.contentsRect().width())
+        layout.draw(painter, QPointF(self.contentsRect().topLeft()))
+
+
+class _MetricTiles(QLayout):
+    """A grid whose minimum width is one tile, even after a wide layout."""
+
+    def __init__(self):
+        super().__init__()
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(theme.SPACE_SM)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < self.count() else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < self.count() else None
+
+    def minimumSize(self):
+        size = QSize(0, 0)
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def sizeHint(self):
+        width = self.minimumSize().width() * min(3, self.count()) + self.spacing() * max(0, min(3, self.count()) - 1)
+        return QSize(width, self.heightForWidth(width))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._arrange(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def _arrange(self, rect, *, apply):
+        if not self._items:
+            return 0
+        gap = self.spacing()
+        minimum = max(1, self.minimumSize().width())
+        columns = min(3, self.count(), max(1, (rect.width() + gap) // (minimum + gap)))
+        width = max(1, (rect.width() - gap * (columns - 1)) // columns)
+        y = rect.y()
+        for start in range(0, self.count(), columns):
+            row = self._items[start:start + columns]
+            height = max(max(item.minimumSize().height(), item.heightForWidth(width)) for item in row)
+            if apply:
+                for column, item in enumerate(row):
+                    item.setGeometry(QRect(rect.x() + column * (width + gap), y, width, height))
+            y += height + gap
+        return y - rect.y() - gap
 
 
 class ReportView(QScrollArea):
@@ -153,25 +252,19 @@ class ReportView(QScrollArea):
         layout.setSpacing(theme.SPACE_XS)
         layout.addWidget(self._section_label(group["title"]))
 
-        tiles = QGridLayout()
-        tiles.setSpacing(theme.SPACE_SM)
-        columns = min(3, len(group["items"]))
-        for index, (label, value) in enumerate(group["items"]):
+        tiles = _MetricTiles()
+        for label, value in group["items"]:
             tile = QFrame()
             tile.setObjectName("MetricTile")
             tile_layout = QVBoxLayout(tile)
             tile_layout.setSpacing(2)
-            number = QLabel(value)
+            number = _MetricLabel(value)
             number.setObjectName("MetricValue")
-            number.setWordWrap(True)
-            caption = QLabel(METRIC_CAPTIONS.get(label, label))
+            caption = _MetricLabel(METRIC_CAPTIONS.get(label, label))
             caption.setObjectName("MetricLabel")
-            caption.setWordWrap(True)
             tile_layout.addWidget(number)
             tile_layout.addWidget(caption)
-            tiles.addWidget(tile, index // columns, index % columns)
-        for index in range(columns):
-            tiles.setColumnStretch(index, 1)
+            tiles.addWidget(tile)
         layout.addLayout(tiles)
         return box
 
