@@ -326,7 +326,7 @@ def _usgs(query, urls, warnings, cancelled, progress, deadline):
         if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or not math.isfinite(stamp):
             raise ValueError("USGS returned an invalid event time.")
         try:
-            event_time = datetime.fromtimestamp(stamp / 1000, UTC).isoformat()
+            event_time = (datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=stamp)).isoformat()
         except (ValueError, OSError, OverflowError):
             raise ValueError("USGS returned an event time outside the supported range.") from None
         rows.append({"event_id": identity, "time": event_time, "longitude": coordinates[0], "latitude": coordinates[1],

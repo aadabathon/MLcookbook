@@ -88,6 +88,16 @@ def test_duplicate_events_warn_and_malformed_numeric_values_are_explicit_missing
     assert any("malformed" in warning for warning in gathered.result.warnings)
 
 
+def test_historical_earthquake_timestamps_work_before_unix_epoch_on_windows(monkeypatch):
+    historical = event("historical-1900")
+    historical["properties"]["time"] = -2208988800000
+    fake_source(monkeypatch, events(historical))
+    gathered = gathering.fetch_dataset("usgs", {"start_date": "1900-01-01", "end_date": "1900-01-02",
+                                               "columns": ["event_id", "time"]})
+    assert gathered.dataset.df.time.iloc[0] == pd.Timestamp("1900-01-01", tz="UTC")
+    assert gathered.dataset.df.event_id.iloc[0] == "historical-1900"
+
+
 @pytest.mark.parametrize("response", [None, events(), {"features": []}, events({"id": "x"}),
                                      events(dict(event(), geometry={"type": "Point", "coordinates": [1, 2]}))])
 def test_empty_or_malformed_event_responses_do_not_return_partial_data(monkeypatch, response):
