@@ -52,6 +52,7 @@ from gui.screens.logistic_regression import LogisticRegressionScreen
 from gui.screens.model_comparison import ModelComparisonScreen
 from gui.screens.neural_network import NeuralNetworkScreen
 from gui.screens.pca import PCAScreen
+from gui.screens.playground import DataPlaygroundScreen
 from gui.screens.random_forest import RandomForestScreen
 from gui.screens.report_screen import MAX_CLASSES, ReportScreen
 from gui.screens.svm import SVMScreen
@@ -1365,6 +1366,26 @@ def _dataset_view(dataset, name, import_report=None):
     }
 
 
+def _gathering_source_lines(source):
+    """Format recorded API provenance, without making another request."""
+    gathered = source["gathering"]
+    details = ["Source: " + gathered["title"] + " · " + gathered["source_url"],
+               "Fetched (UTC): " + gathered["retrieved_at"],
+               "Query: " + json.dumps(gathered["query"], ensure_ascii=False, sort_keys=True)]
+    units = gathered.get("units", {})
+    if units:
+        details.append("Units: " + " · ".join(f"{column}: {unit}" for column, unit in units.items() if unit))
+    if source.get("dataset_fingerprint"):
+        details.append("Fetched snapshot · SHA-256 " + source["dataset_fingerprint"])
+    details.append("The workspace holds fetched values; returning here does not contact the source.")
+    return details
+
+
+def _playground_query(query):
+    """Credentials are transient and never identify a fetched dataset."""
+    return {key: deepcopy(value) for key, value in query.items() if key != "api_key"}
+
+
 def _run_report(key, dataset, name, request, *, stop_requested=None, on_progress=None):
     import pandas as pd
 
@@ -1425,6 +1446,10 @@ class MLCookbookApp:
         self.key = "recipes"
         self.data_options = {}
         self.data_status = ""
+        self.playground_specs = None
+        self.playground_state = {}
+        self.playground_preview = None
+        self.playground_status = ""
         self.sessions: dict[str, dict] = {}
         self.workspace_sessions: dict[str, dict] = {}
         self.example_sessions: dict[str, dict] = {}
@@ -1443,6 +1468,8 @@ class MLCookbookApp:
             return
         if key == "data":
             self.show_data_page()
+        elif key == "playground":
+            self.show_playground()
         elif key == "recipes":
             self.show_front_page()
         elif key == "kitchen":
@@ -1484,6 +1511,8 @@ class MLCookbookApp:
                 if source.get("missing_markers"):
                     details.append("Extra missing markers: " + ", ".join(source["missing_markers"]))
             details.append("The workspace holds the imported values; opening Data does not reread the file.")
+        elif source.get("kind") == "api":
+            details.extend(_gathering_source_lines(source))
         elif source.get("kind") == "kitchen_output":
             details.append(f"Kitchen output: {source['node_id']} · {source['port']}")
             details.append("Completed (UTC): " + source["completed_utc"])
@@ -1516,6 +1545,120 @@ class MLCookbookApp:
     def wait_for_job(self):
         if self.job is not None:
             self.job.wait()
+
+    def show_playground(self):
+        if self.job is not None:
+            return
+        if self.playground_specs is None:
+            previous = (self.screen._status_message if isinstance(self.screen, (ReportScreen, KitchenScreen)) else
+                        self.data_status if isinstance(self.screen, DataScreen) else "")
+            prepared = []
+
+            def prepare():
+                _prepare_runtime()
+                from mlcookbook.gathering import source_specs
+
+                return source_specs()
+
+            def accept(specs):
+                self._runtime_initialized = True
+                self.playground_specs = specs
+                self._set_status(previous)
+                prepared.append(True)
+
+            def continued():
+                if prepared:
+                    self.show_playground()
+                return False
+
+            self._start_job(prepare, accept, "Preparing data sources…", continuation=continued)
+            return
+        self._remember_screen()
+        page = DataPlaygroundScreen(self.playground_specs)
+        page.restore_session(self.playground_state)
+        if self.playground_preview is not None:
+            page.set_preview(self.playground_preview[2])
+        page.set_status(self.playground_status)
+        page.fetch_requested.connect(self.fetch_playground)
+        page.use_requested.connect(self.accept_playground_dataset)
+        page.cancel_requested.connect(self.cancel_analysis)
+        self.screen, self.key = page, "playground"
+        self.window.show_screen(page)
+        self.window.set_status("")
+        self._refresh_shell()
+
+    def fetch_playground(self, source, query):
+        if self.job is not None or not isinstance(self.screen, DataPlaygroundScreen):
+            return
+        screen = self.screen
+        query = deepcopy(query)
+        requested = {"source": source, "query": _playground_query(query)}
+
+        def fetch():
+            from mlcookbook.core.fingerprint import dataset_fingerprint
+            from mlcookbook.gathering import fetch_dataset
+
+            worker = QThread.currentThread()
+            gathered = fetch_dataset(source, query, cancelled=worker.isInterruptionRequested,
+                                     progress=worker.progress.emit)
+            if worker.isInterruptionRequested():
+                raise ValueError("Fetch cancelled; previous preview kept.")
+            metadata = gathered.result.to_dict()
+            name = metadata["title"]
+            view = _dataset_view(gathered.dataset, name)
+            view["source"] = {"kind": "api", "gathering": metadata,
+                              "dataset_fingerprint": dataset_fingerprint(gathered.dataset)}
+            view["notes"] = list(metadata["warnings"])
+            for column in view["columns"]:
+                column["unit"] = metadata["units"].get(column["name"], "")
+            view["provenance"] = _gathering_source_lines(view["source"])
+            view["source_summary"] = "\n".join(view["provenance"])
+            view["playground_request"] = requested
+            return gathered.dataset, name, view
+
+        def accept(loaded):
+            self.playground_preview = loaded
+            screen.set_preview(loaded[2])
+            rows = loaded[2]["rows"]
+            self._set_status(f"Fetched {rows} rows. Review the preview, then choose Use dataset." if rows else
+                             "No rows matched this query. Adjust the filters and fetch again.")
+
+        def progress(event):
+            if isinstance(event, str):
+                self._set_status(event)
+            elif isinstance(event, dict) and event.get("message"):
+                self._set_status(str(event["message"]))
+
+        self._start_job(fetch, accept, "Fetching data…", cancellable=True, on_progress=progress)
+
+    def accept_playground_dataset(self):
+        if self.job is not None or not isinstance(self.screen, DataPlaygroundScreen) or self.playground_preview is None:
+            return
+        screen = self.screen
+        try:
+            source, query = screen.request()
+            requested = {"source": source, "query": _playground_query(query)}
+            if screen.preview_stale or requested != self.playground_preview[2]["playground_request"]:
+                raise ValueError("Query changed. Fetch a matching preview before using this dataset.")
+            if not self.playground_preview[2]["rows"]:
+                raise ValueError("This query returned no rows. Adjust the filters and fetch again.")
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+        dataset, name, view = self.playground_preview
+
+        def prepare():
+            from mlcookbook.core.dataset import Dataset
+
+            copied = Dataset(dataset.df, overrides={column.name: column.var_type for column in dataset.schema().columns})
+            return copied, name, deepcopy(view)
+
+        def accept(loaded):
+            self._use_import(loaded)
+            self.data_status = f"{name} is active. Choose a recipe to analyze the fetched snapshot."
+            self._set_status(self.data_status)
+
+        self._start_job(prepare, accept, "Preparing fetched dataset…")
 
     def show_kitchen(self, *, remember=True):
         if self.job is not None:
@@ -2103,6 +2246,9 @@ class MLCookbookApp:
     def _remember_screen(self):
         if isinstance(self.screen, DataScreen):
             self.data_options = self.screen.import_options()
+        elif isinstance(self.screen, DataPlaygroundScreen):
+            self.playground_state = self.screen.session_state()
+            self.playground_status = self.screen._status_message
         elif isinstance(self.screen, KitchenScreen):
             state = self.screen.state()
             self.kitchen.layout, self.kitchen.selected = state["layout"], state["selected"]
@@ -2127,7 +2273,7 @@ class MLCookbookApp:
         screen = self.screen
         if screen is not None:
             screen.set_busy(True)
-            if isinstance(screen, (ReportScreen, KitchenScreen)):
+            if isinstance(screen, (ReportScreen, KitchenScreen, DataPlaygroundScreen)):
                 screen.set_cancellable(cancellable)
         else:
             self.window._screen.setEnabled(False)
@@ -2171,6 +2317,8 @@ class MLCookbookApp:
             self.screen.set_status(message)
             if isinstance(self.screen, DataScreen):
                 self.data_status = message
+            elif isinstance(self.screen, DataPlaygroundScreen):
+                self.playground_status = message
         else:
             self.window.set_status(message)
 
@@ -2434,7 +2582,8 @@ class MLCookbookApp:
                 self.screen.cancel_button.setEnabled(False)
             else:
                 self.screen.set_cancellable(False)
-            self._set_status("Stopping after the current model operation…")
+            self._set_status("Cancelling data fetch…" if isinstance(self.screen, DataPlaygroundScreen) else
+                             "Stopping after the current model operation…")
 
     def _show_result(self, report, request):
         if "workflow_run" in report:
