@@ -3,10 +3,10 @@
 Open **Data playground** in the sidebar to gather a small real dataset. Nothing
 is downloaded merely by opening the page or changing sources.
 
-The review build for this addition is
-`dist/data-playground-preview/MLcookbook/MLcookbook.exe`. Open that executable to
-try the new sidebar area; the existing installed shortcut still opens its
-earlier accepted bundle.
+The normal Windows build and existing shortcut use
+`dist/MLcookbook/MLcookbook.exe`. The initial review build is also retained at
+`dist/data-playground-preview/MLcookbook/MLcookbook.exe`. Rebuilding the normal
+bundle updates the shortcut's app; a source edit alone does not.
 
 1. Choose a source and set its query filters.
 2. Expand **Columns** to choose measurements, identifiers or text. Units and
