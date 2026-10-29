@@ -138,11 +138,11 @@ def stylesheet() -> str:
     QPushButton#PrimaryButton:focus {{ border-color: {TEXT}; }}
     QPushButton#PrimaryButton:disabled {{ background-color: {SURFACE}; border-color: {BORDER}; color: {TEXT_FAINT}; }}
 
-    QComboBox, QSpinBox, QDoubleSpinBox {{
+    QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {{
         background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER};
         border-radius: 4px; padding: 5px 7px; min-height: 21px;
     }}
-    QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {BORDER_ACCENT}; }}
+    QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {{ border-color: {BORDER_ACCENT}; }}
     QComboBox QAbstractItemView {{
         background-color: {CARD}; color: {TEXT}; selection-background-color: {ACCENT_DIM}; selection-color: {TEXT};
     }}
