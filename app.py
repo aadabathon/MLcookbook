@@ -33,9 +33,9 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
         if _p not in sys.path:
             sys.path.insert(0, _p)
 
-from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
+from PySide6.QtWidgets import QApplication, QFileDialog
 
 from gui import theme
 from gui.front_page import FrontPage
@@ -55,6 +55,7 @@ from gui.screens.pca import PCAScreen
 from gui.screens.playground import DataPlaygroundScreen
 from gui.screens.random_forest import RandomForestScreen
 from gui.screens.report_screen import MAX_CLASSES, ReportScreen
+from gui.screens.research import ResearchScreen
 from gui.screens.svm import SVMScreen
 from gui.screens.wearable import WearableScreen
 
@@ -1464,6 +1465,9 @@ class MLCookbookApp:
         self.playground_status = ""
         self.llm_lab_document = None
         self.llm_lab_mode = "generate"
+        self.research_state = {}
+        self.research_directory = Path.home() / "learning" / "books" / "papers" / "ai-ML"
+        self.research_status = ""
         self.sessions: dict[str, dict] = {}
         self.workspace_sessions: dict[str, dict] = {}
         self.example_sessions: dict[str, dict] = {}
@@ -1488,6 +1492,8 @@ class MLCookbookApp:
             self.show_front_page()
         elif key == "kitchen":
             self.show_kitchen()
+        elif key == "research":
+            self.show_research()
         elif key in ("llm", "wearable-study"):
             self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key))
 
@@ -1561,6 +1567,66 @@ class MLCookbookApp:
     def wait_for_job(self):
         if self.job is not None:
             self.job.wait()
+
+    def show_research(self):
+        if self.job is not None:
+            return
+        from mlcookbook.research import resolve_library, timeline_entries
+
+        self._remember_screen()
+        papers = resolve_library(self.research_directory)
+        page = ResearchScreen(timeline_entries(), papers)
+        page.set_library(papers, str(self.research_directory))
+        page.restore_session(self.research_state)
+        page.set_status(self.research_status)
+        page.source_requested.connect(self.open_research_source)
+        page.paper_requested.connect(self.open_research_paper)
+        page.library_requested.connect(self.choose_research_library)
+        self.screen, self.key = page, "research"
+        self.window.show_screen(page)
+        self.window.set_status("")
+        self._refresh_shell()
+
+    def choose_research_library(self):
+        if self.job is not None or not isinstance(self.screen, ResearchScreen):
+            return
+        directory = QFileDialog.getExistingDirectory(self.window, "AI / ML papers folder", str(self.research_directory))
+        if directory:
+            from mlcookbook.research import resolve_library
+
+            papers = resolve_library(directory)
+            self.research_directory = Path(directory)
+            self.screen.set_library(papers, directory)
+            self._set_status("")
+
+    def open_research_paper(self, paper_id):
+        if self.job is not None or not isinstance(self.screen, ResearchScreen):
+            return
+        from mlcookbook.research import resolve_library, resolve_paper
+
+        try:
+            path = resolve_paper(paper_id, self.research_directory)
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+                raise ValueError("Windows could not open this PDF. Check the default PDF application.")
+        except (OSError, ValueError) as exc:
+            self._set_status(str(exc))
+            self.screen.set_library(resolve_library(self.research_directory), str(self.research_directory))
+        else:
+            self._set_status("")
+
+    def open_research_source(self, url):
+        if self.job is not None or not isinstance(self.screen, ResearchScreen):
+            return
+        from mlcookbook.research import paper_specs, timeline_entries
+
+        allowed = {source["url"] for entry in timeline_entries() for source in entry["sources"]}
+        allowed.update(paper["url"] for paper in paper_specs())
+        if url not in allowed or not url.startswith("https://"):
+            self._set_status("Choose a source from the research timeline.")
+        elif not QDesktopServices.openUrl(QUrl(url)):
+            self._set_status("The source could not be opened. Check the default browser.")
+        else:
+            self._set_status("")
 
     def show_playground(self):
         if self.job is not None:
@@ -2296,6 +2362,8 @@ class MLCookbookApp:
         elif isinstance(self.screen, DataPlaygroundScreen):
             self.playground_state = self.screen.session_state()
             self.playground_status = self.screen._status_message
+        elif isinstance(self.screen, ResearchScreen):
+            self.research_state = self.screen.session_state()
         elif isinstance(self.screen, KitchenScreen):
             state = self.screen.state()
             self.kitchen.layout, self.kitchen.selected = state["layout"], state["selected"]
@@ -2369,6 +2437,8 @@ class MLCookbookApp:
                 self.data_status = message
             elif isinstance(self.screen, DataPlaygroundScreen):
                 self.playground_status = message
+            elif isinstance(self.screen, ResearchScreen):
+                self.research_status = message
         else:
             self.window.set_status(message)
 

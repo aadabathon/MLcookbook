@@ -208,6 +208,10 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
+### Research timeline
+
+**Research** in the sidebar traces selected AI milestones and their earlier foundations, from formal reasoning through statistical learning and modern language models. Search by idea, person or workbench connection, filter by era, and select a dated entry for its significance and original sources. **Linked readings** connects the chronology to the six PDFs in `~/learning/books/papers/ai-ML`; **Papers folder…** can select another directory. Local PDFs and online sources open only through explicit reading actions. Timeline browsing works offline and preserves its own navigation state. See [the Research guide](RESEARCH.md).
+
 ### The Kitchen
 
 Use **Connect** to click or drag between compatible modules; ports snap and highlight, with explicit port choice when several match. **Ctrl+K** retains a keyboard port chooser.

@@ -4,6 +4,16 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## Research timeline — 2026-10-30
+
+Requested sidebar history rooted in `~/learning/books/papers/ai-ML`. **Research** now presents **47** sourced milestones from approximate ancient formal-logic precursors through the Qwen3 report in 2025. The catalog distinguishes AI's organized emergence at Dartmouth in 1955–1956 from its earlier foundations and distinguishes original publication years from later PDF exports. It includes classical learning, neural networks, language models and accelerator-relevant TPU/FlashAttention/GQA developments. All six existing local readings are linked with their original authorship and source references.
+
+The page has a chronological rail, search, era and linked-reading filters, selected-event context, workbench connections, explicit source/PDF actions and a selectable papers folder. Missing PDFs retain their history/reference entries. Query, selection and timeline scroll survive navigation independently of analytical sessions. `mlcookbook.research` remains submodule-only and standard-library-only; the GUI receives plain data, and `app.py` owns navigation and file/browser actions. Browsing opens offline without the scientific/inference runtime. [RESEARCH.md](RESEARCH.md) documents the catalog, local behavior and date conventions.
+
+Validation: **963 tests passed**, with one Windows symlink-creation privilege skip; the focused headless Research run passed **30** checks with the same skip. Ruff, dependency and diff checks passed. Native Windows QA checked 36 views at 100%/125%/150%, including minimum size, empty filters, unavailable PDFs, source actions and navigation restoration. The frozen runtime verified all 47 entries/six local PDFs, explicit catalog-only reading actions, offline operation and independent state without importing the scientific or inference runtime.
+
+Windows candidate: `dist/ui-preview/MLcookbook/MLcookbook.exe`, SHA-256 `2eb37258fc6bd4d3758c365c4aa402cd86ca77c2f53096730ff898856bcdb56b`. All **93** application/core/GUI modules match source; helper/license identities match, and the bundled helper captured real 1,274-node SmolLM2 prefill/decode phases. Launch/normal close passed with Python removed from PATH. The installed shortcut bundle is retained for preview review. Baseline, logs, native images and packaging evidence are under ignored `build/research-timeline-20261030/`.
+
 ## Windows rebuild and follow-up delivery — 2026-10-30
 
 After the Local LLM research PR merged, Adam requested a fresh Windows build and a follow-up PR for the remaining Kitchen connections and Data playground downloads/NASA fixes. The combined source passed **933 native Windows tests**, Ruff, dependency and diff checks. The rebuilt bundle contains **91** verified application/core/GUI modules matching source, plus the matching graph helper and license. The bundled helper captured real SmolLM2 CPU prefill/decode graphs with 1,274 nodes per phase.
