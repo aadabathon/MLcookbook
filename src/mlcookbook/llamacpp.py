@@ -7,7 +7,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic
+from time import monotonic, perf_counter
 
 from mlcookbook._local_http import LocalHTTPError, _check, _json, _object, _response, local_url
 from mlcookbook.core.dataset import Dataset
@@ -219,6 +219,7 @@ def generate_llamacpp(
         if response_schema is not None:
             body["response_format"] = {"type": "json_object", "schema": response_schema}
         started = monotonic()
+        measured_started = perf_counter()
         answer, thinking, usage, timings, applied = "", "", {}, {}, {}
         finish_reason, done, completion_id = None, False, None
         with _response(base_url, "/v1/chat/completions", body, max_seconds, stop_requested) as response:
@@ -273,7 +274,7 @@ def generate_llamacpp(
             raise ValueError("llama.cpp stream ended without a completed response. Partial text was not committed.")
         outputs.append(LlamaCppOutput(position, text, combined, messages, answer, thinking,
                                       _count(usage.get("prompt_tokens")), _count(usage.get("completion_tokens")),
-                                      monotonic() - started, finish_reason, usage, timings, applied))
+                                      perf_counter() - measured_started, finish_reason, usage, timings, applied))
     warnings += connection.warnings + [
         "llama.cpp manages chat formatting, tokenization, context and device settings. Exact rendered prompts and input truncation are unverified.",
         "Generation settings are requests; only explicitly returned applied settings are recorded. Seeds do not guarantee identical output across runtimes or hardware.",

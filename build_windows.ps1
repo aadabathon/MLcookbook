@@ -15,6 +15,8 @@ $buildIcon = Join-Path $buildRoot 'gui/assets/mlcookbook.ico'
 $buildAssets = Join-Path $buildRoot 'gui/assets'
 $buildSource = Join-Path $buildRoot 'src'
 $buildEntry = Join-Path $buildRoot 'app.py'
+$captureHelper = Join-Path $buildRoot 'tools/llama_research/build/llama-graph-capture.exe'
+$captureLicense = Join-Path $buildRoot 'tools/llama_research/vendor/LICENSE'
 if (-not (Test-Path -LiteralPath $buildPython)) {
     throw 'Create .venv and install .[dev,gui,llm] plus PyInstaller first; see ADAM.md.'
 }
@@ -37,19 +39,27 @@ if ($Preview) {
 } elseif ($runningApps.Count) {
     throw 'Close MLcookbook before rebuilding.'
 }
+if (-not (Test-Path -LiteralPath $captureHelper) -or -not (Test-Path -LiteralPath $captureLicense)) {
+    throw 'Build the graph capture helper first: ./tools/llama_research/build.ps1 (requires an installed Visual Studio x64 C++ toolchain and the vendored license).'
+}
 & $buildPython -c "import torch, transformers, PyInstaller; print('Build runtime:', torch.__version__, transformers.__version__)"
 if ($LASTEXITCODE -ne 0) { throw 'The LLM build runtime is unavailable.' }
 $savedBuildPath = $env:PATH
 $savedBuildCache = $env:PYINSTALLER_CONFIG_DIR
+$savedBuildPythonPath = $env:PYTHONPATH
 Push-Location -LiteralPath $buildRoot
 try {
     $buildPythonDir = Split-Path -Parent $buildPython
     $basePythonDir = (& $buildPython -c 'import sys; print(sys.base_prefix)').Trim()
     $env:PATH = "$buildPythonDir;$basePythonDir;$env:SystemRoot/System32;$env:SystemRoot"
+    # Collection helpers must inspect this checkout, even when the environment
+    # has another editable copy of mlcookbook installed.
+    $env:PYTHONPATH = "$buildSource;$buildRoot"
     $env:PYINSTALLER_CONFIG_DIR = Join-Path $buildRoot $relativeCache
     & $buildPython -m PyInstaller --clean --noconfirm --windowed --name MLcookbook `
         --distpath $buildDist --workpath $buildWork --specpath $buildSpec `
         --icon $buildIcon --add-data "$buildAssets;gui/assets" --paths $buildRoot --paths $buildSource `
+        --add-binary "$captureHelper;tools/llama_research" --add-data "$captureLicense;tools/llama_research" `
         --collect-all pyarrow --collect-data transformers --collect-submodules mlcookbook `
         --copy-metadata torch --copy-metadata transformers --copy-metadata tokenizers `
         --copy-metadata safetensors --copy-metadata huggingface-hub `
@@ -65,6 +75,7 @@ try {
 } finally {
     $env:PATH = $savedBuildPath
     $env:PYINSTALLER_CONFIG_DIR = $savedBuildCache
+    $env:PYTHONPATH = $savedBuildPythonPath
     Pop-Location
 }
 Write-Output "Built $builtExe. Launch it and test a local model before sharing the build."

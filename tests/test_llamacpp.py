@@ -41,6 +41,28 @@ def test_llamacpp_fragmented_multiline_sse_usage_and_provenance(llamacpp_server,
         result.backend = "ollama"
 
 
+def test_llamacpp_request_wall_uses_high_resolution_clock(llamacpp_server, monkeypatch):
+    # Windows monotonic deadlines and high-resolution measured durations have
+    # separate clocks. Sub-millisecond measurement must not change deadline epochs.
+    clock = iter([1000.0, 1000.0025])
+    monkeypatch.setattr("mlcookbook.llamacpp.perf_counter", lambda: next(clock))
+    result = generate_llamacpp(model="test-gguf", prompt="hello", base_url=llamacpp_server.base_url)
+    assert result.outputs[0].seconds == pytest.approx(.0025)
+    assert result.outputs[0].text == "Hi 🌍"
+
+
+def test_connection_refusal_explains_the_server_and_file_distinction(monkeypatch):
+    def refused(*args):
+        raise ConnectionRefusedError("fixture: no listener")
+    monkeypatch.setattr("http.client.HTTPConnection.connect", refused)
+    with pytest.raises(ConnectionError) as raised:
+        llamacpp_models("http://127.0.0.1:8081")
+    message = str(raised.value)
+    assert message.startswith("No local inference server is listening at http://127.0.0.1:8081.")
+    assert "Start the selected server separately" in message
+    assert "GGUF file path does not start a server" in message
+
+
 def test_llamacpp_explicit_file_hash_and_rows(llamacpp_server, tmp_path):
     model = tmp_path / "selected.gguf"
     model.write_bytes(b"GGUFtest-data-for-fingerprinting-only")

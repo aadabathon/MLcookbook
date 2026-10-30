@@ -5,6 +5,7 @@ from copy import deepcopy
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -30,12 +32,14 @@ PARAMS = [
      "max_length": 2048, "help": "An existing local Ollama server. Only loopback HTTP addresses are accepted."},
     {"key": "ollama_model", "label": "Installed model", "kind": "model", "value": "", "max_length": 512,
      "help": "Refresh to list installed local models. Models are never downloaded by this app."},
-    {"key": "llamacpp_url", "label": "llama.cpp address", "kind": "text", "value": "http://127.0.0.1:8080",
-     "max_length": 2048, "help": "An existing single-model llama-server. Only loopback HTTP addresses are accepted."},
+    {"key": "llamacpp_url", "label": "Running llama.cpp server", "kind": "text", "value": "http://127.0.0.1:8080",
+     "max_length": 2048, "help": "Address of an already-running single-model llama-server. Start it separately with your GGUF. "
+                                    "Selecting a file does not start a server. Only loopback HTTP addresses are accepted."},
     {"key": "llamacpp_model", "label": "Loaded model", "kind": "model", "value": "", "max_length": 512,
      "help": "Refresh to inspect the server's loaded model. Loading/downloading models is managed outside this app."},
-    {"key": "gguf_path", "label": "GGUF file (optional)", "kind": "file", "value": "", "max_length": 4096,
-     "help": "Optional local file to hash during a run. Does not load weights or change the server model. "
+    {"key": "gguf_path", "label": "GGUF fingerprint (optional)", "kind": "file", "value": "", "max_length": 4096,
+     "help": "Optional local file to hash during generation. Does not load weights, start a server or change the server model. "
+             "Open files directly in Research lab for inspection or compute-graph capture. "
              "The hash identifies this file only; its binding to server-loaded weights is unverified."},
     {"key": "model_path", "label": "Model folder", "kind": "path", "value": "", "max_length": 4096,
      "help": "A local Hugging Face folder with config.json, tokenizer files, and safetensors weights."},
@@ -88,6 +92,8 @@ class LLMScreen(ReportScreen):
     auto_run_demo = False  # Model weights are chosen explicitly, never downloaded on opening a card.
     connection_requested = Signal(str, str, str)
     workflow_requested = Signal(str, object)
+    lab_requested = Signal(str, object)
+    lab_changed = Signal()
 
     def __init__(self, engine, report, parent=None):
         super().__init__("Local LLMs", engine, report, parent, task="unsupervised", params=PARAMS,
@@ -140,6 +146,51 @@ class LLMScreen(ReportScreen):
         self.preview_box.hide()
         self.sections["settings"].setChecked(True)
         self._update_input_mode()
+        self._build_research_workspace()
+
+    def _build_research_workspace(self):
+        from gui.llm_lab import LLMLabPanel
+
+        outer = self.layout()
+        body_index = next(index for index in range(outer.count()) if outer.itemAt(index).layout() is self.body)
+        outer.removeItem(self.body)
+        generation = QWidget()
+        generation.setLayout(self.body)
+        self.research = LLMLabPanel()
+        self.research.action_requested.connect(self.lab_requested)
+        self.research.configuration_changed.connect(self.lab_changed)
+        self.workspaces = QStackedWidget()
+        self.workspaces.addWidget(generation)
+        self.workspaces.addWidget(self.research)
+        outer.insertWidget(body_index, self.workspaces, stretch=1)
+        modes = QHBoxLayout()
+        modes.addWidget(QLabel("Workspace"))
+        self.workspace_mode = QComboBox()
+        self.workspace_mode.addItem("Generate", "generate")
+        self.workspace_mode.addItem("Research lab", "research")
+        self.workspace_mode.currentIndexChanged.connect(self._workspace_changed)
+        modes.addWidget(self.workspace_mode)
+        modes.addStretch()
+        outer.insertLayout(2, modes)
+
+    def _workspace_changed(self, *_):
+        research = self.workspace_mode.currentData() == "research"
+        self.workspaces.setCurrentIndex(1 if research else 0)
+        self.run_button.setVisible(not research)
+        self.input_context.setVisible(not research)
+        if research:
+            self.load_button.hide()
+            self.status.clear()
+            self.status_details.hide()
+        else:
+            self._update_input_mode()
+            self.set_status(self._status_message)
+        self.lab_changed.emit()
+
+    def restore_research(self, document, mode="generate"):
+        if document is not None:
+            self.research.restore_document(document)
+        self.workspace_mode.setCurrentIndex(1 if mode == "research" else 0)
 
     def _request_connection(self, *_):
         backend = self.param_widgets["backend"].currentData()
@@ -212,6 +263,9 @@ class LLMScreen(ReportScreen):
         self.workflow_tools.setEnabled(not busy)
         self.preview_box.hide()
         self.preview_text.clear()
+        if hasattr(self, "research"):
+            self.research.set_busy(busy)
+            self.workspace_mode.setEnabled(not busy)
 
     def _update_input_mode(self):
         if not hasattr(self, "param_widgets") or "input_mode" not in self.param_widgets:
@@ -250,6 +304,8 @@ class LLMScreen(ReportScreen):
                                "The row limit counts source positions, including blank rows." if structured else
                                "Select exactly one text or categorical column containing strings. Blank rows are skipped.")
         self._update_workflow_actions()
+        if hasattr(self, "workspace_mode") and self.workspace_mode.currentData() == "research":
+            self.load_button.hide()
 
     def _configuration_changed(self, *_):
         super()._configuration_changed()

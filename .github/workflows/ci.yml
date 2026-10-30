@@ -45,6 +45,10 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -e ".[dev,gui]"
+      - name: Compile standalone graph capture helper
+        run: |
+          cmake -S tools/llama_research -B build/llama-research -A x64
+          cmake --build build/llama-research --config Release
       - run: pytest
 
   llm:
