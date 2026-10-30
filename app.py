@@ -66,6 +66,18 @@ def _assets_dir() -> Path:
     return Path(getattr(sys, "_MEIPASS", _ROOT)) / "gui" / "assets"
 
 
+def _playground_data_dir() -> Path:
+    """Use the repository's data folder, independent of shortcut working directory."""
+    if not getattr(sys, "frozen", False):
+        return _ROOT / "data"
+    executable = Path(sys.executable).resolve()
+    for parent in executable.parents:
+        if (parent / "pyproject.toml").is_file() and (parent / "src" / "mlcookbook").is_dir():
+            return parent / "data"
+    # A portable bundle copied outside the checkout keeps downloads beside itself.
+    return executable.parent / "data"
+
+
 # --- Default datasets ---------------------------------------------------------
 # Built-in datasets are loaded only after an explicit example action.
 
@@ -1579,12 +1591,14 @@ class MLCookbookApp:
             return
         self._remember_screen()
         page = DataPlaygroundScreen(self.playground_specs)
+        page.set_download_directory(str(_playground_data_dir()))
         page.restore_session(self.playground_state)
         if self.playground_preview is not None:
             page.set_preview(self.playground_preview[2])
         page.set_status(self.playground_status)
         page.fetch_requested.connect(self.fetch_playground)
         page.use_requested.connect(self.accept_playground_dataset)
+        page.download_requested.connect(self.download_playground_dataset)
         page.cancel_requested.connect(self.cancel_analysis)
         self.screen, self.key = page, "playground"
         self.window.show_screen(page)
@@ -1634,6 +1648,32 @@ class MLCookbookApp:
                 self._set_status(str(event["message"]))
 
         self._start_job(fetch, accept, "Fetching data…", cancellable=True, on_progress=progress)
+
+    def download_playground_dataset(self, file_format):
+        if self.job is not None or not isinstance(self.screen, DataPlaygroundScreen) or self.playground_preview is None:
+            return
+        screen = self.screen
+        try:
+            source, query = screen.request()
+            requested = {"source": source, "query": _playground_query(query)}
+            if screen.preview_stale or requested != self.playground_preview[2]["playground_request"]:
+                raise ValueError("Query changed. Fetch a matching preview before downloading this dataset.")
+            if not self.playground_preview[2]["rows"]:
+                raise ValueError("This query returned no rows. Adjust the filters and fetch again.")
+        except ValueError as exc:
+            self._set_status(str(exc))
+            return
+        dataset, _, view = self.playground_preview
+        metadata = deepcopy(view["source"])
+        directory = _playground_data_dir()
+
+        def write():
+            from mlcookbook.gathering_io import save_gathered_dataset
+
+            return save_gathered_dataset(dataset, metadata, directory, format=file_format)
+
+        self._start_job(write, lambda path: self._set_status(f"Saved all {view['rows']} rows to {path}"),
+                        "Saving fetched dataset…")
 
     def accept_playground_dataset(self):
         if self.job is not None or not isinstance(self.screen, DataPlaygroundScreen) or self.playground_preview is None:

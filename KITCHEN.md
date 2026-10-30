@@ -13,7 +13,9 @@ The Kitchen is ML Cookbook's native workspace for connecting data operations int
 7. Connect the analysis `result` to **Report**, then click **Run workflow**. **Run to selected** executes only the selected node and its ancestors. Each explicit run repeats that requested path; selecting completed output does not run it again.
 8. Select a node and open **Output** to inspect its preview, statistics or model report. The completed-output selector chooses a specific port when a node has several outputs. **Run details** records the settings, consumed ports, artifact references, timestamp and runtime versions. Warnings remain accessible above the inspector.
 
-Connect ports by dragging between circles, clicking an output then an input, or using **Connect…** for keyboard access. Only compatible dataset, vector and analysis ports connect; each input has one producer, while an output can feed several consumers. Required inputs, cycles, settings and column applicability are validated before fitting.
+Turn on **Connect**, then click or drag from one module to another. A single-output module connects automatically when the other module has exactly one free input of the matching type. Compatible inputs light up, and the wire snaps to its port. When several ports match, choose the actual circle: for example, a Column vector's `vector` and `missing` outputs have different meanings, and Combine vectors needs an explicit `left` or `right` choice.
+
+You can also drag between port circles or click an output then an input without turning on Connect. **Ctrl+K** opens the keyboard port chooser. **Escape** cancels a pending connection and leaves Connect mode; dropping a dragged wire on empty space discards it. Only compatible dataset, vector and analysis ports connect; an occupied input cannot be overwritten, cycles are rejected, and an output can feed several consumers. Port matching does not infer column roles, convert values or run an analysis; those checks still happen before execution.
 
 ```mermaid
 flowchart LR

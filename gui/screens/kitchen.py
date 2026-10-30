@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui import theme
-from gui.kitchen_canvas import NODE_LABELS, NODE_PORTS, KitchenCanvas
+from gui.kitchen_canvas import NODE_LABELS, NODE_PORTS, KitchenCanvas, connection_error
 from gui.preprocessing_dialog import PreprocessingDialog
 from gui.report_view import ReportView
 
@@ -92,7 +92,12 @@ class KitchenScreen(QWidget):
         self.add_button = QPushButton("Add")
         self.add_button.clicked.connect(self.add_node)
         tools.addWidget(self.add_button)
-        for text, method in (("Connect…", self._connect_dialog), ("Delete", self.delete_selected),
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.setObjectName("ConnectToolButton")
+        self.connect_button.setCheckable(True)
+        self.connect_button.setToolTip("Click or drag between modules to connect matching ports. Ctrl+K opens the keyboard port chooser.")
+        tools.addWidget(self.connect_button)
+        for text, method in (("Delete", self.delete_selected),
                              ("Undo", self.undo), ("Redo", self.redo)):
             button = QPushButton(text)
             button.clicked.connect(method)
@@ -107,6 +112,8 @@ class KitchenScreen(QWidget):
         outer.addWidget(self.editor_tools)
         self.splitter = QSplitter()
         self.canvas = KitchenCanvas()
+        self.connect_button.toggled.connect(self.canvas.set_connect_mode)
+        self.canvas.connect_mode_changed.connect(self.connect_button.setChecked)
         self.canvas.setMinimumWidth(300)
         self.canvas.selected.connect(self._selected)
         self.canvas.moved.connect(self._moved)
@@ -190,6 +197,11 @@ class KitchenScreen(QWidget):
             action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             action.triggered.connect(method)
             self.addAction(action)
+        self.connect_action = QAction("Choose connection ports…", self)
+        self.connect_action.setShortcut(QKeySequence("Ctrl+K"))
+        self.connect_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.connect_action.triggered.connect(self._connect_dialog)
+        self.addAction(self.connect_action)
         self._build_settings()
         self._update_actions()
 
@@ -296,35 +308,19 @@ class KitchenScreen(QWidget):
     def connect_nodes(self, edge):
         if self._busy:
             return
-        nodes = {n["id"]: n for n in self.editor["graph"]["nodes"]}
-        if edge["source"] not in nodes or edge["target"] not in nodes:
+        error = connection_error(self.editor["graph"], edge)
+        if error:
+            self.set_status(error)
             return
-        output = NODE_PORTS[nodes[edge["source"]]["kind"]][1].get(edge["source_port"])
-        incoming = NODE_PORTS[nodes[edge["target"]]["kind"]][0].get(edge["target_port"])
-        if not output or output != incoming:
-            self.set_status("Incompatible ports: connect datasets, vectors or analysis results to the same input type.")
-            return
-        if any(e["target"] == edge["target"] and e["target_port"] == edge["target_port"] for e in self.editor["graph"]["edges"]):
-            self.set_status("That input is already connected. Select its connection and Delete it first.")
-            return
-        children = {}
-        for existing in self.editor["graph"]["edges"]:
-            children.setdefault(existing["source"], []).append(existing["target"])
-        pending, seen = [edge["target"]], set()
-        while pending:
-            key = pending.pop()
-            if key == edge["source"]:
-                self.set_status("This connection would create a cycle.")
-                return
-            if key not in seen:
-                seen.add(key)
-                pending.extend(children.get(key, []))
         state = self.state()
         state["graph"]["edges"].append(deepcopy(edge))
         self._commit(state)
         self.set_status("")
 
     def _connect_dialog(self):
+        if self._busy:
+            return
+        self.canvas.set_connect_mode(False)
         dialog = QDialog(self)
         dialog.setWindowTitle("Connect nodes")
         form = QFormLayout(dialog)
@@ -751,6 +747,7 @@ class KitchenScreen(QWidget):
     def set_busy(self, busy):
         self._busy = busy
         self.editor_tools.setEnabled(not busy)
+        self.connect_action.setEnabled(not busy)
         self.canvas.setEnabled(not busy)
         self.settings_scroll.setEnabled(not busy)
         if self.settings_scroll.widget():

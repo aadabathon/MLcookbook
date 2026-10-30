@@ -120,6 +120,73 @@ def test_only_explicit_fetch_and_use_emit_requests(screen):
     assert len(fetched) == 1
 
 
+def test_download_emits_selected_format_only_for_completed_matching_preview(screen):
+    downloaded, fetched, accepted = [], [], []
+    screen.download_requested.connect(downloaded.append)
+    screen.fetch_requested.connect(lambda *args: fetched.append(args))
+    screen.use_requested.connect(lambda: accepted.append(True))
+    assert screen.download_format.currentData() == "csv"
+    assert not screen.download_button.isEnabled()
+    screen._download()
+    assert downloaded == []
+    supplied = _view(screen)
+    original = deepcopy(supplied)
+    screen.set_preview(supplied)
+    assert screen.download_button.isEnabled()
+    screen.download_button.click()
+    screen.download_format.setCurrentIndex(screen.download_format.findData("parquet"))
+    screen.download_button.click()
+    assert downloaded == ["csv", "parquet"]
+    assert fetched == accepted == []
+    assert screen.view == original
+    screen.limit.setValue(screen.limit.value() + 1)
+    assert not screen.download_button.isEnabled()
+    screen._download()
+    assert downloaded == ["csv", "parquet"]
+    screen.limit.setValue(screen.limit.value() - 1)
+    assert screen.download_button.isEnabled()
+    screen.set_busy(True)
+    assert not screen.download_button.isEnabled() and not screen.download_format.isEnabled()
+    screen._download()
+    assert downloaded == ["csv", "parquet"]
+    screen.set_busy(False)
+    assert screen.download_button.isEnabled() and screen.download_format.isEnabled()
+    screen.set_preview({**supplied, "rows": 0})
+    assert not screen.download_button.isEnabled()
+    screen._download()
+    screen.set_preview(None)
+    assert not screen.download_button.isEnabled()
+    assert downloaded == ["csv", "parquet"]
+
+
+def test_download_destination_and_session_restore_have_no_download_side_effect(screen, qt, specs):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    from gui.screens.playground import DataPlaygroundScreen
+
+    screen.set_download_directory(r"C:\Projects\MLcookbook\data")
+    assert screen.download_destination.text() == "Save to data/"
+    assert screen.download_destination.toolTip() == r"C:\Projects\MLcookbook\data"
+    assert r"C:\Projects\MLcookbook\data" in screen.download_button.toolTip()
+    screen.set_preview(_view(screen))
+    screen.download_format.setCurrentIndex(screen.download_format.findData("parquet"))
+    state = screen.session_state()
+    assert "download_format" not in state
+    restored = DataPlaygroundScreen(specs)
+    downloaded = []
+    restored.download_requested.connect(downloaded.append)
+    try:
+        restored.restore_session(state)
+        restored.set_preview(screen.view)
+        qt.processEvents()
+        assert restored.download_format.currentData() == "csv"
+        assert restored.download_button.isEnabled()
+        assert downloaded == []
+    finally:
+        restored.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def test_edits_and_source_switch_preserve_preview_but_require_matching_query(screen):
     screen.set_preview(_view(screen))
     before = deepcopy(screen.view)
@@ -284,3 +351,8 @@ def test_content_and_actions_fit_narrow_workspace(screen, qt):
     assert screen.fetch_button.geometry().right() < screen.use_button.geometry().left()
     assert screen.use_button.geometry().right() < screen.width()
     assert screen.source_combo.geometry().right() < screen.docs_button.geometry().left()
+    for widget in (screen.download_destination, screen.download_format, screen.download_button):
+        assert widget.geometry().right() < screen.width()
+    assert screen.download_destination.geometry().right() < screen.download_format.geometry().left()
+    assert screen.download_format.geometry().right() < screen.download_button.geometry().left()
+    assert screen.download_button.geometry().top() > screen.use_button.geometry().bottom()

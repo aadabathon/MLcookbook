@@ -17,13 +17,28 @@ bundle updates the shortcut's app; a source edit alone does not.
 5. Choose **Use dataset** to copy the complete fetched table into active data.
    Open **Data** to inspect its roles and quality checks, or choose a recipe.
 
+To keep files independently of the active data, choose **CSV** or **Parquet**
+beside **Download dataset**. This saves every fetched row, not just the 20-row
+preview, without another API request. Downloads go to the repository's ignored
+`data/` folder, independent of the shortcut's working directory. Each download
+gets a separate folder such as `data/exoplanets-<UTC time>-<unique suffix>/`,
+containing `dataset.csv` or `dataset.parquet` and `source.json`. Existing captures
+are never replaced. The footer gives the full saved path.
+
+CSV is readable text; Parquet retains column dtypes and the row index. The
+sidecar records source/query, retrieval time, units, statistical roles, warnings
+and the fetched-data fingerprint, with credentials excluded. Open the CSV or
+Parquet through **Data** whenever you want to use it again. Downloading does not
+change active data or recipe work. A portable app copied outside the checkout
+uses a `data/` folder beside its executable instead.
+
 Fetching preserves active data and recipe work. Explicitly using a new dataset
 replaces ordinary active data and invalidates its recipe/example sessions, just
 like a successful file import. Existing Kitchen source snapshots and independent
 Movement Study data remain independent. Capture active data explicitly inside
 Kitchen to use it in a graph.
 
-Changing filters or columns marks the preview stale and disables Use. Restore
+Changing filters or columns marks the preview stale and disables Use and Download. Restore
 the fetched settings or fetch again. Failed, empty and cancelled requests keep
 the last completed preview; they never install a partial response. Per-source
 unrun settings and the last preview survive navigation in memory. They are not
@@ -45,6 +60,16 @@ random sample: event time, planet name, geographic ID, provider product populari
 ranking or date. Product popularity favors frequently scanned products.
 Food search pages are rate-spaced and can take longer than the other sources.
 Live source availability can change; source errors remain recoverable.
+
+NASA's gateway has rejected valid queries combining a discovery method with
+**Require mass and radius** (HTTP 403). For that combination, the app retrieves
+up to 5,001 planets using the discovery-method filter and checks mass/radius
+completeness locally before applying **Maximum rows**. The query, actual request
+URL and local filtering remain recorded in source details. If that bounded
+candidate scan cannot fill the requested complete rows and more candidates may
+exist, the fetch fails explicitly and retains the previous preview. Method-only
+queries are unchanged. NASA needs no API key; other gateway failures show a
+source-specific recovery message.
 
 Food tags use taxonomy syntax, such as `en:breakfast-cereals`, `en:yogurts` or
 `en:united-states`. Search uses the provider's supported structured-search
