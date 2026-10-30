@@ -10,11 +10,17 @@ The UI roadmap's baseline, visual, navigation, setup, report/reference, responsi
 
 Stages 1–3 provide the shared visual system, Data-first sidebar and opt-in examples in a separate Windows preview. Recipe navigation performs no analysis; explicit examples retain their own state and preserve ordinary data. Forms/reference organization is the next stage.
 
+## Local LLM research workbench
+
+Adam requested an extensive [Local LLMs research roadmap](LOCAL_LLMS_ROADMAP.md) on 2026-10-29, centered on the **llama.cpp server** option. Actual model compute-graph inspection and a rigorous performance lab take priority, followed by prompt/token/sampling inspection, controlled evaluations, graph profiling/intermediate tensors, embeddings/retrieval and LLM operations in Kitchen. Compatible Ollama capabilities share the experiment tools while retaining their native semantics.
+
+The new roadmap defines phased core/GUI/persistence/testing/Windows checkpoints and distinguishes server API features from work requiring an instrumented runtime. Adam subsequently authorized the first inspection/performance project. Its initial stages 0–3a slice adds a native Research lab with GGUF inventory/comparison, actual CPU prefill/decode capture/exploration, phase comparison, repeated server measurements and independent offline `.mlcl` archives. The [research guide](LLM_RESEARCH.md) documents use and the initial pinned Windows runtime. Later profiling, tokens, evaluations, embeddings and Kitchen extensions remain planned. The earlier connector/workflow milestones below remain the existing foundation.
+
 ## Local LLM and workflow graphs
 
 Requested by Adam on 2026-10-19. The direction is one desktop workbench: choose a local inference engine, run useful tasks on data, and connect those tasks to existing ML recipes in a visible, repeatable workflow.
 
-**Graph analysis means composing recipes as an executable workflow graph inside ML Cookbook.** Each node has explicit inputs, settings, outputs, and a report. Analytical charts remain available beside the graph. The canvas and controls use the existing Qt app; a browser is not required.
+**Workflow graph analysis in this 2026-10-19 plan means composing recipes as an executable workflow graph inside ML Cookbook.** Each node has explicit inputs, settings, outputs, and a report. Analytical charts remain available beside the graph. The canvas and controls use the existing Qt app; a browser is not required. Adam also explicitly requested internal model compute-graph inspection on 2026-10-29; that distinct graph and its performance tooling are planned in the [Local LLMs research roadmap](LOCAL_LLMS_ROADMAP.md).
 
 **Ollama and llama.cpp plugins mean selectable ML Cookbook inference integrations.** Start with small connector modules and an explicit engine list. Both connect to an existing local server initially; automatic installation, model downloads, and managed server processes are a later milestone. The current PyTorch engine remains available through its optional extra.
 
@@ -210,4 +216,4 @@ The requested [local LLM and workflow-graph plan](#local-llm-and-workflow-graphs
 
 ### Silicon Badgers architecture research context
 
-Adam's club studies Qwen3.5 2B and llama.cpp internals separately from the recipe workshop. The existing GGUF and architecture notebook in `~/SiliconBadgers/AI_stuff` are external research material. A possible later read-only inspector could show GGUF metadata/tensor shapes, hybrid layer structure and links into the corresponding llama.cpp graph-building code. That is model-architecture inspection; it is distinct from composing executable data workflows, and is not implemented by this milestone. Keep arbitrary Python execution, kernel tracing and activation analysis as explicit research scopes.
+Adam's club studies Qwen3.5 2B and llama.cpp internals separately from the recipe workshop. The existing GGUF and architecture notebook in `~/SiliconBadgers/AI_stuff` are external research material. Adam's 2026-10-29 request now gives model inspection and performance analysis a dedicated [Local LLMs research roadmap](LOCAL_LLMS_ROADMAP.md). The initial GGUF inventory, real CPU graph capture and server performance lab are implemented at his subsequent request, including verified Qwen3.5-2B hybrid captures; operation/device profiling and intermediate tensor values remain later work. This is distinct from composing executable data workflows. External research files remain explicitly selected read-only inputs.

@@ -103,6 +103,9 @@ def _response(base_url, path, body, seconds, stop_requested):
         _check(stop_requested, deadline)
     except (OSError, http.client.HTTPException) as exc:
         _check(stop_requested, deadline)
+        if isinstance(exc, ConnectionRefusedError) or getattr(exc, "winerror", None) == 10061:
+            raise ConnectionError(f"No local inference server is listening at {base_url}. "
+                                  "Start the selected server separately, then refresh. A GGUF file path does not start a server.") from exc
         raise ConnectionError(f"Cannot complete the local inference request at {base_url}: {exc}. "
                               "Check that the selected server is running and the address is correct.") from exc
     finally:

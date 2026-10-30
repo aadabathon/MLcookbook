@@ -209,22 +209,26 @@ REFERENCE_CONTENT = {
     "llm": (
         "Generate text from a local model, or extract, summarize, rewrite and classify dataset rows into validated "
         "fields. PyTorch/Transformers reads a local model folder; Ollama and llama.cpp connect to existing "
-        "loopback servers. The app does not install models or start servers.",
+        "loopback servers. Research lab adds GGUF inventory, actual CPU compute-graph capture and repeated "
+        "llama.cpp performance trials. The app does not install models or start servers.",
         "A typed prompt needs no dataset. Free row generation needs one string-valued text/categorical column; "
         "structured workflows need explicit column bindings and nullable output fields. Reference-label columns "
         "are for evaluation and cannot enter prompts. Structured tasks use Ollama or llama.cpp.",
         "Choose the engine and observed local model before configuring prompts, output limits, row limits and "
         "sampling. Positive temperature enables sampling; top-p limits its probability mass. Context and "
         "device controls differ by engine: llama.cpp context, GPU offload and thinking are server startup choices. "
-        "An optional GGUF path hashes a file and does not load or select the server's weights.",
+        "An optional generation GGUF path hashes a file and does not select the server's weights. Research "
+        "Capture explicitly loads its selected GGUF in a separate helper with a verified runtime ABI.",
         "A live preview is incomplete until the run finishes. Inspect each row's raw output and validation outcome "
         "before accepting derived columns. Validation rate measures schema compliance; reference agreement uses "
         "valid non-null pairs and must be read with coverage. Timing and token counts use recorded engine metadata "
-        "where available; local wall time includes client-side work.",
+        "where available; local wall time includes client-side work. In Research lab, warmups and failed trials "
+        "stay visible, while client wall, prompt and decode measurements retain their different scopes.",
         "Valid JSON is not evidence of factual accuracy. Requested settings can differ from what a server applies, "
         "and server-rendered prompts or truncation may be unverified. A selected GGUF hash does not prove which "
         "weights the server loaded. Seeds do not guarantee cross-engine reproducibility. Saved results reopen "
-        "offline; reruns still need the external model or server.",
+        "offline; reruns still need the external model or server. Captured graphs describe the helper execution, "
+        "not a live server trace. Stored tensor bytes are not peak RAM/VRAM. Research archives use Save lab.",
     ),
     "wearable-study": (
         "Compare logistic regression and random forest baselines on a verified wearable movement study. "

@@ -1450,6 +1450,8 @@ class MLCookbookApp:
         self.playground_state = {}
         self.playground_preview = None
         self.playground_status = ""
+        self.llm_lab_document = None
+        self.llm_lab_mode = "generate"
         self.sessions: dict[str, dict] = {}
         self.workspace_sessions: dict[str, dict] = {}
         self.example_sessions: dict[str, dict] = {}
@@ -1481,6 +1483,8 @@ class MLCookbookApp:
         busy = self.job is not None
         self.window.set_navigation(self.key, busy=busy)
         can_save = isinstance(self.screen, ReportScreen) and bool(self.screen.view["columns"])
+        if isinstance(self.screen, LLMScreen) and self.screen.workspace_mode.currentData() == "research":
+            can_save = False  # Research artifacts use their explicit, independent lab archive.
         self.window.set_experiment_actions(can_save=can_save, busy=busy)
         if isinstance(self.screen, ReportScreen):
             self.screen.set_example_actions(available=self.key not in ("llm", "wearable-study"),
@@ -2220,6 +2224,9 @@ class MLCookbookApp:
         if isinstance(screen, LLMScreen):
             screen.connection_requested.connect(self.connect_local_llm)
             screen.workflow_requested.connect(self.workflow_action)
+            screen.lab_requested.connect(self.llm_lab_action)
+            screen.restore_research(self.llm_lab_document, self.llm_lab_mode)
+            screen.lab_changed.connect(self._refresh_shell)
         self._refresh_shell()
         self.window.set_status("")
 
@@ -2254,6 +2261,9 @@ class MLCookbookApp:
             self.kitchen.layout, self.kitchen.selected = state["layout"], state["selected"]
             self.kitchen_history = deepcopy((self.screen._undo, self.screen._redo))
         elif isinstance(self.screen, ReportScreen):
+            if isinstance(self.screen, LLMScreen):
+                self.llm_lab_document = self.screen.research.lab_document()
+                self.llm_lab_mode = self.screen.workspace_mode.currentData()
             snapshot = {
                 "dataset": self.screen.dataset, "name": self.screen.dataset_name,
                 "view": self.screen.view, "state": self.screen.session_state(),
@@ -2413,6 +2423,8 @@ class MLCookbookApp:
             self.imported = loaded.dataset, loaded.name, view
             self.data_status = f"Opened {loaded.name} from its saved dataset snapshot."
         self.screen, self.key = screen, loaded.recipe
+        if loaded.recipe == "llm":
+            self.llm_lab_mode = "generate"
         if is_example:
             self.example_sessions[self.key] = {"dataset": loaded.dataset, "name": loaded.name,
                 "view": view, "state": state, "source": deepcopy(loaded.source)}
@@ -2529,6 +2541,7 @@ class MLCookbookApp:
 
         def accept(result):
             self.screen.show_llamacpp_connection(result)
+            self.screen.research.set_connection(base_url, result["models"][0]["name"] if result["models"] else "")
             self._set_status("llama.cpp is loading its model. Refresh when ready." if result["status"] == "loading" else
                              "llama.cpp connection checked. Review the loaded model, then generate.")
 
@@ -2555,6 +2568,121 @@ class MLCookbookApp:
             self._set_status("Ollama connection checked. Choose an installed local model, then generate.")
 
         self._start_job(connect, accept, "Checking the local Ollama server…", cancellable=True)
+
+    def llm_lab_action(self, action, payload):
+        """Research is independent of recipe reports, active data and .mlcb v1."""
+        if self.job is not None or not isinstance(self.screen, LLMScreen):
+            return
+        screen = self.screen
+        values = deepcopy(payload or {})
+
+        def stopped():
+            return QThread.currentThread().isInterruptionRequested()
+
+        def progress(event):
+            QThread.currentThread().progress.emit(event)
+
+        def show_progress(event):
+            if isinstance(event, str):
+                text = event
+            elif "trial" in event:
+                outcome = event.get("outcome", {}).get("status", "running")
+                text = f"Trial {event['trial']} / {event.get('total', '?')} · {outcome}"
+            elif "stage" in event:
+                text = str(event["stage"]).replace("_", " ")
+                if "completed" in event:
+                    text += f" · {event['completed']:,} / {event.get('total', 0):,}"
+            else:
+                text = str(event.get("message", "Research operation running…"))
+            screen.research.show_status(text[:240])
+
+        def completed(value):
+            if action == "inspect":
+                screen.research.show_inspection(value)
+                message = "GGUF descriptors inspected. Review tensor storage and file identity in Model inspection."
+            elif action == "compare_model":
+                screen.research.show_model_comparison(value)
+                message = value["summary"]
+            elif action in ("capture", "import_graph"):
+                screen.research.show_capture(value)
+                message = "Actual compute graph ready. Select a phase and operation to inspect its tensor dependencies."
+            elif action == "compare_graph":
+                screen.research.show_graph_comparison(value)
+                message = value["summary"]
+            elif action == "benchmark":
+                screen.research.show_benchmark(value)
+                summary = value["summary"]
+                message = ("Performance trials cancelled. " if summary["cancelled"] else "Performance trials finished. ")
+                message += (f"{summary['completed_measured_trials']} / {summary['planned_measured_trials']} measured trials "
+                            f"completed; {summary['failed_measured_trials']} failed. Review raw samples and measurement scope.")
+            elif action == "probe":
+                screen.research.show_capabilities(value)
+                models = value.get("connection", {}).get("models", [])
+                if models and not values.get("model"):
+                    screen.research.set_connection(values["base_url"], models[0]["name"])
+                message = "Server capabilities checked. Unsupported and untested features remain explicit."
+            elif action == "open":
+                screen.research.restore_document(value)
+                message = "Research lab restored offline from its saved artifacts."
+            else:
+                message = f"{'Exported' if action == 'export' else 'Saved'} {Path(values['path']).name}."
+            self.llm_lab_document = screen.research.lab_document()
+            self.llm_lab_mode = screen.workspace_mode.currentData()
+            screen.research.show_status("")
+            self._set_status(message)
+
+        def run():
+            if action == "inspect":
+                from mlcookbook.llm_lab import inspect_gguf
+
+                return inspect_gguf(values["path"], stop_requested=stopped, on_progress=progress).to_dict()
+            if action == "probe":
+                from mlcookbook.llm_lab import probe_llamacpp
+
+                return probe_llamacpp(values["base_url"], stop_requested=stopped).to_dict()
+            if action == "compare_model":
+                from mlcookbook.llm_lab import compare_gguf, inspect_gguf
+
+                candidate = inspect_gguf(values["path"], stop_requested=stopped, on_progress=progress).to_dict()
+                return compare_gguf(values["baseline"], candidate)
+            if action == "benchmark":
+                from mlcookbook.llm_lab import benchmark_llamacpp
+
+                return benchmark_llamacpp(**values, stop_requested=stopped, on_progress=progress).to_dict()
+            if action == "capture":
+                from mlcookbook.llm_graph import capture_graph
+
+                return capture_graph(**values, stop_requested=stopped, on_progress=progress)
+            if action == "import_graph":
+                from mlcookbook.llm_graph import load_graph_capture
+
+                return load_graph_capture(values["path"], stop_requested=stopped)
+            if action == "compare_graph":
+                from mlcookbook.llm_graph import compare_graphs
+
+                return compare_graphs(values["capture"], values["left"], values["right"])
+            if action in ("save", "export", "open"):
+                from mlcookbook.llm_lab_io import export_lab, load_lab, save_lab
+
+                if action == "open":
+                    return load_lab(values["path"])
+                if action == "export":
+                    return export_lab(values["path"], values["document"])
+                return save_lab(values["path"], values["document"])
+            raise ValueError("Unknown research action.")
+
+        # Snapshot presentation data on the GUI thread, before the worker starts.
+        if action in ("save", "export") and "document" not in values:
+            values["document"] = screen.research.lab_document()
+        self._start_job(run, completed, {
+            "inspect": "Reading GGUF tensor descriptors…", "probe": "Checking llama.cpp research capabilities…",
+            "compare_model": "Inspecting and comparing explicitly selected GGUF files…",
+            "capture": "Capturing actual llama.cpp computation…", "import_graph": "Opening recorded compute graph…",
+            "compare_graph": "Comparing recorded graph phases…",
+            "benchmark": "Running bounded performance trials…", "save": "Saving research lab…",
+            "export": "Exporting research artifacts…", "open": "Opening research lab offline…",
+        }.get(action, "Research operation…"), cancellable=action not in ("save", "export", "open"),
+                        on_progress=show_progress)
 
     def run_analysis(self, request):
         if self.job is not None or not isinstance(self.screen, ReportScreen):

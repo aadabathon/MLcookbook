@@ -32,7 +32,8 @@ def option(name):
     return Path(args[args.index(name) + 1])
 Path('build-invocation.json').write_text(json.dumps({
     'args': args, 'path': os.environ['PATH'],
-    'cache': os.environ['PYINSTALLER_CONFIG_DIR'], 'cwd': os.getcwd()
+    'cache': os.environ['PYINSTALLER_CONFIG_DIR'], 'cwd': os.getcwd(),
+    'pythonpath': os.environ['PYTHONPATH']
 }), encoding='utf-8')
 dist, work, spec = option('--distpath'), option('--workpath'), option('--specpath')
 bundle = dist / 'MLcookbook'
@@ -49,6 +50,11 @@ spec.mkdir(parents=True, exist_ok=True)
     (original / "_internal").mkdir(parents=True)
     (original / "MLcookbook.exe").write_bytes(b"existing executable")
     (original / "_internal" / "runtime.dll").write_bytes(b"existing runtime")
+    helper = workspace / "tools" / "llama_research"
+    (helper / "build").mkdir(parents=True)
+    (helper / "vendor").mkdir()
+    (helper / "build" / "llama-graph-capture.exe").write_bytes(b"capture helper fixture")
+    (helper / "vendor" / "LICENSE").write_text("upstream license fixture", encoding="utf-8")
     return workspace
 
 
@@ -69,14 +75,15 @@ def _run_build(workspace, *, preview=False, running_path=None):
     inventory = "@()" if running_path is None else f"[pscustomobject]@{{Path={_quoted(running_path)}}}"
     command = (
         "function Get-Process { param($Name, $ErrorAction) " + inventory + " }; "
-        "$beforePath=$env:PATH; $beforeCache=$env:PYINSTALLER_CONFIG_DIR; "
+        "$beforePath=$env:PATH; $beforeCache=$env:PYINSTALLER_CONFIG_DIR; $beforePythonPath=$env:PYTHONPATH; "
         f"& {_quoted(script)}" + (" -Preview" if preview else "") + "; "
-        "if ($env:PATH -ne $beforePath -or $env:PYINSTALLER_CONFIG_DIR -ne $beforeCache) "
+        "if ($env:PATH -ne $beforePath -or $env:PYINSTALLER_CONFIG_DIR -ne $beforeCache -or $env:PYTHONPATH -ne $beforePythonPath) "
         "{ throw 'Build environment was not restored.' }"
     )
     environment = os.environ.copy()
     environment["PATH"] += os.pathsep + str(workspace / "foreign-runtime")
     environment["PYINSTALLER_CONFIG_DIR"] = str(workspace / "original-cache")
+    environment["PYTHONPATH"] = str(workspace / "other-checkout")
     return subprocess.run([_powershell(), "-NoProfile", "-NonInteractive", "-Command", command],
                           cwd=workspace, env=environment, capture_output=True, text=True, timeout=60)
 
@@ -95,6 +102,7 @@ def test_preview_build_preserves_the_original_bundle(build_workspace):
     invocation = json.loads((workspace / "build-invocation.json").read_text(encoding="utf-8"))
     assert Path(invocation["cache"]) == workspace / "build" / "ui-preview" / "pyinstaller-cache"
     assert "foreign-runtime" not in invocation["path"]
+    assert invocation["pythonpath"].split(os.pathsep) == [str(workspace / "src"), str(workspace)]
     assert Path(invocation["path"].split(os.pathsep)[0]) == workspace / ".venv" / "Scripts"
     assert "torch" not in [invocation["args"][index + 1] for index, value in enumerate(invocation["args"])
                            if value == "--exclude-module"]
@@ -103,6 +111,11 @@ def test_preview_build_preserves_the_original_bundle(build_workspace):
     assert Path(invocation["args"][invocation["args"].index("--icon") + 1]) == workspace / "gui" / "assets" / "mlcookbook.ico"
     assets = invocation["args"][invocation["args"].index("--add-data") + 1]
     assert Path(assets.split(";")[0]) == workspace / "gui" / "assets"
+    binary = invocation["args"][invocation["args"].index("--add-binary") + 1]
+    assert binary.split(";")[1] == "tools/llama_research"
+    assert Path(binary.split(";")[0]) == workspace / "tools" / "llama_research" / "build" / "llama-graph-capture.exe"
+    data = [invocation["args"][index + 1] for index, value in enumerate(invocation["args"]) if value == "--add-data"]
+    assert any(Path(value.split(";")[0]).name == "LICENSE" for value in data)
     assert "was left untouched" in result.stdout
 
 
@@ -124,6 +137,15 @@ def test_preview_build_requires_closing_only_its_own_running_output(build_worksp
     assert result.returncode != 0
     assert "Close the UI preview" in result.stderr
     assert not (workspace / "build-invocation.json").exists()
+
+
+def test_build_requires_the_capture_component_before_packaging(build_workspace):
+    helper = build_workspace / "tools" / "llama_research" / "build" / "llama-graph-capture.exe"
+    helper.unlink()
+    result = _run_build(build_workspace, preview=True)
+    assert result.returncode != 0
+    assert "Build the graph capture helper first" in result.stderr
+    assert not (build_workspace / "build-invocation.json").exists()
 
 
 def test_preview_build_rejects_a_redirected_output_directory(build_workspace, tmp_path):

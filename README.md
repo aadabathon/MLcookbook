@@ -107,6 +107,9 @@ pytest
 | `ollama` | `ollama_models`, `describe_ollama_model`, `generate_ollama`: installed local model discovery and streamed generation via standard-library HTTP; no PyTorch required |
 | `llamacpp` | `llamacpp_models`, `generate_llamacpp`: direct local llama-server discovery and chat generation over SSE, optional explicitly selected GGUF file hashing; no PyTorch required |
 | `llm_workflow` | `run_workflow`, `derive_dataset`, `compare_runs`, `export_workflow`: bound templates, strict JSON validation, row lineage, typed derived columns and repeatable server-backed research runs |
+| `llm_lab` | `inspect_gguf`, `compare_gguf`, `probe_llamacpp`, `benchmark_llamacpp`: frozen inventory/capability/trial results and offline tensor comparison; submodule-only |
+| `llm_graph` | Actual bounded CPU helper capture, portable graph validation/import and structural phase comparison; submodule-only |
+| `llm_lab_io` | Checked atomic `.mlcl` research archives and JSON export, independent of `.mlcb` and `.mlck`; submodule-only |
 | `visualization` | 🚧 skeletal — the desktop app draws its own charts from result data |
 
 ### Design rules
@@ -363,6 +366,12 @@ result.to_dict()
 ```
 
 Server-reported token counts and millisecond timings remain distinct from local wall time. Unreported usage, versions, or timings stay unavailable. Exact rendered prompts and server input truncation remain unverified. Both connectors share a small private `_local_http` module for bounded loopback-only HTTP; Ollama NDJSON and llama.cpp SSE parsing remain separate.
+
+### Model inspection and performance research
+
+**Local LLMs → Workspace → Research lab** adds GGUF tensor/metadata inspection, actual llama.cpp CPU prefill/decode graph capture and repeated server performance trials. Select operations to inspect shapes, strides, storage spans, aliases and producer/consumer dependencies. Performance views keep client latency, backend prompt/decode metrics, warmups, failed trials and cache-policy evidence separate. Research sessions save/reopen offline as independent `.mlcl` archives; Generate retains its existing `.mlcb` contract.
+
+Graph capture explicitly loads the selected model in a separate app-owned helper, using the verified Windows `b11193 / 4e7481175` runtime ABI. It records that execution's provenance and leaves existing servers alone. See [the research guide](LLM_RESEARCH.md) for controls, measurement interpretation, helper/runtime compatibility and building the preview; the [research roadmap](LOCAL_LLMS_ROADMAP.md) tracks later profiling, tokens, evaluations, embeddings and Kitchen work.
 
 ### Repeatable LLM text-to-dataset workflows
 
