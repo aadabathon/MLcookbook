@@ -150,11 +150,76 @@ def test_exoplanets_selects_composite_rows_with_checked_adql(monkeypatch):
     gathered = gathering.fetch_dataset("exoplanets", {"discovery_method": "Transit", "complete_only": True,
                                                      "limit": 1, "columns": ["pl_bmasse", "pl_rade"]})
     adql = parse_qs(urlsplit(calls[0][0]).query)["query"][0]
-    assert "from pscomppars" in adql and "select top 2" in adql and "order by pl_name" in adql
-    assert "discoverymethod = 'Transit'" in adql and "pl_rade is not null" in adql
+    assert "from pscomppars" in adql and "select top 5001" in adql and "order by pl_name" in adql
+    assert "discoverymethod = 'Transit'" in adql and "is not null" not in adql
     assert gathered.dataset.df.columns.tolist() == ["pl_bmasse", "pl_rade"]
     assert gathered.dataset.df.pl_bmasse.iloc[0] == 4
     assert any("inferred" in warning for warning in gathered.result.warnings)
+    assert not gathered.result.truncated
+    assert gathered.result.query["complete_only"] is True
+    assert gathered.result.request_urls == [calls[0][0]]
+    json.dumps(gathered.result.to_dict(), allow_nan=False)
+
+
+@pytest.mark.parametrize("method,complete,limit_clause,constraints", [
+    ("all", False, "select top 3", []),
+    ("all", True, "select top 3", ["pl_bmasse is not null", "pl_rade is not null"]),
+    ("Radial Velocity", False, "select top 3", ["discoverymethod = 'Radial Velocity'"]),
+    ("Radial Velocity", True, "select top 5001", ["discoverymethod = 'Radial Velocity'"]),
+])
+def test_exoplanets_filter_matrix_uses_bounded_simple_public_queries(monkeypatch, method, complete, limit_clause, constraints):
+    calls = fake_source(monkeypatch, [{"pl_name": "Planet A", "pl_bmasse": 4.0, "pl_rade": 2.0}])
+    result = gathering.fetch_dataset("exoplanets", {"discovery_method": method, "complete_only": complete,
+                                                    "limit": 2, "columns": ["pl_bmasse", "pl_rade"]})
+    adql = parse_qs(urlsplit(calls[0][0]).query)["query"][0]
+    assert limit_clause in adql
+    for constraint in constraints:
+        assert constraint in adql
+    if method != "all":
+        assert "is not null" not in adql
+    assert len(calls) == 1 and len(result.dataset.df) == 1
+
+
+def test_exoplanets_local_completeness_precedes_limit_and_internal_fields_stay_internal(monkeypatch):
+    rows = [{"pl_name": "A", "pl_bmasse": None, "pl_rade": 1.0},
+            {"pl_name": "B", "pl_bmasse": 2.0, "pl_rade": None},
+            {"pl_name": "C", "pl_bmasse": 3.0, "pl_rade": 1.0},
+            {"pl_name": "D", "pl_bmasse": 4.0, "pl_rade": 2.0}]
+    calls = fake_source(monkeypatch, rows)
+    result = gathering.fetch_dataset("exoplanets", {"discovery_method": "Radial Velocity", "complete_only": True,
+                                                    "limit": 1, "columns": ["pl_name"]})
+    assert result.dataset.df.columns.tolist() == ["pl_name"]
+    assert result.dataset.df.pl_name.tolist() == ["C"]
+    assert result.result.truncated
+    assert result.result.roles == {"pl_name": "unsupported"}
+    assert result.result.units == {"pl_name": ""}
+    adql = parse_qs(urlsplit(calls[0][0]).query)["query"][0]
+    assert "pl_name,pl_bmasse,pl_rade" in adql
+    assert any("after retrieving" in warning for warning in result.result.warnings)
+
+
+@pytest.mark.parametrize("complete_rows,limit,fails", [(0, 1, True), (1, 2, True), (1, 1, False)])
+def test_exoplanets_local_candidate_cap_never_silently_underfills(monkeypatch, complete_rows, limit, fails):
+    rows = [{"pl_name": f"Planet {index:05}", "pl_bmasse": 1.0 if index < complete_rows else None, "pl_rade": 1.0}
+            for index in range(5001)]
+    fake_source(monkeypatch, rows)
+    query = {"discovery_method": "Transit", "complete_only": True, "limit": limit, "columns": ["pl_name"]}
+    if fails:
+        with pytest.raises(ValueError, match="bounded query scanned 5,001"):
+            gathering.fetch_dataset("exoplanets", query)
+    else:
+        result = gathering.fetch_dataset("exoplanets", query)
+        assert len(result.dataset.df) == limit and result.result.truncated
+        assert any("additional matching planets may exist" in warning for warning in result.result.warnings)
+
+
+def test_exoplanets_validates_even_excluded_candidates_before_local_filter(monkeypatch):
+    rows = [{"pl_name": "A", "pl_bmasse": 1.0, "pl_rade": 1.0},
+            {"pl_name": "A", "pl_bmasse": None, "pl_rade": None}]
+    fake_source(monkeypatch, rows)
+    with pytest.raises(ValueError, match="duplicate planet names"):
+        gathering.fetch_dataset("exoplanets", {"discovery_method": "Transit", "complete_only": True,
+                                                "limit": 1, "columns": ["pl_name"]})
 
 
 @pytest.mark.parametrize("response", [[{"pl_name": "a"}, {"pl_name": "a"}], [{"pl_name": "a"}], {"error": "bad query"}])

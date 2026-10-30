@@ -110,7 +110,11 @@ def fetch_json(url: str, *, cancelled=None, timeout: float = 30.0, max_bytes: in
         if response.status == 204:
             return None
         if response.status != 200:
-            if response.status in (401, 403):
+            if response.status == 403 and parsed.hostname == "exoplanetarchive.ipac.caltech.edu":
+                detail = ("NASA's public archive refused this query; no API key is required. "
+                          "Its gateway may block requests before the archive processes them. "
+                          "Wait and retry, or try All methods with fewer columns.")
+            elif response.status in (401, 403):
                 detail = "Access was refused; check source availability and any required API key."
             elif response.status == 429:
                 detail = "The source rate limit was reached; wait before fetching again."

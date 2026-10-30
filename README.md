@@ -154,6 +154,8 @@ Data shows source roles read-only. Adjust role overrides inside each recipe; tho
 
 **[Data playground](DATA_PLAYGROUND.md)** fetches USGS earthquakes, Open Food Facts products, NASA exoplanets, Census ACS areas and Open-Meteo daily historical weather. Choose a source, filters, columns and maximum rows, then **Fetch preview**. Review the returned values, warnings and source details before **Use dataset** makes a copy active for recipes. Opening the page, changing sources and restoring its in-memory controls never contact an API. Fetch failures/cancellation retain the last completed preview and active data. Query edits mark a preview stale until the settings match again or a new fetch succeeds. Kitchen still captures active data explicitly.
 
+**Download dataset** saves the full fetched table as CSV or typed Parquet into the repository's ignored `data/` folder, with a `source.json` provenance sidecar. Each explicit download gets a separate capture folder; it never fetches again or changes active data. Downloads require a completed preview matching the current query.
+
 Source/query, retrieval time, units, roles, warnings and the fetched-data fingerprint follow accepted data into recipe experiments and explicit Kitchen snapshots. Saved experiments reopen their complete typed data offline, without repeating API calls. Census requires a free API key, entered transiently and excluded from navigation state, saved metadata and displayed request URLs. All sources use bounded standard-library HTTPS; no dependency was added. Most sources allow up to 5,000 rows; Food Facts is limited to 500 products and its search requests are spaced to respect the provider's rate limit. Weather data are daily ERA5 estimates in UTC; chronological/grouped evaluation remains a separate choice beyond ordinary recipe row splits.
 
 Opening a recipe never constructs a preset or runs an analysis. It restores your last view or waits for data and settings. **Run example** explicitly loads and runs a bundled dataset in the background. Afterward, **View example** restores that example's settings/results without rerunning, so even invalid unrun edits can be reopened and repaired. **Use my data** restores the recipe's own-data results and unrun edits. Examples stay separate from the active dataset; saved examples reopen offline without becoming ordinary input. Typed LLM prompts work without imported rows; row and structured workflows require a dataset.
@@ -206,7 +208,13 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
+### Research timeline
+
+**Research** in the sidebar traces selected AI milestones and their earlier foundations, from formal reasoning through statistical learning and modern language models. Search by idea, person or workbench connection, filter by era, and select a dated entry for its significance and original sources. **Linked readings** connects the chronology to the six PDFs in `~/learning/books/papers/ai-ML`; **Papers folder…** can select another directory. Local PDFs and online sources open only through explicit reading actions. Timeline browsing works offline and preserves its own navigation state. See [the Research guide](RESEARCH.md).
+
 ### The Kitchen
+
+Use **Connect** to click or drag between compatible modules; ports snap and highlight, with explicit port choice when several match. **Ctrl+K** retains a keyboard port chooser.
 
 **Kitchen** in the sidebar is the native graph workspace. Bind a dataset snapshot, extract columns as vectors, branch through row-wise maps/combinations, assemble or filter a dataset, then connect a summary, correlation, linear regression or model comparison to a report. Its 13 operation kinds have named dataset/vector/analysis ports, per-node state, run-to-selected and undo/redo. Completed vectors and derived datasets are retained in full, including older outputs needed by stale results.
 

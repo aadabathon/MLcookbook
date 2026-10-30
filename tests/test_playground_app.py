@@ -339,3 +339,75 @@ def test_census_secret_is_transient_across_navigation_and_saved_experiment(contr
 
     loaded = load_experiment(saved)
     assert "never-persist-this-key" not in json.dumps(loaded.source)
+
+
+@pytest.mark.parametrize("file_format", ["csv", "parquet"])
+def test_download_saves_full_preview_without_refetch_or_replacing_active_data(
+        controller, qt, monkeypatch, tmp_path, file_format):
+    ordinary = seed_ordinary(controller, qt, tmp_path)
+    recipe = open_recipe(controller, "linear-regression", qt)
+    recipe.param_widgets["alpha"].setValue(2.5)
+    calls = install_fake(monkeypatch)
+    directory = tmp_path / "data"
+    monkeypatch.setattr(app, "_playground_data_dir", lambda: directory)
+    screen = open_playground(controller, qt)
+    preview = fetch_preview(controller, qt)
+    sessions = dict(controller.sessions)
+    screen.download_format.setCurrentIndex(screen.download_format.findData(file_format))
+    screen.download_button.click()
+    finish(controller, qt)
+    files = list(directory.glob(f"*/dataset.{file_format}"))
+    assert len(files) == 1, screen._status_message
+    loaded = pd.read_csv(files[0]) if file_format == "csv" else pd.read_parquet(files[0])
+    assert len(loaded) == preview[2]["rows"] == 60
+    assert len(calls) == 1 and controller.imported is ordinary
+    assert controller.sessions == sessions and controller.playground_preview is preview
+    metadata = json.loads((files[0].parent / "source.json").read_text(encoding="utf-8"))
+    assert metadata["gathering"] == preview[2]["source"]["gathering"]
+    assert str(files[0]) in screen.status.toolTip()
+    controller.navigate("data")
+    screen = open_playground(controller, qt)
+    assert screen.download_button.isEnabled()
+    assert str(directory) in screen.download_destination.toolTip()
+    assert len(calls) == 1
+
+
+def test_failed_download_and_changed_query_preserve_preview_and_sessions(controller, qt, monkeypatch, tmp_path):
+    import mlcookbook.gathering_io as gathering_io
+
+    calls = install_fake(monkeypatch)
+    directory = tmp_path / "data"
+    monkeypatch.setattr(app, "_playground_data_dir", lambda: directory)
+    screen = open_playground(controller, qt)
+    preview = fetch_preview(controller, qt)
+
+    def fail(*args, **kwargs):
+        raise OSError("Cannot write the data folder")
+
+    monkeypatch.setattr(gathering_io, "save_gathered_dataset", fail)
+    screen.download_button.click()
+    finish(controller, qt)
+    assert "Cannot write the data folder" in screen.status.toolTip()
+    assert controller.playground_preview is preview and controller.imported is None
+    assert screen.download_button.isEnabled() and screen.use_button.isEnabled()
+    assert not directory.exists()
+    screen.limit.setValue(screen.limit.value() + 1)
+    assert not screen.download_button.isEnabled()
+    controller.download_playground_dataset("csv")
+    assert "matching preview" in screen.status.toolTip()
+    assert controller.job is None and len(calls) == 1
+
+
+def test_download_directory_uses_repo_for_source_and_nested_frozen_builds(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(app, "_ROOT", tmp_path / "source")
+    assert app._playground_data_dir() == tmp_path / "source" / "data"
+    repository = tmp_path / "repo"
+    (repository / "src" / "mlcookbook").mkdir(parents=True)
+    (repository / "pyproject.toml").write_text("[project]", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(repository / "dist" / "ui-preview" / "MLcookbook" / "MLcookbook.exe"))
+    assert app._playground_data_dir() == repository / "data"
+    portable = Path(tmp_path.anchor) / "mlcookbook-portable-check"
+    monkeypatch.setattr(sys, "executable", str(portable / "MLcookbook.exe"))
+    assert app._playground_data_dir() == portable / "data"

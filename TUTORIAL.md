@@ -364,6 +364,12 @@ Both candidates share the split and training-fold membership. The workflow selec
 
 Comparing unrelated recipe screenshots does not provide this same explicit shared-fold contract. Classification comparison and extra candidates are not implemented here yet. Repeatedly tuning against the final test report still consumes the independence of that holdout.
 
+## Research: follow the history behind the methods
+
+Open **Research** in the sidebar for a dated timeline of AI and its earlier foundations. Search for a method, person or connection to the workbench, or filter by era. Select a milestone to read why it matters and open its cited sources. **Linked readings** narrows the timeline to entries related to the cataloged local PDFs, including the Transformer, GPT-3, GQA and Qwen3 papers.
+
+The default papers directory is `~/learning/books/papers/ai-ML`; **Papers folder…** can change it. Missing files disable their PDF action while leaving the chronology available. Research browsing works offline and retains its filters and selection when you return to your analyses. See [RESEARCH.md](RESEARCH.md) for the catalog and date conventions.
+
 ## Individual statistical tests in Python
 
 Correlation, chi-square, and grouped ANOVA/Kruskal–Wallis are public core functions, not separate desktop cards. Association Scan provides their related pairwise exploration in the GUI. For a focused question, run this after generating the practice CSV:

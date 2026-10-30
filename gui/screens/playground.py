@@ -62,6 +62,7 @@ class DataPlaygroundScreen(QWidget):
 
     fetch_requested = Signal(str, dict)
     use_requested = Signal()
+    download_requested = Signal(str)
     cancel_requested = Signal()
     configuration_changed = Signal()
 
@@ -190,6 +191,23 @@ class DataPlaygroundScreen(QWidget):
         self.use_button.clicked.connect(self._use)
         actions.addWidget(self.use_button)
         footer_layout.addLayout(actions)
+        downloads = QHBoxLayout()
+        self.download_destination = _label("Save to data/", "HelpText")
+        self.download_destination.setToolTip("Downloads are saved in the repository's data/ directory.")
+        downloads.addWidget(self.download_destination, stretch=1)
+        self.download_format = QComboBox()
+        self.download_format.setAccessibleName("Download format")
+        self.download_format.addItem("CSV", "csv")
+        self.download_format.addItem("Parquet", "parquet")
+        self.download_format.setToolTip("CSV is readable text. Parquet preserves column types and the row index.")
+        self.download_format.setMinimumWidth(0)
+        self.download_format.setMaximumWidth(120)
+        downloads.addWidget(self.download_format)
+        self.download_button = QPushButton("Download dataset")
+        self.download_button.setToolTip("Save all fetched rows to data/ without fetching again or replacing active data.")
+        self.download_button.clicked.connect(self._download)
+        downloads.addWidget(self.download_button)
+        footer_layout.addLayout(downloads)
         outer.addWidget(footer)
 
         self.source_combo.currentIndexChanged.connect(self._source_changed)
@@ -443,6 +461,17 @@ class DataPlaygroundScreen(QWidget):
             self.use_requested.emit()
 
     @Slot()
+    def _download(self) -> None:
+        if not self._busy and self.view is not None and not self.preview_stale and self.view.get("rows", 0) > 0:
+            self.download_requested.emit(self.download_format.currentData())
+
+    def set_download_directory(self, path: str) -> None:
+        """Describe the coordinator's fixed destination without inspecting the filesystem."""
+        self.download_destination.setToolTip(path)
+        self.download_destination.setAccessibleDescription(path)
+        self.download_button.setToolTip(f"Save all fetched rows to {path} without fetching again or replacing active data.")
+
+    @Slot()
     def _cancel(self) -> None:
         if self._busy and self._cancellable:
             self.cancel_requested.emit()
@@ -461,6 +490,8 @@ class DataPlaygroundScreen(QWidget):
         self.fetch_button.setEnabled(not self._busy)
         self.use_button.setEnabled(not self._busy and self.view is not None and not self.preview_stale
                                    and self.view.get("rows", 0) > 0)
+        self.download_button.setEnabled(self.use_button.isEnabled())
+        self.download_format.setEnabled(not self._busy)
 
     def set_preview(self, view: dict | None, *, stale: bool = False) -> None:
         """Install a completed formatted preview, leaving query controls untouched."""

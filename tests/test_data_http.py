@@ -94,6 +94,16 @@ def test_http_errors_do_not_echo_credentials_or_follow_redirects(provider, statu
     assert str(status) in str(caught.value) and "private-credential" not in str(caught.value)
 
 
+def test_nasa_forbidden_query_explains_public_access_and_filter_recovery(provider):
+    provider([b"HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\nContent-Length: 0\r\n\r\n"])
+    with pytest.raises(ValueError) as caught:
+        _data_http.fetch_json("https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=private-query")
+    message = str(caught.value)
+    assert "403" in message and "no API key is required" in message
+    assert "gateway" in message and "All methods" in message
+    assert "private-query" not in message
+
+
 def test_size_limits_cover_declared_and_streamed_bodies(provider):
     provider([response(b'{"value":123456789}')])
     with pytest.raises(ValueError, match="size limit"):

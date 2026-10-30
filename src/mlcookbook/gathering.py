@@ -397,31 +397,48 @@ def _food(query, urls, warnings, cancelled, progress, deadline):
 
 
 def _exoplanets(query, urls, warnings, cancelled, progress, deadline):
-    columns = list(dict.fromkeys(["pl_name", *query["columns"]]))
+    # The public archive's gateway rejects the valid combination of an equality
+    # constraint and both IS NOT NULL constraints. Retrieve ordinary method
+    # candidates once, then apply the same completeness predicate locally.
+    local_complete = query["discovery_method"] != "all" and query["complete_only"]
+    columns = list(dict.fromkeys(["pl_name", *query["columns"],
+                                  *(["pl_bmasse", "pl_rade"] if local_complete else [])]))
+    candidate_limit = 5001 if local_complete else query["limit"] + 1
     clauses = []
     if query["discovery_method"] != "all":
         # Values came from a fixed allowlist; never interpolate free-form ADQL.
         clauses.append("discoverymethod = '" + query["discovery_method"] + "'")
-    if query["complete_only"]:
+    if query["complete_only"] and not local_complete:
         clauses += ["pl_bmasse is not null", "pl_rade is not null"]
-    adql = f"select top {query['limit'] + 1} {','.join(columns)} from pscomppars"
+    adql = f"select top {candidate_limit} {','.join(columns)} from pscomppars"
     if clauses:
         adql += " where " + " and ".join(clauses)
     adql += " order by pl_name"
     raw = _get(_url("https://exoplanetarchive.ipac.caltech.edu/TAP/sync", {"query": adql, "format": "json"}), urls, cancelled, deadline)
     rows = _objects(raw, "NASA Exoplanet Archive")
-    if len(rows) > query["limit"] + 1:
+    if len(rows) > candidate_limit:
         raise ValueError("NASA returned more planets than requested.")
     seen = set()
     for row in rows:
+        check_cancelled(cancelled, deadline)
         if not isinstance(row.get("pl_name"), str) or not row["pl_name"] or row["pl_name"] in seen:
             raise ValueError("NASA returned missing or duplicate planet names in its one-row-per-planet table.")
         seen.add(row["pl_name"])
         if any(column not in row for column in columns):
             raise ValueError("NASA response omitted a requested measurement.")
+    candidate_capped = local_complete and len(rows) == candidate_limit
+    if local_complete:
+        rows = [row for row in rows if row["pl_bmasse"] is not None and row["pl_rade"] is not None]
+        if candidate_capped and len(rows) < query["limit"]:
+            raise ValueError("NASA's bounded query scanned 5,001 discovery-method candidates without filling "
+                             "the requested complete rows. Reduce Maximum rows, or turn off Require mass and radius; "
+                             "the previous preview is preserved.")
+        warnings.append("Required mass and radius were checked after retrieving discovery-method candidates in planet-name order.")
+        if candidate_capped:
+            warnings.append("NASA candidate scan reached 5,001 planets; additional matching planets may exist beyond this ordered snapshot.")
     warnings.append("Discovery methods select different planet populations. Composite values may combine references or inferred measurements; planets sharing a host are related observations.")
     warnings.append("Cite the NASA Exoplanet Archive when using these data: https://exoplanetarchive.ipac.caltech.edu/docs/acknowledge.html.")
-    return rows[:query["limit"]], len(rows) > query["limit"]
+    return rows[:query["limit"]], len(rows) > query["limit"] or candidate_capped
 
 
 def _census(query, urls, warnings, cancelled, progress, deadline):

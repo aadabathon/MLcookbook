@@ -1,9 +1,10 @@
 """Native graph drawing and gestures. All edits leave as plain-data signals."""
 import weakref
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsPathItem,
@@ -37,6 +38,33 @@ NODE_PORTS = {
 PORT_COLORS = {"dataset": theme.UI_ACCENT, "vector": theme.PLOT_ALT, "analysis": theme.ACCENT_SOFT}
 
 
+def connection_error(graph, edge):
+    """The editor's wiring rules, shared by previews and committed edits."""
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    if edge["source"] not in nodes or edge["target"] not in nodes:
+        return "Choose two modules in this graph."
+    output = NODE_PORTS[nodes[edge["source"]]["kind"]][1].get(edge["source_port"])
+    incoming = NODE_PORTS[nodes[edge["target"]]["kind"]][0].get(edge["target_port"])
+    if not output or output != incoming:
+        return "Incompatible ports: connect datasets, vectors or analysis results to the same input type."
+    if any(item["target"] == edge["target"] and item["target_port"] == edge["target_port"] for item in graph["edges"]):
+        return "That input is already connected. Select its connection and Delete it first."
+    children = {}
+    for existing in graph["edges"]:
+        children.setdefault(existing["source"], []).append(existing["target"])
+    pending, seen = [edge["target"]], set()
+    while pending:
+        key = pending.pop()
+        if key == edge["source"]:
+            return "This connection would create a cycle."
+        if key not in seen:
+            seen.add(key)
+            pending.extend(children.get(key, []))
+    if len(graph["edges"]) >= 200:
+        return "This Kitchen supports at most 200 connections."
+    return ""
+
+
 def node_caption(node):
     """A short description of the configured operation, without analytical work."""
     kind, settings = node["kind"], node["settings"]
@@ -67,17 +95,23 @@ def node_caption(node):
 class PortItem(QGraphicsEllipseItem):
     def __init__(self, node, name, kind, output, index):
         super().__init__(-6, -6, 12, 12, node)
-        self._node, self.name, self.output = weakref.ref(node), name, output
+        self._node, self.name, self.output, self.kind = weakref.ref(node), name, output, kind
         self.setPos(node.rect().width() if output else 0, 82 + index * 26)
-        color = PORT_COLORS[kind]
-        self.setBrush(QColor(color))
-        self.setPen(QPen(QColor(theme.BG), 2))
+        self.set_hint()
         self.setToolTip(("Output " if output else "Input ") + name + " · " + kind)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
     @property
     def node(self):
         return self._node()
+
+    def set_hint(self, state="normal"):
+        self.highlighted = state in ("available", "target")
+        radius = 10 if state == "target" else 8 if state == "available" else 6
+        self.setRect(-radius, -radius, radius * 2, radius * 2)
+        self.setBrush(QColor(PORT_COLORS[self.kind]))
+        self.setPen(QPen(QColor(theme.TEXT if state == "target" else theme.BG), 2))
+        self.setOpacity(.25 if state == "unavailable" else 1)
 
 
 class NodeItem(QGraphicsRectItem):
@@ -141,6 +175,8 @@ class KitchenCanvas(QGraphicsView):
     connect_requested = Signal(dict)
     delete_requested = Signal()
     message = Signal(str)
+    connect_mode_changed = Signal(bool)
+    SNAP_DISTANCE = 16  # viewport pixels, independent of graph zoom
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -150,18 +186,26 @@ class KitchenCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
         self.setAccessibleName("Kitchen workflow canvas")
-        self.setAccessibleDescription("Left and right select nodes. Delete removes the selection. Drag nodes to move; drag the background to pan. Control plus wheel zooms.")
-        self.setToolTip("Connect an output circle to an input circle. Drag the background to pan; Ctrl+wheel to zoom.")
+        self.setAccessibleDescription("Connect enables module wiring. Drag or click matching output and input ports. Escape cancels. Left and right select nodes; Delete removes the selection. Drag the background to pan; Control plus wheel zooms.")
+        self.setToolTip("Drag between ports, or use Connect to link modules. Drag the background to pan; Ctrl+wheel to zoom.")
         self.scene().selectionChanged.connect(self._selection)
         self.nodes, self.edges, self._link = {}, [], None
         self._loading = False
         self._positions = {}
         self._captions = {}
+        self._graph = {"nodes": [], "edges": []}
+        self.connect_mode = False
+        self._valid_targets = []
+        self._target_port = None
+        self._press_position = None
+        self._dragging = False
 
     def set_graph(self, graph, layout, selected=None, states=None):
         self._loading = True
         self._cancel_link()
+        self._graph = graph
         self.nodes, self.edges = {}, []
         self.scene().clear()
         for index, node in enumerate(graph["nodes"]):
@@ -184,6 +228,7 @@ class KitchenCanvas(QGraphicsView):
         self.update_edges()
         self._positions = self.positions()
         self._loading = False
+        self._port_hints()
 
     def update_nodes(self, nodes):
         """Refresh edited captions without replacing items or losing selection."""
@@ -245,44 +290,172 @@ class KitchenCanvas(QGraphicsView):
             self.resetTransform()
             self.centerOn(200, 0)
 
+    def set_connect_mode(self, enabled):
+        enabled = bool(enabled) and self.isEnabled()
+        changed, pending = self.connect_mode != enabled, self._link is not None
+        self._cancel_link()
+        if changed:
+            self.connect_mode = enabled
+            self.connect_mode_changed.emit(enabled)
+        self.setCursor(Qt.CursorShape.CrossCursor if enabled else Qt.CursorShape.ArrowCursor)
+        self._port_hints()
+        if changed or pending:
+            self.message.emit("Click or drag from a module to a matching input. Escape returns to moving modules." if enabled else "")
+
+    def _ports(self):
+        return [port for node in self.nodes.values() for ports in (node.input_ports, node.output_ports) for port in ports.values()]
+
+    def _port_hints(self):
+        for port in self._ports():
+            if port is self._target_port:
+                state = "target"
+            elif self._link:
+                state = "available" if port is self._link[0] or port in self._valid_targets else "unavailable"
+            else:
+                state = "available" if self.connect_mode and port.output else "normal"
+            port.set_hint(state)
+
     def _cancel_link(self):
-        if self._link:
+        if self._link is not None:
             self.scene().removeItem(self._link[1])
             self._link = None
+        self._valid_targets = []
+        self._target_port = None
+        self._press_position = None
+        self._dragging = False
+        self._port_hints()
+
+    def _port_near(self, position):
+        candidates = []
+        for port in self._ports():
+            offset = self.mapFromScene(port.scenePos()) - position
+            distance = offset.x() ** 2 + offset.y() ** 2
+            if distance <= self.SNAP_DISTANCE ** 2:
+                candidates.append((distance, port))
+        return min(candidates, key=lambda item: item[0])[1] if candidates else None
+
+    def _node_at(self, position):
+        for item in self.items(position):
+            if isinstance(item, PortItem):
+                return item.node
+            if isinstance(item, NodeItem):
+                return item
+        return None
+
+    @staticmethod
+    def _edge(source, target):
+        return {"source": source.node.node["id"], "source_port": source.name,
+                "target": target.node.node["id"], "target_port": target.name}
+
+    def _begin_link(self, source, position):
+        self._cancel_link()
+        self._valid_targets = [port for port in self._ports() if not port.output and
+                               not connection_error(self._graph, self._edge(source, port))]
+        if not self._valid_targets:
+            self.message.emit("No free compatible inputs. Add a matching module or remove an existing connection.")
+            return
+        line = QGraphicsPathItem()
+        line.setPen(QPen(QColor(PORT_COLORS[source.kind]), 2, Qt.PenStyle.DashLine))
+        line.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        line.setZValue(-.5)
+        line.hide()
+        self.scene().addItem(line)
+        self._link = source, line
+        self._press_position = position
+        self._port_hints()
+        self.message.emit(f"Connect {source.name} ({source.kind}) to a highlighted input. Escape cancels.")
+
+    def _resolve_target(self, position):
+        port = self._port_near(position)
+        if port is not None:
+            if port.output:
+                return None, "Choose an input port."
+            return (port, "") if port in self._valid_targets else (None, connection_error(self._graph, self._edge(self._link[0], port)))
+        node = self._node_at(position)
+        if node is None:
+            return None, ""
+        choices = [port for port in self._valid_targets if port.node is node]
+        if len(choices) == 1:
+            return choices[0], ""
+        if choices:
+            return None, "Several inputs match. Choose a highlighted input port."
+        return None, "This module has no free compatible input."
 
     def mousePressEvent(self, event):
-        item = self.itemAt(event.position().toPoint())
-        if event.button() == Qt.MouseButton.LeftButton and isinstance(item, PortItem):
-            if item.output:
-                self._cancel_link()
-                line = QGraphicsPathItem()
-                line.setPen(QPen(QColor(theme.UI_ACCENT), 2, Qt.PenStyle.DashLine))
-                line.setZValue(-0.5)
-                self.scene().addItem(line)
-                self._link = item, line
-                self.message.emit("Choose a matching input port. Escape cancels the connection.")
-            elif self._link:
-                self._finish_link(item)
+        position = event.position().toPoint()
+        if event.button() == Qt.MouseButton.RightButton:
+            self._cancel_link()
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._link:
+                target, reason = self._resolve_target(position)
+                if target:
+                    self._finish_link(target)
+                    event.accept()
+                    return
+                port, node = self._port_near(position), self._node_at(position)
+                if port is not None and port.output:
+                    self._begin_link(port, position)
+                elif node is not None:
+                    self._press_position, self._dragging = position, False
+                    self._target_port = None
+                    self._link[1].hide()
+                    self._port_hints()
+                    self.message.emit(reason)
+                else:
+                    self._cancel_link()
+                    self.message.emit("")
+                event.accept()
+                return
+            port = self._port_near(position)
+            node = self._node_at(position)
+            if port is not None and port.output:
+                self._begin_link(port, position)
+            elif self.connect_mode and node is not None:
+                if len(node.output_ports) == 1:
+                    self._begin_link(next(iter(node.output_ports.values())), position)
+                else:
+                    self.message.emit("Choose an output port on this module." if node.output_ports else "This module has no output.")
+            else:
+                super().mousePressEvent(event)
+                return
             event.accept()
             return
         super().mousePressEvent(event)
 
     def _finish_link(self, port):
-        source = self._link[0]
-        edge = {"source": source.node.node["id"], "source_port": source.name,
-                "target": port.node.node["id"], "target_port": port.name}
+        edge = self._edge(self._link[0], port)
         self._cancel_link()
         self.connect_requested.emit(edge)
 
     def mouseMoveEvent(self, event):
         if self._link:
-            self._link[1].setPath(self.curve(self._link[0].scenePos(), self.mapToScene(event.position().toPoint())))
+            position = event.position().toPoint()
+            if event.buttons() & Qt.MouseButton.LeftButton and (position - self._press_position).manhattanLength() >= QApplication.startDragDistance():
+                self._dragging = True
+            target, _ = self._resolve_target(position)
+            if target is not self._target_port:
+                self._target_port = target
+                self._port_hints()
+            end = target.scenePos() if target else self.mapToScene(position)
+            self._link[1].setPath(self.curve(self._link[0].scenePos(), end))
+            self._link[1].setVisible(self._dragging or target is not None)
+            event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        item = self.itemAt(event.position().toPoint())
-        if self._link and isinstance(item, PortItem) and not item.output:
-            self._finish_link(item)
+        if self._link and event.button() == Qt.MouseButton.LeftButton:
+            position = event.position().toPoint()
+            target, reason = self._resolve_target(position)
+            if target:
+                self._finish_link(target)
+            elif self._dragging or (position - self._press_position).manhattanLength() >= QApplication.startDragDistance():
+                self._cancel_link()
+                self.message.emit(reason)
+            else:
+                self._link[1].hide()
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
         positions = self.positions()
         if positions != self._positions:
@@ -291,7 +464,7 @@ class KitchenCanvas(QGraphicsView):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
-            self._cancel_link()
+            self.set_connect_mode(False)
             event.accept()
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_requested.emit()
@@ -308,6 +481,19 @@ class KitchenCanvas(QGraphicsView):
             event.accept()
         else:
             super().keyPressEvent(event)
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
+            self._cancel_link()
+            if self.connect_mode:
+                self.connect_mode = False
+                self.connect_mode_changed.emit(False)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().changeEvent(event)
+
+    def hideEvent(self, event):
+        self._cancel_link()
+        super().hideEvent(event)
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
