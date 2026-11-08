@@ -18,7 +18,7 @@ def test_timeline_has_chronological_unique_sourced_records_and_all_readings():
     entries = timeline_entries()
     papers = paper_specs()
     ids = [entry["id"] for entry in entries]
-    assert len(entries) >= 35
+    assert len(entries) >= 120
     assert len(ids) == len(set(ids))
     assert [entry["year"] for entry in entries] == sorted(entry["year"] for entry in entries)
     assert entries[0]["year"] == -350 and entries[-1]["year"] == 2025
@@ -29,10 +29,10 @@ def test_timeline_has_chronological_unique_sourced_records_and_all_readings():
     assert len(known_papers) == len(papers) == 6
     linked = set()
     for entry in entries:
-        assert set(entry) == {"id", "year", "date", "era", "title", "people", "summary", "significance",
-                              "connections", "sources", "paper_ids"}
+        assert set(entry) == {"id", "year", "date", "era", "track", "short_title", "title", "people",
+                              "summary", "significance", "connections", "sources", "paper_ids"}
         assert all(isinstance(entry[key], str) and entry[key] for key in (
-            "id", "date", "era", "title", "people", "summary", "significance"))
+            "id", "date", "era", "track", "short_title", "title", "people", "summary", "significance"))
         assert entry["connections"] and entry["sources"]
         assert set(entry["paper_ids"]) <= known_papers
         linked.update(entry["paper_ids"])
@@ -58,6 +58,49 @@ def test_catalog_dates_separate_field_birth_and_later_reading_exports():
     assert "export" in entries["illustrated-transformer"]["significance"]
     assert "explanatory" in entries["matrix-calculus"]["significance"]
     assert "endpoint" in entries["qwen3"]["significance"]
+
+
+def test_literature_balances_disciplines_and_includes_their_historical_roots():
+    entries = timeline_entries()
+    tracks = {track: [entry for entry in entries if entry["track"] == track]
+              for track in {entry["track"] for entry in entries}}
+    assert set(tracks) == {"Statistics", "Data science", "Computing", "AI", "Machine learning", "Deep learning"}
+    assert len(tracks["Statistics"]) >= 25
+    assert len(tracks["Data science"]) >= 20
+    assert len(tracks["Machine learning"]) >= 20
+    assert len(tracks["Deep learning"]) >= 25
+    assert min(entry["year"] for entry in tracks["Statistics"]) < 1700
+    assert min(entry["year"] for entry in tracks["Data science"]) < 1700
+    assert all(len(entry["short_title"]) <= 42 for entry in entries)
+    identities = {entry["id"] for entry in entries}
+    assert {"bayes", "legendre", "student", "neyman-pearson", "kolmogorov", "bootstrap", "fdr", "lasso",
+            "graunt", "playfair", "tukey-future", "relational-model", "cleveland-data-science", "tidy-data",
+            "pac-learning", "vc-theory", "gradient-boosting", "conformal", "transformer", "diffusion",
+            "alphafold2", "deepseek-r1"} <= identities
+
+
+def test_edition_preprint_and_software_publication_dates_are_explicit():
+    entries = {entry["id"]: entry for entry in timeline_entries()}
+    assert entries["de-moivre"]["year"] == 1738
+    assert "1718" in entries["de-moivre"]["significance"]
+    assert "1714" in entries["huygens"]["significance"]
+    for identity, year in (("vae", 2013), ("adam-optimizer", 2014), ("resnet", 2015),
+                           ("datasheets", 2018), ("model-cards", 2018), ("mamba", 2023)):
+        assert entries[identity]["year"] == year
+        assert "preprint" in entries[identity]["date"]
+    assert "2017" in entries["scipy-paper"]["significance"]
+    assert "2015" in entries["donoho-data-science"]["significance"]
+    assert "not" in entries["numpy-paper"]["significance"]
+
+
+def test_new_literature_sources_do_not_expand_the_local_file_allowlist(tmp_path):
+    entries = {entry["id"]: entry for entry in timeline_entries()}
+    assert entries["bootstrap"]["sources"]
+    assert not entries["bootstrap"]["paper_ids"]
+    (tmp_path / "bootstrap.pdf").write_bytes(b"not an explicitly cataloged local reading")
+    with pytest.raises(ValueError, match="catalog"):
+        resolve_paper("bootstrap", tmp_path)
+    assert not any(paper["available"] for paper in resolve_library(tmp_path))
 
 
 def test_catalog_callers_cannot_mutate_future_views():

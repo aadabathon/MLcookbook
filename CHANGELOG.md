@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 - 2026-11-08
+
+This release brings the implemented desktop, data, local-inference and research
+work since v1.0 together. Later roadmap stages remain deferred.
+
+- Research timeline: an offline curated chronology across statistics, computing, AI, machine learning, data science and deep learning, with six literature lanes, pan/zoom, an overview, search/era/field filters, keyboard selection, original-source actions and explicitly selected local PDFs. Navigation state is independent of analytical data; opening Research never initializes the scientific or inference runtime.
+
+- Data playground: explicit bounded queries to USGS earthquakes, Open Food Facts, NASA Exoplanet Archive, Census ACS and Open-Meteo weather. Preview warnings, roles, units and provenance before accepting a snapshot into Data. Completed captures export as CSV or typed Parquet with a redacted source sidecar; downloads do not refetch. NASA discovery-method/completeness filtering occurs before the row cap.
+
+- Local LLM Research lab: bounded GGUF inventory/file comparison, actual pinned llama.cpp CPU prefill/decode graph capture and exploration, phase comparison, and serial server performance trials. Requested/applied settings and client/backend measurement scopes remain explicit. Independent checked `.mlcl` archives reopen offline, and JSON export retains evidence. Kernel/device profiling, numerical weight/activation samples, token tools, evaluation sweeps, embeddings and Kitchen LLM nodes remain later stages.
+
+- Dataset-first workbench: read-only SQLite query preview/import, schema-driven handoffs to existing analyses, persistent Activity/error details, and portable Python reproduction of completed linear-regression runs. Optional Programming adds a script editor, Jupyter QtConsole and real embedded JupyterLab notebooks using a selected Python environment, with explicit dataset snapshot exchange, preview/acceptance and kernel recovery. See WORKBENCH.md for setup and supported boundaries.
 
 - Kitchen vector composition: named dataset/vector/analysis ports; column and missing-mask outputs; row-local arithmetic/comparisons, dataset assembly/filtering, summaries, correlation and linear regression beside model comparison. Exact positional lineage preserves duplicate indices. Full completed outputs and stale input provenance use version-2 `.mlck` checked Parquet artifacts, with version-1 preview loading retained. Completed outputs can be exported or explicitly reused as active data. Final completion-pass validation is recorded in ADAM.md.
 

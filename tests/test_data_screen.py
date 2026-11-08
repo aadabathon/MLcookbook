@@ -158,3 +158,122 @@ def test_csv_labels_do_not_overlap_controls_in_a_narrow_workspace(screen, qt):
     assert labels["Delimiter"].geometry().right() < screen.delimiter.geometry().left()
     assert screen.delimiter.geometry().right() < labels["Encoding"].geometry().left()
     assert labels["Encoding"].geometry().right() < screen.encoding.geometry().left()
+
+
+def _workflow_discovery(target=None, features=None):
+    return {"columns": [
+        {"name": "identifier", "role": "categorical", "dtype": "string", "suggested": False,
+         "reason": "Looks like a row identifier; initially excluded."},
+        {"name": "mixedCase", "role": "numeric", "dtype": "float64", "suggested": True,
+         "reason": "Numeric storage; review its meaning."},
+    ], "context": {"target": target, "features": ["mixedCase"] if features is None else features,
+                   "group_column": None, "time_column": None},
+        "workflows": [
+        {"key": "association-scan", "label": "Association scan", "intent": "relationships", "task": "unsupervised",
+         "available": False, "reason": "Select at least two columns.", "warnings": []},
+        {"key": "linear-regression", "label": "Linear regression · OLS / ridge / lasso", "intent": "regression",
+         "task": "regression", "available": target == "mixedCase", "reason": "Ready." if target else "Select a numeric target.", "warnings": []},
+        {"key": "pca", "label": "Principal component analysis", "intent": "structure", "task": "unsupervised",
+         "available": True, "reason": "Choose settings in the recipe, then run explicitly.", "warnings": []},
+    ], "warnings": []}
+
+
+def test_sqlite_is_an_explicit_action_and_busy_locks_it(screen):
+    calls = []
+    screen.sqlite_requested.connect(lambda: calls.append(True))
+    screen.sqlite_button.click()
+    assert calls == [True]
+    screen.set_busy(True)
+    assert not screen.sqlite_button.isEnabled()
+    screen.sqlite_button.click()
+    assert calls == [True]
+
+
+def test_workflows_render_plain_requirements_and_keep_identifiers_explicit(screen, qt):
+    from PySide6.QtCore import Qt
+
+    view = _view()
+    view["workflows"] = _workflow_discovery()
+    original = deepcopy(view)
+    screen.set_dataset(view)
+    qt.processEvents()
+    assert view == original
+    assert screen.workflow_panel.isVisible()
+    assert screen.workflow_columns.item(0, 0).checkState() == Qt.CheckState.Unchecked
+    assert "identifier" in screen.workflow_columns.item(0, 0).toolTip()
+    assert not screen.workflow_open.isEnabled()
+    assert screen.workflow_reason.text() == "Select at least two columns."
+    assert "review its meaning" in screen.columns_table.item(1, 1).toolTip()
+
+
+def test_workflow_handoff_has_exact_choices_and_waits_for_fresh_core_validation(screen):
+    from PySide6.QtCore import Qt
+
+    screen.set_dataset(_view())
+    screen.set_workflows(_workflow_discovery())
+    edits, opens = [], []
+    screen.workflow_context_changed.connect(lambda context: edits.append(context))
+    screen.workflow_requested.connect(lambda key, context: opens.append((key, context)))
+    screen.workflow_intent.setCurrentIndex(screen.workflow_intent.findData("regression"))
+    screen.workflow_target.setCurrentIndex(screen.workflow_target.findData("mixedCase"))
+    screen.workflow_columns.item(0, 0).setCheckState(Qt.CheckState.Checked)
+    assert edits[-1] == {"target": "mixedCase", "features": ["identifier"], "group_column": None, "time_column": None}
+    assert not screen.workflow_open.isEnabled()
+    screen.set_workflows(_workflow_discovery("mixedCase", ["identifier"]))
+    screen.workflow_open.click()
+    assert opens == [("linear-regression", {**edits[-1], "task": "regression"})]
+    screen.workflow_columns.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+    screen._workflow_method_changed()
+    assert not screen.workflow_open.isEnabled()  # A method change cannot revive stale applicability.
+    screen._open_workflow()
+    assert len(opens) == 1
+
+
+def test_workflow_state_restores_separately_from_import_options_and_source_roles(screen):
+    from PySide6.QtCore import Qt
+
+    screen.set_dataset(_view())
+    screen.set_workflows(_workflow_discovery())
+    before = screen.import_options()
+    source = screen.columns_table.item(1, 1).text()
+    state = {"intent": "regression", "target": "mixedCase", "features": ["identifier"],
+             "group_column": "identifier", "time_column": None, "method": "linear-regression",
+             "inputs_expanded": True, "context_expanded": True}
+    changes = []
+    screen.workflow_context_changed.connect(changes.append)
+    screen.restore_workflow_state(state)
+    assert screen.workflow_state() == state
+    assert len(changes) == 1
+    assert changes[0] == {"target": "mixedCase", "features": [], "group_column": "identifier", "time_column": None}
+    assert screen.workflow_columns.item(0, 0).checkState() == Qt.CheckState.Unchecked
+    assert "evaluation context" in screen.workflow_columns.item(0, 0).toolTip()
+    assert screen.import_options() == before
+    assert screen.columns_table.item(1, 1).text() == source
+
+
+def test_unsupervised_intent_does_not_hide_an_excluded_target(screen):
+    screen.set_dataset(_view())
+    screen.set_workflows(_workflow_discovery())
+    screen.workflow_intent.setCurrentIndex(screen.workflow_intent.findData("regression"))
+    screen.workflow_target.setCurrentIndex(screen.workflow_target.findData("mixedCase"))
+    assert screen.workflow_context()["features"] == []
+    screen.workflow_intent.setCurrentIndex(screen.workflow_intent.findData("structure"))
+    assert screen.workflow_context() == {"target": None, "features": ["mixedCase"], "group_column": None, "time_column": None}
+
+
+def test_workflow_controls_fit_narrow_content_and_busy_preserves_choices(screen, qt):
+    screen.resize(650, 700)
+    screen.set_dataset(_view())
+    screen.set_workflows(_workflow_discovery())
+    screen.workflow_columns_toggle.setChecked(True)
+    screen.workflow_context_toggle.setChecked(True)
+    qt.processEvents()
+    before = screen.workflow_state()
+    content = screen.scroll.widget()
+    assert content.width() <= screen.scroll.viewport().width()
+    assert screen.workflow_panel.width() <= screen.scroll.viewport().width()
+    screen.set_busy(True)
+    assert not screen.workflow_panel.isEnabled()
+    assert screen.workflow_state() == before
+    screen.set_busy(False)
+    assert screen.workflow_panel.isEnabled()

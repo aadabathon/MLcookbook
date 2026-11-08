@@ -72,3 +72,17 @@ jobs:
       - run: pip install -e ".[dev,gui,llm]"
       # Real tiny checkpoints are constructed in tests; no model downloads.
       - run: pytest tests/test_llm.py tests/test_ollama.py tests/test_llamacpp.py tests/test_llm_workflow.py tests/test_app_import.py -k "llm or ollama or llamacpp or workflow"
+
+  programming:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,gui,programming]"
+      # Real local kernels and notebook files; no external server or models.
+      - run: pytest tests/test_programming.py tests/test_programming_screen.py tests/test_workbench_programming_app.py

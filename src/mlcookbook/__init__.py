@@ -60,7 +60,7 @@ if _TYPE_CHECKING:
         load_wearable_study,
     )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "WearableEvaluationResult", "WearableImportReport", "evaluate_wearable", "load_wearable_study",

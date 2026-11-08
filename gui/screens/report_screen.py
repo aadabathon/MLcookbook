@@ -91,6 +91,7 @@ class ReportScreen(QWidget):
     configuration_changed = Signal()
     example_requested = Signal()
     workspace_requested = Signal()
+    python_requested = Signal()
 
     def __init__(
         self,
@@ -145,6 +146,11 @@ class ReportScreen(QWidget):
         navigation = QHBoxLayout()
         navigation.addWidget(back)
         navigation.addStretch()
+        self.python_button = QPushButton("Python for this run")
+        self.python_button.clicked.connect(self.python_requested)
+        self.python_button.hide()
+        self.python_button.setEnabled(False)
+        navigation.addWidget(self.python_button)
         about = QPushButton("Recipe reference")
         about.clicked.connect(self._about)
         navigation.addWidget(about)
@@ -822,6 +828,7 @@ class ReportScreen(QWidget):
     def show_report(self, report: dict, *, request: dict | None = None):
         self._report = deepcopy(report)
         self._report_request = deepcopy(self.request() if request is None else request) if report else None
+        self.python_button.setEnabled(bool(report))
         old = self.report_widget
         self.report_widget = self._build_report(report)
         self.result_layout.replaceWidget(old, self.report_widget)

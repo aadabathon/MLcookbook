@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,6 +121,53 @@ def test_choose_library_refreshes_only_research(controller, monkeypatch, tmp_pat
     assert controller.research_directory == tmp_path
 
 
+@pytest.mark.parametrize("zoom", [1.0, 1.2])
+def test_full_timeline_pan_restores_after_installing_page_in_visible_shell(controller, monkeypatch, qt, zoom):
+    """A real shell resize must not overwrite the saved graph's distant pan."""
+    def flush():
+        qt.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        qt.processEvents()
+
+    opened = []
+    monkeypatch.setattr(app.QDesktopServices, "openUrl", lambda url: opened.append(url) or True)
+    controller.window.resize(1280, 860)
+    controller.window.show()
+    flush()
+    controller.navigate("research")
+    flush()
+    controller.screen.restore_session({"query": "", "era": "", "track": "", "view": "timeline",
+                                       "papers_only": False, "selected": "transformer", "scroll": 0})
+    flush()
+    graph = controller.screen.graphic
+    graph.scale(zoom, zoom)
+    node = graph.node_items["transformer"]
+    graph.centerOn(node)
+    flush()
+    point = graph.mapFromScene(node.mapToScene(node.action_rect.center()))
+    assert graph.viewport().rect().contains(point)
+    QTest.mouseClick(graph.viewport(), Qt.MouseButton.LeftButton, pos=point)
+    flush()
+    expected = controller.screen.session_state()
+    assert expected["graphic"]["x"] > 5000 and expected["graphic"]["y"] > 0
+    assert len(opened) == 1
+    controller.navigate("data")
+    flush()
+    controller.navigate("research")
+    for _ in range(3):
+        flush()
+    assert controller.screen.session_state() == expected
+    assert len(opened) == 1
+    assert not controller.screen._restore_pending
+    # A later hide/show must not replay that old saved position over a new pan.
+    controller.screen.graphic.horizontalScrollBar().setValue(expected["graphic"]["x"] - 200)
+    changed = controller.screen.graphic.view_state()
+    controller.screen.hide()
+    controller.screen.show()
+    flush()
+    assert controller.screen.graphic.view_state() == changed
+
+
 def test_research_actions_and_navigation_lock_during_existing_jobs(controller, qt, monkeypatch):
     opened = []
     monkeypatch.setattr(app.QDesktopServices, "openUrl", lambda url: opened.append(url) or True)
@@ -172,3 +220,40 @@ def test_research_is_offline_and_opens_without_scientific_or_inference_imports()
                                text=True, encoding="utf-8", timeout=30)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "Research opens offline" in completed.stdout
+
+
+def test_timeline_card_opens_checked_local_paper_then_online_source(controller, monkeypatch, tmp_path, qt):
+    from mlcookbook.research import paper_specs, resolve_library, timeline_entries
+
+    paper = next(item for item in paper_specs() if item["id"] == "transformer")
+    entry = next(item for item in timeline_entries() if "transformer" in item["paper_ids"])
+    path = tmp_path / paper["filename"]
+    path.write_bytes(b"%PDF-1.4\n")
+    opened = []
+    monkeypatch.setattr(app.QDesktopServices, "openUrl", lambda url: opened.append(url) or True)
+    controller.research_directory = tmp_path
+    controller.navigate("research")
+    controller.window.show()
+    controller.screen.search.setText(paper["title"])
+    qt.processEvents()
+    assert opened == []
+
+    def click_reading():
+        graph = controller.screen.graphic
+        node = graph.node_items[entry["id"]]
+        graph.centerOn(node)
+        qt.processEvents()
+        point = graph.mapFromScene(node.mapToScene(node.action_rect.center()))
+        assert graph.viewport().rect().contains(point)
+        QTest.mouseClick(graph.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        qt.processEvents()
+
+    click_reading()
+    assert len(opened) == 1 and opened[0].isLocalFile()
+    assert Path(opened[0].toLocalFile()) == path.resolve()
+    path.unlink()
+    controller.screen.set_library(resolve_library(tmp_path), str(tmp_path))
+    click_reading()
+    assert len(opened) == 2 and not opened[1].isLocalFile()
+    assert opened[1].toString() == entry["sources"][0]["url"]
+    assert controller.imported is None and controller.job is None

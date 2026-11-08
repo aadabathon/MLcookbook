@@ -19,7 +19,7 @@ def build_workspace(tmp_path):
     workspace.mkdir()
     shutil.copy2(ROOT / "build_windows.ps1", workspace / "build_windows.ps1")
     venv.EnvBuilder(with_pip=False).create(workspace / ".venv")
-    for name in ("torch", "transformers"):
+    for name in ("torch", "transformers", "qtconsole", "jupyter_client"):
         (workspace / f"{name}.py").write_text("__version__ = 'test-runtime'\n", encoding="utf-8")
     package = workspace / "PyInstaller"
     package.mkdir()
@@ -108,6 +108,12 @@ def test_preview_build_preserves_the_original_bundle(build_workspace):
                            if value == "--exclude-module"]
     assert Path(invocation["args"][-1]) == workspace / "app.py"
     assert invocation["args"][invocation["args"].index("--collect-submodules") + 1] == "mlcookbook"
+    hidden = [invocation["args"][index + 1] for index, value in enumerate(invocation["args"]) if value == "--hidden-import"]
+    assert {"qtconsole.rich_jupyter_widget", "qtconsole.client", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore"} <= set(hidden)
+    metadata = [invocation["args"][index + 1] for index, value in enumerate(invocation["args"]) if value == "--copy-metadata"]
+    # KernelManager discovers its LocalProvisioner through this distribution's
+    # entry points; module collection alone is insufficient in the frozen app.
+    assert {"mlcookbook", "jupyter_client"} <= set(metadata)
     assert Path(invocation["args"][invocation["args"].index("--icon") + 1]) == workspace / "gui" / "assets" / "mlcookbook.ico"
     assets = invocation["args"][invocation["args"].index("--add-data") + 1]
     assert Path(assets.split(";")[0]) == workspace / "gui" / "assets"

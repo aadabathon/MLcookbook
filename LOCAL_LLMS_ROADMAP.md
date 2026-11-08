@@ -4,6 +4,13 @@ Requested by Adam on 2026-10-29, with the initial inspection/performance impleme
 
 This document plans the work; it does not implement the milestones or authorize implementing them merely because they appear here. Deliver explicitly requested stages end to end: core, native GUI, persistence, tests, documentation and Windows preview verification. Effort sizes below are relative, not delivery dates.
 
+**v1.1 scope — 2026-11-08:** the first inspection/performance delivery below is
+included in v1.1. The remaining full-stage criteria are deferred beyond that
+release, including native benchmarks/profiles, numerical weights/activations,
+token tools, evaluations, profiling, embeddings/retrieval and Kitchen LLM nodes.
+The original checklists retain their broader scope: an unchecked item can have
+a delivered subset and is not evidence that the existing lab is absent.
+
 ## First inspection/performance delivery — 2026-10-29
 
 The first vertical slice of stages 0–3a now has a native Research lab: bounded GGUF inventory and file comparison; actual CPU prefill/decode capture with tensor dependency exploration and phase comparison; serial server performance trials with warmups, explicit requested cache policies, separate client/backend measurements and failure/cancellation accounting; and checked offline `.mlcl` saves plus JSON export. See [the research guide](LLM_RESEARCH.md).

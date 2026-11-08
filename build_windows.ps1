@@ -42,7 +42,7 @@ if ($Preview) {
 if (-not (Test-Path -LiteralPath $captureHelper) -or -not (Test-Path -LiteralPath $captureLicense)) {
     throw 'Build the graph capture helper first: ./tools/llama_research/build.ps1 (requires an installed Visual Studio x64 C++ toolchain and the vendored license).'
 }
-& $buildPython -c "import torch, transformers, PyInstaller; print('Build runtime:', torch.__version__, transformers.__version__)"
+& $buildPython -c "import torch, transformers, PyInstaller, qtconsole, jupyter_client; print('Build runtime:', torch.__version__, transformers.__version__)"
 if ($LASTEXITCODE -ne 0) { throw 'The LLM build runtime is unavailable.' }
 $savedBuildPath = $env:PATH
 $savedBuildCache = $env:PYINSTALLER_CONFIG_DIR
@@ -61,6 +61,10 @@ try {
         --icon $buildIcon --add-data "$buildAssets;gui/assets" --paths $buildRoot --paths $buildSource `
         --add-binary "$captureHelper;tools/llama_research" --add-data "$captureLicense;tools/llama_research" `
         --collect-all pyarrow --collect-data transformers --collect-submodules mlcookbook `
+        --collect-data qtconsole --collect-submodules pygments.lexers --copy-metadata mlcookbook `
+        --copy-metadata jupyter_client `
+        --hidden-import qtconsole.rich_jupyter_widget --hidden-import qtconsole.client `
+        --hidden-import PySide6.QtWebEngineWidgets --hidden-import PySide6.QtWebEngineCore `
         --copy-metadata torch --copy-metadata transformers --copy-metadata tokenizers `
         --copy-metadata safetensors --copy-metadata huggingface-hub `
         --hidden-import transformers.models.gpt2.modeling_gpt2 `
