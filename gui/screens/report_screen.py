@@ -310,6 +310,10 @@ class ReportScreen(QWidget):
 
     def _build_form(self, report: dict) -> QWidget:
         panel = QWidget()
+        # Let the viewport set the width so nested forms can wrap their labels.
+        policy = panel.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        panel.setSizePolicy(policy)
         form = QVBoxLayout(panel)
         form.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, 0)
         form.setSpacing(theme.SPACE_XS)

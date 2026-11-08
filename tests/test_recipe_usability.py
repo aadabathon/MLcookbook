@@ -310,10 +310,10 @@ def test_local_llm_backend_visibility_and_saved_output_survive_shared_form_chang
         _dispose(screen)
 
 
-@pytest.mark.parametrize("backend,input_mode", [
-    ("pytorch", "prompt"), ("ollama", "rows"), ("llamacpp", "prompt"),
-])
-def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, input_mode):
+@pytest.mark.parametrize("backend", ["pytorch", "ollama", "llamacpp"])
+@pytest.mark.parametrize("input_mode", ["prompt", "rows"])
+@pytest.mark.parametrize("start_wide", [False, True])
+def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, input_mode, start_wide):
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QFont
 
@@ -330,13 +330,17 @@ def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, i
         screen.param_widgets["backend"].setCurrentIndex(screen.param_widgets["backend"].findData(backend))
         screen.param_widgets["input_mode"].setCurrentIndex(screen.param_widgets["input_mode"].findData(input_mode))
         window.show_screen(screen)
-        window.resize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
+        window.resize(theme.WINDOW_MIN_WIDTH + (320 if start_wide else 0), theme.WINDOW_MIN_HEIGHT)
         window.show()
         qt.processEvents()
+        if start_wide:
+            window.resize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
+            qt.processEvents()
         window.grab()
         qt.processEvents()
         assert window.width() == theme.WINDOW_MIN_WIDTH
         viewport = screen.form_panel.viewport()
+        assert screen.form_panel.widget().width() <= viewport.width()
         visible = []
         for key, row in screen.param_rows.items():
             for widget in row:

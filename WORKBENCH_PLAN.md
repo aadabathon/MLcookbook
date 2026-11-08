@@ -7,7 +7,7 @@ the resulting interface and supported behavior.
 As of 2026-11-08, all five stages are implemented and verified: read-only SQLite intake,
 schema-driven handoffs, Activity and linear-regression code reproduction, a
 selected-environment kernel, and the script/console/real-notebook workspace.
-The final source suite passed 1,068 tests with one skip on 2026-11-04. Fresh
+The final source suite passed 1,077 tests with one skip on 2026-11-08. Fresh
 Windows candidate checks passed on 2026-11-08, including offline SQLite
 reopening/Python reproduction, genuine notebooks, cross-session snapshot
 returns, owned-process cleanup and real local inference. Delivery evidence is
