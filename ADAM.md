@@ -68,8 +68,9 @@ The exact extracted executable opened responsively with Python removed from
 PATH: Data, empty Programming without starting a kernel, and all 130 Research
 milestones were inspected interactively. Normal close returned exit 0.
 `release-package-validation.json` and `native-release-launch.json` retain these
-results under `build/v1.1.0/`. GitHub publication is pending. The installed
-`dist/MLcookbook` shortcut bundle is preserved.
+results under `build/v1.1.0/`. See [GitHub releases](https://github.com/aadabathon/MLcookbook/releases)
+for publication status and downloads. The installed `dist/MLcookbook` shortcut
+bundle is preserved.
 
 ## Research timeline — 2026-10-30
 
