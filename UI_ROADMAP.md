@@ -2,6 +2,11 @@
 
 Requested by Adam on 2026-10-24. UI and dataset workflow improvements take priority over REST endpoints, the graph workshop, and further feature expansion.
 
+**v1.1 status — 2026-11-08:** stages 0–6 and the subsequent purple/math and
+ink-black/violet styling corrections are complete. This document preserves the
+accepted delivery criteria and verification history; it is not an open feature
+list for v1.1.
+
 ## Product direction
 
 ML Cookbook is an application for general graduate-level statistics, data science, and ML workflows. Make data, configuration, execution, and results straightforward to locate and operate. Adam's learning environment as an author does not imply a tutorial-first product.
@@ -19,7 +24,9 @@ Keep native PySide6 / Qt Widgets, the recipe catalog/cards, and the analytical w
 
 ## Delivery order
 
-Implement one explicitly requested stage at a time, with relevant tests, native inspection, documentation, and a runnable preview build when application code changes. Each stage is independently reviewable and reversible. This document creates the plan; it does not mark the redesign as implemented.
+The completed stages below were delivered with relevant tests, native inspection,
+documentation and runnable preview builds. Each stage remains independently
+reviewable and reversible; completion evidence follows its original criteria.
 
 | Stage | Scope | Review checkpoint |
 |---|---|---|

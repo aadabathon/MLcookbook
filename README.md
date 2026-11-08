@@ -2,6 +2,13 @@
 
 A statistics, data science, and classical machine-learning workbench for arbitrary tabular datasets — and a learning environment for building one deliberately.
 
+Start on **Data** with CSV, Parquet or a read-only SQLite query. Schema-aware
+workflow choices carry selected columns into existing recipes. **Activity**
+retains operation/error details, completed linear-regression runs export portable
+Python plus their data, and the optional **Programming** workspace provides a
+Python console, script editor and embedded Jupyter notebooks. See the
+[workbench guide](WORKBENCH.md) for data exchange, environments and saved files.
+
 **New to the app? Start with the [recipe tutorial](TUTORIAL.md):** all twelve recipes, one reusable practice CSV, how to read results, all three local LLM engines, and a repeatable prompt-research walkthrough.
 
 The core idea: you hand the library a pandas DataFrame, it gives you a typed `Dataset`, and every analysis returns a **structured, JSON-serializable result object** instead of printing or plotting. That keeps the analytical core independent of notebooks, CLIs, and web frontends, so it can later sit unchanged behind a FastAPI service.
@@ -69,11 +76,20 @@ Run `python examples/basic_usage.py` for a complete tour.
 
 ### Windows desktop download
 
-Download `MLcookbook-v1.0.0-windows-x64.zip` from the [v1.0.0 release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0), extract the entire archive, and open `MLcookbook/MLcookbook.exe`. Keep the adjacent `_internal` folder with the executable. Python is bundled; no separate Python installation is needed.
+The v1.1.0 Windows package is `MLcookbook-v1.1.0-windows-x64.zip`; published
+packages and checksums are listed on the [GitHub releases page](https://github.com/aadabathon/MLcookbook/releases).
+Extract the entire archive and open `MLcookbook/MLcookbook.exe`. Keep the adjacent
+`_internal` folder with the executable. Python and the desktop runtime are bundled.
+Optional Programming uses a separately selected compatible Python environment;
+local generation also needs a chosen model or an existing local model server.
 
-That release predates the current Data-first UI and local LLM workflows. Current repository builds include them.
-
-Start with a built-in demo or import CSV/Parquet data. **Save experiment** writes a `.mlcb` snapshot of the dataset, current recipe settings, and last report; **Open experiment** restores it. See the [release notes](CHANGELOG.md) for the v1 scope.
+Start on **Data** to import or query a dataset, or choose **Run example** inside a
+classical recipe. **Save experiment** writes a `.mlcb` snapshot of the effective
+dataset, recipe settings and last report; **Open experiment** restores it offline.
+Kitchen and the Local LLM Research lab retain their own save formats. See the
+[v1.1 release notes](CHANGELOG.md#110---2026-11-08) for scope. The historical
+[v1.0.0 release](https://github.com/aadabathon/MLcookbook/releases/tag/v1.0.0)
+predates the current Data-first UI, local LLMs and workbench additions.
 
 ### From source
 
@@ -94,6 +110,11 @@ pytest
 |---|---|
 | `core` | `Dataset`, schema/type inference (`VarType`), overrides, data-quality checks (`quality.py`), result serialization (`Result`, `to_jsonable`) |
 | `io` | `load_dataset` / `load_dataset_with_report`: flat CSV/Parquet into a `Dataset`, with an `ImportReport` of every conversion |
+| `sqlite_io` | Submodule-only read-only table/view discovery and bounded/cancellable SQL query snapshots |
+| `workflows` | Submodule-only schema/profile preflight for existing recipes, plain availability reasons and scoped input context; no fitting |
+| `reproduction` | Portable completed linear-regression Python, checked typed data and recorded settings |
+| `programming` | Lazy optional external Python kernel/JupyterLab lifecycle and explicit typed dataset exchange |
+| `activity` | Standard-library bounded coordinator history and rotating diagnostic files; analytical functions remain silent |
 | `gathering` | Submodule-only `source_specs` / `fetch_dataset`: five bounded public-data connectors, typed snapshots and frozen JSON-safe query/units/retrieval provenance |
 | `preprocessing` | `PreprocessingConfig`, `build_preprocessor` (unfitted `ColumnTransformer`), `describe_preprocessor` (fitted values per column), `resolve_features` (shared feature selection + quality warnings) |
 | `evaluation` | `regression_metrics`, `classification_metrics` (binary or macro-averaged multiclass, per-class metrics), `cross_validate_pipeline` |
@@ -148,7 +169,13 @@ Copy the shape of an existing one:
 
 ## Desktop app
 
-The [UI roadmap](UI_ROADMAP.md) now includes a persistent sidebar with **Data** first, followed by **Data playground**, **Recipes**, **Kitchen**, **Local LLMs** and **Movement Study**. The app opens on Data: import CSV/Parquet, inspect the first 20 rows, source roles, missing values and data checks, then choose a recipe. The sidebar identifies the active dataset; each recipe also identifies its own input. Typed prompts and fixed-group movement studies retain their separate input context.
+The completed [UI roadmap](UI_ROADMAP.md) provides a persistent sidebar with
+**Data** first, alongside **Data playground**, **Recipes**, **Kitchen**,
+**Local LLMs**, **Research**, **Programming** and **Movement Study**. The app opens
+on Data: import CSV/Parquet or query SQLite, inspect the preview, source roles,
+missing values and data checks, then choose a workflow. The sidebar identifies
+the active dataset; each recipe also identifies its own input. Typed prompts and
+fixed-group movement studies retain their separate input context.
 
 Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening an ordinary saved experiment makes its embedded snapshot active, while opening a Movement Study snapshot retains any existing ordinary dataset. Data's CSV options persist separately from recipe controls.
 
@@ -208,9 +235,35 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
+Start on **Data** to import CSV, Parquet or a read-only SQLite query, inspect the
+schema and choose **Analyze this dataset**. Task, target and predictor choices
+carry into an existing recipe without running it. Explicit group/time context
+blocks workflows that assume independent rows; general grouped and temporal
+evaluators remain separate work.
+
+### Programming
+
+Install the matching ML Cookbook version (1.1.0) and its `programming` extra in a
+real Python 3.12+ environment, then select its interpreter in **Programming**.
+The Windows bundle supplies the interface; the selected environment runs the
+code. The script editor and QtConsole share one kernel; real
+JupyterLab notebooks use their own kernels in a local embedded view. **Send
+active dataset** creates a copy. Returning code-created data requires publishing,
+previewing and choosing **Use dataset**. Ordinary `.py` and `.ipynb` files remain
+editable outside the app. See [WORKBENCH.md](WORKBENCH.md) for setup, kernel
+recovery and snapshot exchange. No programming runtime starts on app launch.
+
 ### Research timeline
 
-**Research** in the sidebar traces selected AI milestones and their earlier foundations, from formal reasoning through statistical learning and modern language models. Search by idea, person or workbench connection, filter by era, and select a dated entry for its significance and original sources. **Linked readings** connects the chronology to the six PDFs in `~/learning/books/papers/ai-ML`; **Papers folder…** can select another directory. Local PDFs and online sources open only through explicit reading actions. Timeline browsing works offline and preserves its own navigation state. See [the Research guide](RESEARCH.md).
+**Research** in the sidebar spans statistics, computing, AI, machine learning,
+data science and deep learning, from early foundations through modern language
+models. Pan and zoom the six-lane graphic, jump with its overview, or use the
+keyboard-accessible reading list. Search by idea, person or reading and filter
+by era/field. Each milestone explains its significance and links its original
+sources. **Linked readings** connects the chronology to the six catalog PDFs in
+`~/learning/books/papers/ai-ML`; **Papers folder…** can select another directory.
+Local PDFs and online sources open through explicit reading actions. Browsing
+works offline and preserves its own navigation state. See [the Research guide](RESEARCH.md).
 
 ### The Kitchen
 
@@ -271,14 +324,17 @@ comparison.to_dict()  # JSON-safe, including both candidates' CV metrics
 
 ### Local LLM generation with PyTorch
 
-This recipe is available in current source/local builds. The published v1.0.0 Windows download contains the ten classical recipes.
+This recipe is included in v1.1.0. The Windows bundle includes its CPU runtime;
+model weights remain external. The historical v1.0.0 download contains only the
+ten classical recipes.
 
-This optional recipe runs pretrained causal language models locally. Install the runtime in your project environment; for a CPU-only Windows build:
+This optional recipe runs pretrained causal language models locally. For source
+use or a CPU-only Windows build, install the runtime in your project environment:
 
 ```powershell
 py -3.12 -m venv .venv
 .venv/Scripts/python.exe -m pip install "torch>=2.6,<3" --index-url https://download.pytorch.org/whl/cpu
-.venv/Scripts/python.exe -m pip install -e ".[dev,gui,llm]"
+.venv/Scripts/python.exe -m pip install -e ".[dev,gui,llm,programming]"
 .venv/Scripts/python.exe -m mlcookbook
 ```
 
@@ -379,7 +435,7 @@ Server-reported token counts and millisecond timings remain distinct from local 
 
 **Local LLMs → Workspace → Research lab** adds GGUF tensor/metadata inspection, actual llama.cpp CPU prefill/decode graph capture and repeated server performance trials. Select operations to inspect shapes, strides, storage spans, aliases and producer/consumer dependencies. Performance views keep client latency, backend prompt/decode metrics, warmups, failed trials and cache-policy evidence separate. Research sessions save/reopen offline as independent `.mlcl` archives; Generate retains its existing `.mlcb` contract.
 
-Graph capture explicitly loads the selected model in a separate app-owned helper, using the verified Windows `b11193 / 4e7481175` runtime ABI. It records that execution's provenance and leaves existing servers alone. See [the research guide](LLM_RESEARCH.md) for controls, measurement interpretation, helper/runtime compatibility and building the preview; the [research roadmap](LOCAL_LLMS_ROADMAP.md) tracks later profiling, tokens, evaluations, embeddings and Kitchen work.
+Graph capture explicitly loads the selected model in a separate app-owned helper, using the verified Windows `b11193 / 4e7481175` runtime ABI. The v1.1 bundle includes the helper; compatible llama.cpp DLLs and model files remain external. It records that execution's provenance and leaves existing servers alone. See [the research guide](LLM_RESEARCH.md) for controls, measurement interpretation, helper/runtime compatibility and source-build instructions; the [research roadmap](LOCAL_LLMS_ROADMAP.md) tracks later profiling, tokens, evaluations, embeddings and Kitchen work.
 
 ### Repeatable LLM text-to-dataset workflows
 

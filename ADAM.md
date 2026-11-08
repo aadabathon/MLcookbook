@@ -4,6 +4,88 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## v1.1 candidate verification — 2026-11-08
+
+The v1.1 scope is the work already implemented since v1.0: the Data-first UI,
+Movement Study, local inference and structured workflows, Kitchen/vector
+composition, Data playground, the first Local LLM Research lab, the expanded
+Research timeline and the dataset-first workbench. The main and Local LLM
+roadmaps retain their later stages as deferred work. All five workbench stages
+are implemented and verified; archive delivery and publication complete the
+release rather than adding further features.
+
+The workbench connects read-only SQLite intake, schema-driven analysis entry,
+Activity/error details, completed linear-regression Python reproduction and an
+optional script/QtConsole/JupyterLab workspace. Data transfers use independent
+snapshots with explicit preview and acceptance. Saved notebooks identify their
+original bridge so a new session can return their published rows while the
+console retains its own snapshot. Opening a notebook never executes or rewrites
+its cells. Programming selects a real Python environment with the matching
+ML Cookbook 1.1.0 package; the frozen executable supplies the interface.
+
+Research now has **130 milestones across six literature tracks**. Restoration
+waits for the installed viewport layout, preserving distant pan and zoom across
+navigation. Explicit source/local-PDF actions and independent analytical data
+remain intact.
+
+Final source verification on **2026-11-08** passed **1,077 tests with one skip**
+for Windows symlink privileges in **327.297 seconds**, with no failures or
+errors and exit 0. Ruff, dependency and whitespace checks passed. Focused checks
+covered real notebook lifecycles, cross-session output identity, five Windows
+build cases and 30 Research screen/coordinator cases. The final native console
+contained no Windows COM structured-exception diagnostic. Evidence is in
+`source-qt-final-validation.json` and `pytest-qt-final-20261108.xml` under
+`build/v1.1.0/`.
+
+Release CI caught a five-pixel overflow in narrow Local LLM forms. The outer
+form panel now permits horizontal shrinking while every field retains its
+120-pixel minimum. The usability matrix covers three engines, two input modes
+and initial-narrow versus wide-to-narrow layouts: **12 containment cases**,
+within **33 passing offscreen usability tests**. Native checks passed all six
+engine/mode views at 100%/125%/150% scaling (**18 captures**), including the form
+scroller's actual content width. Core behavior, dependencies and saved state are
+unchanged by this layout correction.
+
+Fresh final-bundle acceptance on **2026-11-08** passed all three frozen-delivery
+tests in **82.115 seconds**, with no failures or errors. All
+**103 application/core/GUI modules** match compiled source, package
+metadata reports **1.1.0**, and all six Jupyter Client **8.10.0** metadata files
+and its provisioner entries match the selected build runtime. The bundled graph
+helper captured real SmolLM2 CPU prefill and decode graphs with **1,274 nodes per
+phase**. Exact frozen workflows passed 80-row SQLite import through regression,
+save/offline reopening without queries or fitting, exported Python reproduction,
+console snapshot exchange with leading-zero identifiers and duplicate indices,
+genuine unexecuted JupyterLab loading, saved-notebook returns after a new session,
+explicit preview/acceptance, owned kernel/server cleanup and real offline
+SmolLM2 generation. The probe recorded no callback errors and exited 0.
+
+The final frozen Research check also passed all seven checks: 130 cards/six
+tracks, actual local-PDF and source-widget actions, rejected arbitrary reading
+routes, exact pan/zoom/query/selection restoration, and offline/scientific-runtime
+import boundaries. Evidence is under ignored `build/v1.1.0/`, including
+`pytest-qt-final-20261108.xml`, `frozen-qt-release-20261108.xml` and
+`research/frozen-runtime.json`.
+
+Final candidate: `dist/ui-preview/MLcookbook/MLcookbook.exe`, SHA-256
+`05d7d2a22a532635f5bed4d8c830c25de5cb7bdfdb9d675d39d3e9d44ef70dc8`.
+The complete `dist/MLcookbook-v1.1.0-windows-x64.zip` contains **14,771 files**,
+with exact membership, CRC and SHA-256 checks and complete identity after fresh
+extraction. Its size is **478,470,443 bytes** (1,272,948,416 bytes extracted),
+and its SHA-256 is
+`cfafbf58693bed3dada48936f70b0a0eb8e251ad03c520d5337e6ab8a0f50635`.
+The adjacent `.sha256` file records that archive checksum.
+
+The exact extracted executable opened responsively with Python removed from
+PATH. Interactive checks covered Data and Local LLM typed-prompt setup,
+including responsive cold runtime initialization. Setup inspection triggered no
+generation, model loading or fetch. Normal close returned exit 0. Minimum-size
+LLM containment is supported by the separate automated native matrix above;
+the normal extracted-window check did not measure minimum-size geometry.
+`release-package-validation.json` and `native-release-launch.json` retain these
+results under `build/v1.1.0/`. See [GitHub releases](https://github.com/aadabathon/MLcookbook/releases)
+for publication status and downloads. The installed `dist/MLcookbook` shortcut
+bundle is preserved.
+
 ## Research timeline — 2026-10-30
 
 Requested sidebar history rooted in `~/learning/books/papers/ai-ML`. **Research** now presents **47** sourced milestones from approximate ancient formal-logic precursors through the Qwen3 report in 2025. The catalog distinguishes AI's organized emergence at Dartmouth in 1955–1956 from its earlier foundations and distinguishes original publication years from later PDF exports. It includes classical learning, neural networks, language models and accelerator-relevant TPU/FlashAttention/GQA developments. All six existing local readings are linked with their original authorship and source references.
@@ -13,6 +95,10 @@ The page has a chronological rail, search, era and linked-reading filters, selec
 Validation: **963 tests passed**, with one Windows symlink-creation privilege skip; the focused headless Research run passed **30** checks with the same skip. Ruff, dependency and diff checks passed. Native Windows QA checked 36 views at 100%/125%/150%, including minimum size, empty filters, unavailable PDFs, source actions and navigation restoration. The frozen runtime verified all 47 entries/six local PDFs, explicit catalog-only reading actions, offline operation and independent state without importing the scientific or inference runtime.
 
 Windows candidate: `dist/ui-preview/MLcookbook/MLcookbook.exe`, SHA-256 `2eb37258fc6bd4d3758c365c4aa402cd86ca77c2f53096730ff898856bcdb56b`. All **93** application/core/GUI modules match source; helper/license identities match, and the bundled helper captured real 1,274-node SmolLM2 prefill/decode phases. Launch/normal close passed with Python removed from PATH. The installed shortcut bundle is retained for preview review. Baseline, logs, native images and packaging evidence are under ignored `build/research-timeline-20261030/`.
+
+Post-merge installation, requested 2026-10-30: main was fast-forwarded to `497c876`, whose source tree matches the tested Research PR. A fresh build is now installed at **`dist/MLcookbook/MLcookbook.exe`**, the existing Desktop and Start Menu shortcut target; SHA-256 `9318b5b380c70f75815bc6fd37936e296b707eb2bf1c5559d01dec88f07ac7d9`. All 93 bundled modules match merged source. The installed frozen runtime verified 47 milestones, six local PDFs, explicit reading actions and offline navigation, then launched and closed normally from the shortcut's working directory with Python removed from PATH. The complete 6,218-file predecessor is preserved at `dist/ui-before-merged-research-install-20261030`; the original review preview is at `dist/ui-before-merged-research-preview-20261030`. Delivery evidence is under ignored `build/research-installed-20261030/`.
+
+Rebuild reminder: merging updates source code, while shortcuts open a frozen executable. `./build_windows.ps1 -Preview` makes a separate review bundle under `dist/ui-preview`; the ordinary installed target is `dist/MLcookbook`. After reviewing a preview, publish the complete verified bundle to that installed path so both existing shortcuts pick it up.
 
 ## Windows rebuild and follow-up delivery — 2026-10-30
 

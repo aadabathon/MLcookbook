@@ -2,13 +2,60 @@
 
 Originally features left for hands-on implementation; most were built at Adam's request on 2026-10-12 (marked [x]). Each should follow the existing patterns: schema-validated inputs, frozen result dataclasses with warnings, leakage-safe pipelines, sklearn/scipy for the math.
 
-## Current priority: desktop UI and dataset workflow
+## v1.1 release scope
+
+v1.1 closes the features already implemented since v1.0: the Data-first UI,
+Movement Study, local LLM engines and structured workflows, Kitchen/vector
+composition, Data playground, the initial Local LLM Research lab, Research
+timeline and dataset-first workbench. Final source and Windows candidate
+verification have passed; archive delivery and publication complete the release. See
+[the release notes](CHANGELOG.md) and [workbench plan](WORKBENCH_PLAN.md).
+
+Remaining work is deferred beyond v1.1, grouped here so release closure does not
+depend on completing every original proposal:
+
+- **Analysis and evaluation:** hyperparameter search, broader/classification
+  comparison, general grouped/temporal evaluation and public Dataset row helpers.
+- **Kitchen and runtimes:** LLM extraction/validation/derivation and embedding/
+  retrieval nodes, reusable Fit/Predict artifacts, and managed runtime profiles
+  with explicit process lifecycle support.
+- **Local LLM research:** remaining full-stage capability/inspection/trial
+  coverage, numerical weights, native benchmarks, token/sampling tools,
+  controlled evaluation sweeps, graph/device profiling and intermediate values,
+  embeddings/retrieval and their Kitchen integration. See the
+  [detailed research stages](LOCAL_LLMS_ROADMAP.md).
+- **Inputs and scale:** TSV/compressed CSV, Excel, JSON/JSONL, Feather, remote
+  databases and concrete larger-dataset workflows.
+- **Exports and infrastructure:** general standalone recipe metrics/predictions,
+  fitted-model persistence, a plotting API, FastAPI, mypy and property-based tests.
+
+Training/fine-tuning, multimodal/tool workflows and other research proposals also
+remain separate choices. Unchecked original stage criteria may include delivered
+subsets; completion notes identify what exists. Future scopes are not marked done.
+
+## Completed desktop UI and dataset workflow
 
 Adam requested the [UI roadmap](UI_ROADMAP.md) on 2026-10-24. The target is an intuitive graduate-level ML workspace: keep the recipe catalog and analytical widgets, put Data at the top of a persistent sidebar, make examples opt-in, and establish consistent typography/color/emphasis. Technical reference replaces API-first About content; a tutorial-first product is not the direction.
 
-The UI roadmap's baseline, visual, navigation, setup, report/reference, responsiveness and Windows-delivery stages are implemented. Stages 0–3 were merged in PR #1; PR #2 continues with recipe usability and startup. The verified bundle is installed at Adam's existing shortcut target, with the complete prior app preserved for rollback. This completes the requested UI pass; workflow graphs and further feature expansion remain separate requests. Movement Study work and saved experiments must survive implementation and rollback.
+The UI roadmap's baseline, visual, navigation, setup, report/reference, responsiveness and Windows-delivery stages are implemented. The verified UI bundle was installed at Adam's existing shortcut target, with the complete prior app preserved for rollback. Recipe navigation performs no analysis; explicit examples retain their own state and preserve ordinary data. This completes the requested UI pass. Movement Study work and saved experiments must survive later implementation and rollback.
 
-Stages 1–3 provide the shared visual system, Data-first sidebar and opt-in examples in a separate Windows preview. Recipe navigation performs no analysis; explicit examples retain their own state and preserve ordinary data. Forms/reference organization is the next stage.
+## Dataset-first workbench
+
+Adam explicitly authorized the complete [workbench plan](WORKBENCH_PLAN.md) on
+2026-11-03. Its five stages are implemented: read-only SQLite query intake,
+schema-driven entry into existing workflows, Activity/failure details, portable
+linear-regression Python reproduction, and optional script/QtConsole/JupyterLab
+programming with explicit snapshot exchange. [WORKBENCH.md](WORKBENCH.md)
+documents the supported interface and environment requirements. Final kernel
+lifecycle and fresh Windows candidate verification passed on 2026-11-08,
+including genuine notebooks, explicit cross-session snapshot returns, offline
+reopening and real local inference. All five stages are complete; [ADAM.md](ADAM.md)
+records the evidence. The complete Windows archive and freshly extracted
+application are also verified; GitHub publication completes release delivery.
+The installed shortcut bundle is preserved.
+
+This milestone does not add network database drivers, general grouped/time
+evaluation, arbitrary-Python Kitchen nodes or live Python-memory persistence.
 
 ## Local LLM research workbench
 
@@ -34,11 +81,13 @@ Effort includes core behavior, GUI, tests, persistence, documentation, and Windo
 | 1 | Ollama plugin | Complete locally | Installed local models, streamed prompts/rows, cancellation, saved/offline outputs |
 | 2 | llama.cpp plugin | Complete locally | Direct local GGUF server, SSE prompts/rows, cancellation, offline saved outputs |
 | 3 | Repeatable LLM data workflows | Complete locally | Bound templates, validated fields, derived snapshots, retries, saved-run comparison and export |
-| 4 | Workflow graph core and persistence | Large | Execute and reopen a small typed graph without depending on the GUI |
-| 5 | Graph editor and analysis inside Qt | Large | Build, run, inspect, edit, and reopen that graph visually |
-| 6 | Managed runtime setup | Optional, medium–large | Start/stop an explicitly configured runtime from the app |
+| 4 | Workflow graph core and persistence | Kitchen/vector scope delivered; LLM branch deferred | Execute and reopen a small typed graph without depending on the GUI |
+| 5 | Graph editor and analysis inside Qt | Kitchen/vector scope delivered; LLM inspection deferred | Build, run, inspect, edit, and reopen that graph visually |
+| 6 | Managed runtime setup | Deferred beyond v1.1 | Start/stop an explicitly configured runtime from the app |
 
-The Linux LLM CI runtime-library fix is included in the working tree; confirmation on GitHub awaits the next commit/push. Local tests cover both inference engines. The published v1.0.0 download predates the PyTorch/Ollama recipe; future release notes should distinguish local builds from published downloads.
+v1.1 includes the local PyTorch, Ollama and llama.cpp engines and structured
+workflows. The historical v1.0.0 download predates them; its scope remains in
+[the changelog](CHANGELOG.md#100---2026-10-19).
 
 Adam's long-term workshop goal includes elementary data-science/ML kernels that can be spliced into larger functions. Begin with the typed, auditable recipe operations below; expand toward smaller selection/transform/matrix/metric kernels as concrete workflows need them. An unrestricted arbitrary-Python node is outside the first graph format. Model architecture inspection for the Silicon Badgers research track is recorded separately at the end of this document.
 
@@ -161,7 +210,7 @@ Training/fine-tuning, embeddings/retrieval, multimodal tasks, and arbitrary Pyth
 - [ ] **Hyperparameter search** (e.g. choose alpha or max_depth by cross-validation, reported as a curve).
 - [x] **Fair model comparison, first scope**: ridge and random forest regression on the same materialized split and training folds, one CV comparison table/curve; select by mean CV RMSE and evaluate only the selected model on the test rows. Exact row/fold membership is retained. Built at Adam's request on 2026-10-17; other algorithms and classification comparison remain future extensions.
 - [x] **SVM and neural-network recipes**: `svm`/`svm_regression` (kernels, support vectors, standardized SVR target) and `neural_network`/`neural_network_regression` (scikit-learn MLP with loss and early-stopping validation curves).
-- [x] **Local LLM inference, first scope**: PyTorch + Transformers generation from local GPT-2/Llama/Qwen2/Qwen3 safetensors checkpoints, typed prompts or bounded text-column rows, chat templates, decoding controls/cancellation, model/runtime provenance, and saved outputs. Built at Adam's request on 2026-10-19 with explicitly approved optional dependencies. Quantized inference is now available through the server connectors above. Training/fine-tuning, embeddings, and model graphs remain future scopes.
+- [x] **Local LLM inference, first scope**: PyTorch + Transformers generation from local GPT-2/Llama/Qwen2/Qwen3 safetensors checkpoints, typed prompts or bounded text-column rows, chat templates, decoding controls/cancellation, model/runtime provenance, and saved outputs. Built at Adam's request on 2026-10-19 with explicitly approved optional dependencies. Quantized inference is available through the server connectors above; actual CPU model graphs are available in the Research lab. Training/fine-tuning, embeddings and broader profiling remain future scopes.
 
 ## Infrastructure
 
@@ -191,10 +240,14 @@ Relative effort includes the import UI, validation, tests, and packaging, not ju
 | Compressed CSV (`.csv.gz`) | Read compressed exports without manual extraction | Small to moderate: make both header validation and data parsing compression-aware. This does not make training out-of-core. |
 | Excel (`.xlsx`) | Analyze worksheets directly | Moderate: choose a sheet and header row; define how to handle blank regions and formula cells. An Excel engine such as `openpyxl` would need separate dependency approval. |
 | JSON Lines (`.jsonl`/`.ndjson`), then record-array JSON | Analyze event records and application/API exports | Moderate: start with flat records; define missing-field and mixed-type behavior. Nested data needs an explicit flattening choice. |
-| SQLite (`.sqlite`/`.db`) | Analyze local database tables without exporting CSV first | Moderate: start with read-only table selection and preview; joins, custom SQL, and remote databases can come later. |
+| SQLite (`.sqlite`/`.db`) | Implemented: analyze read-only local table/view queries, including explicit joins and custom SELECTs | Preview, bounded full-result import and offline saved snapshots are available; remote database connectors remain separate. |
 | Feather (`.feather`) | Exchange typed tables with Python/R workflows | Small to moderate: the existing Arrow dependency helps; prioritize when there is a concrete dataset needing it. |
 
-Proposed order: TSV/compressed CSV as convenience additions, Excel as the next major import capability, then JSONL. SQLite and Feather can follow actual dataset needs. Keep each supported input feeding the existing `Dataset` and schema checks so every algorithm benefits.
+Among the remaining candidates, TSV/compressed CSV are convenience additions,
+Excel is a major import capability, and JSONL/Feather can follow concrete dataset
+needs. SQLite is implemented through the workbench milestone above. Keep each
+supported input feeding the existing `Dataset` and schema checks so every
+algorithm benefits.
 
 Technical references: pandas documents [Excel engines and sheet selection](https://pandas.pydata.org/docs/reference/api/pandas.read_excel.html), [JSON and line-oriented records](https://pandas.pydata.org/docs/reference/api/pandas.read_json.html), [SQL query input including sqlite3 connections](https://pandas.pydata.org/docs/reference/api/pandas.read_sql_query.html), and [Feather input](https://pandas.pydata.org/docs/reference/api/pandas.read_feather.html).
 

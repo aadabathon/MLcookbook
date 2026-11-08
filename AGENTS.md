@@ -67,6 +67,19 @@ The subsequent restoration request brings back ink-black/violet surfaces and sel
 
 ## Templates to copy
 
+- **Dataset-first workbench (requested 2026-11-03):** SQLite intake, schema-driven
+  workflow handoffs, Activity/Python reproduction and optional Programming are
+  documented in `WORKBENCH.md`. `sqlite_io`, `workflows`, `reproduction`,
+  `activity` and `programming` are submodule-only. Database queries are explicit,
+  read-only and bounded; saved rows reopen without querying. Data source roles
+  remain read-only, analysis choices local, and availability never fits. Console
+  and script share a separate selected-environment kernel; real notebooks use a
+  separate local JupyterLab server/kernel. Transfers use explicit ordinary-data
+  snapshots and preview/acceptance, never implicit variable synchronization or
+  study access. Optional programming imports stay deferred; app.py owns runtime
+  jobs and cleanup. No code runs while reopening. Preserve strict existing save
+  formats and keep arbitrary Python out of Kitchen nodes.
+
 - **Research timeline (requested 2026-10-30):** `mlcookbook.research` is submodule-only and contains curated plain-data chronology/readings plus fixed catalog-PDF resolution. It uses only the standard library. The sidebar's independent `ResearchScreen` receives plain entries and file-availability descriptors; `app.py` owns its in-memory query/era/selection/scroll, library directory and explicit catalog-checked browser/PDF actions. Opening Research never fetches, parses PDFs, loads models, initializes the scientific runtime or changes analytical data. Default readings are under `~/learning/books/papers/ai-ML`; source PDFs stay external to the bundle. Keep approximate precursor dates and publication-versus-export dates explicit. This history page is separate from Local LLMs' Research lab. Tests live in `test_research.py`, `test_research_screen.py` and `test_research_app.py`; usage is in `RESEARCH.md`.
 
 - **Local LLM generation:** the eleventh recipe, `llm.generate_text` / `TextGenerationResult`, uses lazy optional imports and local unquantized safetensors checkpoints (`gpt2`, `llama`, `qwen2`, `qwen3`). No network access or custom model code. UI-free core returns text, exact formatted prompts, zero-based source positions, token counts/timing, stop reasons, model/ tokenizer/template fingerprint, device/precision, settings, versions, and warnings. Single prompts need no dataset; optional row generation requires exactly one string-valued text/categorical column, skips missing/blank rows, and caps rows/tokens/time. Token limits are explicit errors, never silent truncation. No sklearn preprocessing, training, or CV. `LLMScreen` uses `ReportScreen` with preprocessing/CV disabled, text/path/multiline params, and plain `text_sections` for copyable output. It sets `auto_run_demo=False`: opening a card shows setup and never loads/downloads weights. `app.py` wires cancellation through `_Job.requestInterruption` and a core callback checked between decoding steps; cancellation/failure preserves prior results. Save/Open restores text without loading weights; reruns need the external model folder. Runtime versions are read from metadata without importing torch for other recipes. `models/` is gitignored. Training/fine-tuning, quantized inference, embeddings, and graph execution remain separate until requested.

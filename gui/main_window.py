@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui import theme
+from gui.activity import ActivityPanel
 
 
 class MainWindow(QMainWindow):
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MLcookbook")
         self.setMinimumSize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
+        self.close_guard = None
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -51,9 +53,21 @@ class MainWindow(QMainWindow):
         self._layout.setSpacing(0)
         body.addWidget(content, stretch=1)
         outer.addLayout(body, stretch=1)
+        self.activity_panel = ActivityPanel()
+        self.activity_panel.hide()
+        outer.addWidget(self.activity_panel)
         self.setCentralWidget(central)
 
         self._screen: QWidget | None = None
+
+    def closeEvent(self, event):
+        if self.close_guard is not None and not self.close_guard():
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def set_activity(self, records, log_path=""):
+        self.activity_panel.set_records(records, log_path)
 
     def set_experiment_actions(self, *, can_save: bool, busy: bool):
         self.open_experiment_button.setEnabled(not busy)
@@ -117,7 +131,8 @@ class MainWindow(QMainWindow):
         self.navigation_buttons = {}
         self._navigation_group = QButtonGroup(self)
         for key, title in (("data", "Data"), ("playground", "Data playground"), ("recipes", "Recipes"), ("kitchen", "Kitchen"),
-                           ("llm", "Local LLMs"), ("wearable-study", "Movement Study"), ("research", "Research")):
+                           ("programming", "Programming"), ("llm", "Local LLMs"),
+                           ("wearable-study", "Movement Study"), ("research", "Research")):
             button = QPushButton(title)
             button.setObjectName("SidebarButton")
             button.setCheckable(True)
@@ -158,6 +173,10 @@ class MainWindow(QMainWindow):
         wordmark.setObjectName("Wordmark")
         row.addWidget(wordmark)
         row.addStretch()
+        self.activity_button = QPushButton("Activity")
+        self.activity_button.setCheckable(True)
+        self.activity_button.toggled.connect(self._toggle_activity)
+        row.addWidget(self.activity_button)
         self.open_experiment_button = QPushButton("Open experiment…")
         self.open_experiment_button.clicked.connect(self._open_experiment)
         self.save_experiment_button = QPushButton("Save experiment…")
@@ -167,3 +186,6 @@ class MainWindow(QMainWindow):
         row.addWidget(self.open_experiment_button)
         row.addWidget(self.save_experiment_button)
         return header
+
+    def _toggle_activity(self, opened):
+        self.activity_panel.setVisible(opened)

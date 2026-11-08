@@ -22,11 +22,13 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from gui import theme
+from gui.research_timeline import TRACK_COLORS, TRACKS, ResearchTimeline, TimelineOverview, track_of
 
 
 def _label(text: str = "", name: str = "") -> QLabel:
@@ -120,6 +122,8 @@ class ResearchScreen(QWidget):
         self._status_message = ""
         self._directory = ""
         self._pending_scroll = 0
+        self._pending_graphic = None
+        self._restore_pending = False
         self._scroll_restore = QTimer(self)
         self._scroll_restore.setSingleShot(True)
         self._scroll_restore.timeout.connect(self._apply_scroll)
@@ -148,6 +152,13 @@ class ResearchScreen(QWidget):
         for era in dict.fromkeys(entry["era"] for entry in self.entries):
             self.era.addItem(era, era)
         filters.addWidget(self.era)
+        self.track = QComboBox()
+        self.track.setAccessibleName("Research field")
+        self.track.addItem("All fields", "")
+        for track in TRACKS:
+            self.track.addItem(track, track)
+        self.track.setMaximumWidth(180)
+        filters.addWidget(self.track)
         outer.addLayout(filters)
         context = QHBoxLayout()
         self.papers_only = QCheckBox("Linked readings")
@@ -164,6 +175,38 @@ class ResearchScreen(QWidget):
         timeline_layout = QVBoxLayout(timeline_panel)
         timeline_layout.setContentsMargins(0, 0, 0, 0)
         timeline_layout.setSpacing(theme.SPACE_XS)
+        self.views = QTabWidget()
+        self.views.setObjectName("KitchenInspector")
+        graphic_panel = QWidget()
+        graphic_layout = QVBoxLayout(graphic_panel)
+        graphic_layout.setContentsMargins(0, theme.SPACE_XS, 0, 0)
+        graphic_layout.setSpacing(theme.SPACE_XS)
+        self.graphic = ResearchTimeline()
+        self.overview = TimelineOverview(self.graphic)
+        graphic_layout.addWidget(self.overview)
+        legend = QHBoxLayout()
+        legend.setSpacing(theme.SPACE_SM)
+        for track in TRACKS:
+            mark = _label("● " + track, "HelpText")
+            mark.setStyleSheet(f"color: {TRACK_COLORS[track]}; font-size: 11px;")
+            legend.addWidget(mark)
+        graphic_layout.addLayout(legend)
+        graphic_layout.addWidget(self.graphic, stretch=1)
+        tools = QHBoxLayout()
+        self.zoom_out = QPushButton("−")
+        self.zoom_out.setAccessibleName("Zoom timeline out")
+        self.zoom_in = QPushButton("+")
+        self.zoom_in.setAccessibleName("Zoom timeline in")
+        self.fit_button = QPushButton("Overview")
+        self.zoom_out.clicked.connect(lambda: self.graphic.zoom(1 / 1.2))
+        self.zoom_in.clicked.connect(lambda: self.graphic.zoom(1.2))
+        self.fit_button.clicked.connect(self.graphic.fit_overview)
+        for button in (self.zoom_out, self.zoom_in, self.fit_button):
+            tools.addWidget(button)
+        tools.addWidget(_label("Drag to pan · Ctrl+wheel to zoom", "HelpText"), stretch=1)
+        graphic_layout.addLayout(tools)
+        graphic_layout.addWidget(_label("Publication order; spacing is schematic. Select a card for context, ↗ to open its reading.", "HelpText"))
+        self.views.addTab(graphic_panel, "Timeline")
         self.timeline = QListWidget()
         self.timeline.setAccessibleName("Chronological AI research timeline")
         self.timeline.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -173,7 +216,8 @@ class ResearchScreen(QWidget):
         self.timeline.setMinimumWidth(0)
         self.timeline.setStyleSheet(f"QListWidget {{ border: none; background: {theme.BG}; outline: 0; }}")
         self.timeline.setItemDelegate(_TimelineDelegate(self._entries, self.timeline))
-        timeline_layout.addWidget(self.timeline, stretch=1)
+        self.views.addTab(self.timeline, "Reading list")
+        timeline_layout.addWidget(self.views, stretch=1)
         self.empty = _label("No milestones match. Clear the search or choose another era.", "HelpText")
         timeline_layout.addWidget(self.empty)
         self.splitter.addWidget(timeline_panel)
@@ -190,7 +234,9 @@ class ResearchScreen(QWidget):
         self.detail_layout.setSpacing(theme.SPACE_SM)
         self.detail_scroll.setWidget(self.detail)
         self.splitter.addWidget(self.detail_scroll)
-        self.splitter.setSizes([470, 390])
+        self.splitter.setSizes([680, 340])
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 1)
         outer.addWidget(self.splitter, stretch=1)
 
         footer = QFrame()
@@ -207,27 +253,34 @@ class ResearchScreen(QWidget):
 
         self.search.textChanged.connect(self._filter)
         self.era.currentIndexChanged.connect(self._filter)
+        self.track.currentIndexChanged.connect(self._filter)
         self.papers_only.toggled.connect(self._filter)
         self.timeline.currentItemChanged.connect(self._selected)
         self.timeline.itemClicked.connect(self._remember_selection)
+        self.graphic.entry_selected.connect(self._graphic_selected)
+        self.graphic.source_requested.connect(self.source_requested)
+        self.graphic.paper_requested.connect(self.paper_requested)
         self._filter()
         self.set_library(self.papers, "")
 
     def _search_text(self, entry):
         readings = [self._papers[key] for key in entry.get("paper_ids", []) if key in self._papers]
         return " ".join(str(value) for value in [entry["date"], entry["title"], entry["era"],
-                         entry.get("people", ""), entry["summary"], entry.get("significance", ""),
+                         entry.get("people", ""), entry.get("track", ""), entry["summary"], entry.get("significance", ""),
                          *entry.get("connections", []), *[paper["title"] for paper in readings],
                          *[paper.get("summary", "") for paper in readings]]).casefold()
 
     def _filter(self, *_):
         terms = self.search.text().casefold().split()
         era = self.era.currentData()
+        track = self.track.currentData()
         matching = [entry for entry in self.entries
                     if (not era or entry["era"] == era)
+                    and (not track or track_of(entry) == track)
                     and (not self.papers_only.isChecked() or entry.get("paper_ids"))
                     and all(term in self._search_text(entry) for term in terms)]
         self._rendering = True
+        self.graphic.set_entries(matching)
         self.timeline.clear()
         selected = None
         for entry in matching:
@@ -242,7 +295,10 @@ class ResearchScreen(QWidget):
         self._rendering = False
         self.count.setText(f"{len(matching)} of {len(self.entries)} milestones")
         self.empty.setVisible(not matching)
-        self.timeline.setVisible(bool(matching))
+        self.graphic.setVisible(bool(matching))
+        self.overview.setVisible(bool(matching))
+        self.graphic.select_entry(self.timeline.currentItem().data(Qt.ItemDataRole.UserRole)
+                                  if self.timeline.currentItem() else None)
         self._show_entry(self.timeline.currentItem())
 
     def _selected(self, current, previous=None):
@@ -250,7 +306,16 @@ class ResearchScreen(QWidget):
             return
         if current is not None:
             self._preferred_selection = current.data(Qt.ItemDataRole.UserRole)
+            self.graphic.select_entry(self._preferred_selection)
         self._show_entry(current)
+
+    def _graphic_selected(self, key):
+        for row in range(self.timeline.count()):
+            item = self.timeline.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == key:
+                self._preferred_selection = key
+                self.timeline.setCurrentItem(item)
+                break
 
     def _remember_selection(self, item):
         # Clicking the current fallback row is still an explicit selection.
@@ -271,6 +336,7 @@ class ResearchScreen(QWidget):
             return
         entry = self._entries[item.data(Qt.ItemDataRole.UserRole)]
         self.detail_layout.addWidget(_label(entry["date"] + " · " + entry["era"], "HelpText"))
+        self.detail_layout.addWidget(_label(track_of(entry), "HelpText"))
         self.detail_layout.addWidget(_label(entry["title"], "PageTitle"))
         if entry.get("people"):
             self.detail_layout.addWidget(_label(str(entry["people"]), "HelpText"))
@@ -322,33 +388,42 @@ class ResearchScreen(QWidget):
         """Render coordinator-supplied file availability; do not inspect paths."""
         self.papers = deepcopy(papers)
         self._papers = {paper["id"]: paper for paper in self.papers}
+        self.graphic.set_library(self.papers)
         self._directory = directory
         available = sum(bool(paper.get("available")) for paper in self.papers)
         self.library_summary.setText(f"{available} of {len(self.papers)} local PDFs available")
         self.library_summary.setToolTip(directory)
         self.library_button.setToolTip(directory or "Choose the folder containing your AI/ML PDFs.")
+        view = self.graphic.view_state()
         self._filter()
+        self.graphic.restore_view(view)
 
     def session_state(self):
         return {"query": self.search.text(), "era": self.era.currentData(),
+                "track": self.track.currentData(), "view": "timeline" if self.views.currentIndex() == 0 else "list",
+                "graphic": self.graphic.view_state(),
                 "papers_only": self.papers_only.isChecked(), "selected": self._preferred_selection,
                 "scroll": self.timeline.verticalScrollBar().value()}
 
     def restore_session(self, state: dict):
         if not isinstance(state, dict):
             return
-        for control in (self.search, self.era, self.papers_only):
+        for control in (self.search, self.era, self.track, self.papers_only):
             control.blockSignals(True)
         self.search.setText(str(state.get("query", "")))
         index = self.era.findData(state.get("era", ""))
         self.era.setCurrentIndex(max(0, index))
+        self.track.setCurrentIndex(max(0, self.track.findData(state.get("track", ""))))
+        self.views.setCurrentIndex(1 if state.get("view") == "list" else 0)
         self.papers_only.setChecked(bool(state.get("papers_only", False)))
         preferred = state.get("selected")
         if isinstance(preferred, str) and preferred in self._entries:
             self._preferred_selection = preferred
-        for control in (self.search, self.era, self.papers_only):
+        for control in (self.search, self.era, self.track, self.papers_only):
             control.blockSignals(False)
         self._filter()
+        self._pending_graphic = state.get("graphic")
+        self._restore_pending = True
         scroll = state.get("scroll", 0)
         if isinstance(scroll, int):
             self._pending_scroll = max(0, scroll)
@@ -356,12 +431,26 @@ class ResearchScreen(QWidget):
             self._scroll_restore.start(0)
 
     def _apply_scroll(self):
+        if not self.isVisible():
+            return
         self.timeline.verticalScrollBar().setValue(self._pending_scroll)
+        if self._pending_graphic is not None:
+            self.graphic.restore_view(self._pending_graphic)
+        self._restore_pending = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._restore_pending:
+            # Installing the page resizes its QGraphicsView. Apply saved pan
+            # after that first visible layout, rather than its provisional size.
+            self._scroll_restore.start(0)
 
     def set_busy(self, busy: bool):
         self._busy = bool(busy)
-        for widget in (self.search, self.era, self.papers_only, self.library_button, self.timeline):
+        for widget in (self.search, self.era, self.track, self.papers_only, self.library_button, self.timeline,
+                       self.zoom_out, self.zoom_in, self.fit_button, self.overview):
             widget.setEnabled(not busy)
+        self.graphic.set_busy(busy)
         self._show_entry(self.timeline.currentItem())
 
     def set_status(self, message: str):

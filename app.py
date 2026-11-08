@@ -23,6 +23,7 @@ import argparse
 import inspect
 import json
 import sys
+import traceback
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,7 +34,7 @@ if not getattr(sys, "frozen", False):  # a PyInstaller bundle manages its own pa
         if _p not in sys.path:
             sys.path.insert(0, _p)
 
-from PySide6.QtCore import QCoreApplication, QEvent, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import QApplication, QFileDialog
 
@@ -1344,7 +1345,7 @@ def _default_screen(key, demo=True, setup=False):
 SCREEN_FACTORIES = {key: (lambda demo=True, setup=False, key=key: _default_screen(key, demo, setup)) for key in DEMOS}
 
 
-def _dataset_view(dataset, name, import_report=None):
+def _dataset_view(dataset, name, import_report=None, *, with_workflows=False):
     import pandas as pd
 
     frame = dataset.df
@@ -1362,7 +1363,7 @@ def _dataset_view(dataset, name, import_report=None):
         except TypeError:
             return values
 
-    return {
+    view = {
         "name": name,
         "rows": len(frame),
         "columns": [
@@ -1377,6 +1378,13 @@ def _dataset_view(dataset, name, import_report=None):
         "notes": list(import_report.notes) if import_report is not None else [],
         "issues": [issue.message for issue in issues],
     }
+    if with_workflows:
+        from mlcookbook.core.fingerprint import dataset_fingerprint
+        from mlcookbook.workflows import discover_workflows
+
+        view["workflows"] = discover_workflows(dataset).to_dict()
+        view["dataset_identity"] = dataset_fingerprint(dataset)
+    return view
 
 
 def _gathering_source_lines(source):
@@ -1420,6 +1428,9 @@ def _run_report(key, dataset, name, request, *, stop_requested=None, on_progress
     report["provenance"] = {"versions": runtime_versions(include_llm=key == "llm" and request["params"].get("backend", "pytorch") == "pytorch"),
                             "created_utc": datetime.now(UTC).isoformat(),
                             "random_state": request.get("params", {}).get("random_state", 0)}
+    from mlcookbook.core.fingerprint import dataset_fingerprint
+
+    report["provenance"]["dataset_identity"] = dataset_fingerprint(configured)
     report["run_details"] = [
         "Created (UTC): " + report["provenance"]["created_utc"],
         "Runtime: " + " · ".join(f"{package} {version}" for package, version in report["provenance"]["versions"].items()),
@@ -1430,6 +1441,7 @@ def _run_report(key, dataset, name, request, *, stop_requested=None, on_progress
 class _Job(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
+    failed_details = Signal(str, str)
     progress = Signal(object)
 
     def __init__(self, operation):
@@ -1441,13 +1453,34 @@ class _Job(QThread):
             self.succeeded.emit(self.operation())
         except Exception as exc:
             self.failed.emit(str(exc) or type(exc).__name__)
+            self.failed_details.emit(str(exc) or type(exc).__name__, traceback.format_exc())
 
 
 class MLCookbookApp:
     """Own navigation, imported data, and background work; GUI only renders data."""
 
     def __init__(self) -> None:
+        from mlcookbook.activity import ActivityHistory
+
         self.window = MainWindow()
+        self._closing = False
+        self.activity = ActivityHistory(Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)) / "logs")
+        self.sqlite_dialog = None
+        self.data_workflow_state = {}
+        self.workflow_discovery = {}
+        self._workflow_pending_context = None
+        self._workflow_restore_pending = False
+        self.programming_session = None
+        self.programming_candidate = None
+        self.programming_state = {}
+        self.programming_return = None
+        self.programming_notebook = None
+        self._programming_activity = None
+        self._programming_executing = False
+        self._programming_stopping = False
+        self._kernel_failure_reported = False
+        self.python_dialog = None
+        self.python_context = None
         self.imported = None
         self.job = None
         self._job_continuation = None
@@ -1478,11 +1511,17 @@ class MLCookbookApp:
         self.window.experiment_open_requested.connect(self.open_experiment)
         self.window.experiment_save_requested.connect(self.save_experiment)
         self.window.navigation_requested.connect(self.navigate)
+        self.window.close_guard = self._prepare_close
+        self.window.destroyed.connect(self._retire_runtime)
         QApplication.instance().aboutToQuit.connect(self.wait_for_job)
+        QApplication.instance().aboutToQuit.connect(self.close_programming)
+        self._quit_handlers_connected = True
         self.show_data_page()
 
     def navigate(self, key):
-        if self.job is not None:
+        if self.job is not None or self._programming_executing:
+            return
+        if key != self.key and not self._can_leave_programming():
             return
         if key == "data":
             self.show_data_page()
@@ -1494,11 +1533,13 @@ class MLCookbookApp:
             self.show_kitchen()
         elif key == "research":
             self.show_research()
+        elif key == "programming":
+            self.show_programming()
         elif key in ("llm", "wearable-study"):
             self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key))
 
     def _refresh_shell(self):
-        busy = self.job is not None
+        busy = self.job is not None or self._programming_executing
         self.window.set_navigation(self.key, busy=busy)
         can_save = isinstance(self.screen, ReportScreen) and bool(self.screen.view["columns"])
         if isinstance(self.screen, LLMScreen) and self.screen.workspace_mode.currentData() == "research":
@@ -1511,6 +1552,8 @@ class MLCookbookApp:
                                             has_example=self.key in self.example_sessions)
         elif isinstance(self.screen, KitchenScreen):
             self.screen.set_active_available(self.imported is not None)
+        elif self.key == "programming":
+            self.screen.set_active_available(self.imported is not None)
         if self.imported is None:
             self.window.set_dataset_context("", "")
         else:
@@ -1521,6 +1564,8 @@ class MLCookbookApp:
         if self.imported is None:
             return None
         view = deepcopy(self.imported[2])
+        if not self.workflow_discovery and view.get("workflows"):
+            self.workflow_discovery = deepcopy(view["workflows"])
         source = view.get("source", {})
         details = []
         if view.get("snapshot_fingerprint"):
@@ -1533,6 +1578,17 @@ class MLCookbookApp:
                 if source.get("missing_markers"):
                     details.append("Extra missing markers: " + ", ".join(source["missing_markers"]))
             details.append("The workspace holds the imported values; opening Data does not reread the file.")
+        elif source.get("kind") == "sqlite":
+            query_summary = " ".join(source.get("query", "").split())
+            if len(query_summary) > 180:
+                query_summary = query_summary[:177] + "…"
+            details.extend(["SQLite snapshot: " + source.get("path", ""),
+                            "Query: " + query_summary,
+                            "Imported (UTC): " + source.get("retrieved_utc", ""),
+                            "Saved rows are independent of the database. Reimport explicitly to refresh."])
+        elif source.get("kind") == "programming":
+            details.extend(["Accepted Python dataset snapshot", "Environment: " + source.get("python", ""),
+                            "Changes in Python do not replace this snapshot."])
         elif source.get("kind") == "api":
             details.extend(_gathering_source_lines(source))
         elif source.get("kind") == "kitchen_output":
@@ -1548,6 +1604,8 @@ class MLCookbookApp:
         elif not details:
             details.append("Dataset snapshot: " + view["name"])
         view["source_summary"] = "\n".join(details)
+        if self.workflow_discovery:
+            view["workflows"] = deepcopy(self.workflow_discovery)
         return view
 
     def show_data_page(self):
@@ -1559,14 +1617,457 @@ class MLCookbookApp:
         page.set_dataset(self._workspace_view())
         page.set_status(self.data_status)
         page.load_requested.connect(self.load_file)
+        page.sqlite_requested.connect(self.open_sqlite)
+        page.workflow_context_changed.connect(self.update_workflows)
+        page.workflow_requested.connect(self.open_dataset_workflow)
         self.screen, self.key = page, "data"
         self.window.show_screen(page)
+        if self.data_workflow_state and self.workflow_discovery:
+            page.restore_workflow_state(self.data_workflow_state)
+        elif self.imported is not None and not self.workflow_discovery:
+            self._workflow_restore_pending = bool(self.data_workflow_state)
+            self.update_workflows({})
         self.window.set_status("")
         self._refresh_shell()
 
     def wait_for_job(self):
         if self.job is not None:
             self.job.wait()
+
+    def _can_leave_programming(self):
+        screen = self.screen
+        return screen.can_leave() if self.key == "programming" and hasattr(screen, "can_leave") else True
+
+    def _prepare_close(self):
+        if not self._can_leave_programming():
+            return False
+        self._closing = True
+        return True
+
+    def close_programming(self):
+        self._closing = True
+        if self._programming_activity is not None:
+            self.activity.finish(self._programming_activity, outcome="Stopped during shutdown")
+            self._programming_activity = None
+        if self.key == "programming" and hasattr(self.screen, "detach_runtime"):
+            self.screen.detach_runtime()
+        if self.programming_session is not None:
+            self.programming_session.close()
+            self.programming_session = None
+        if self.programming_candidate is not None:
+            self.programming_candidate.close()
+            self.programming_candidate = None
+        self.activity.close()
+
+    def _retire_runtime(self):
+        """Also retire optional processes/log handles in embedded Qt hosts."""
+        self._closing = True
+        for session in (self.programming_session, self.programming_candidate):
+            if session is not None:
+                session.close()
+        self.programming_session = self.programming_candidate = None
+        self.activity.close()
+        self._disconnect_quit_handlers()
+
+    def _disconnect_quit_handlers(self):
+        instance = QApplication.instance()
+        if instance is not None and self._quit_handlers_connected:
+            for callback in (self.wait_for_job, self.close_programming):
+                try:
+                    instance.aboutToQuit.disconnect(callback)
+                except (RuntimeError, TypeError):
+                    pass
+            self._quit_handlers_connected = False
+
+    def show_programming(self):
+        if self.job is not None:
+            return
+        from gui.screens.programming import ProgrammingScreen
+        from mlcookbook.programming import default_python
+
+        self._remember_screen()
+        if not self.programming_state:
+            self.programming_state = {"python": default_python(), "workspace": str(_playground_data_dir() / "programming")}
+        screen = ProgrammingScreen(self.programming_state)
+        screen.action_requested.connect(self.programming_action)
+        self.screen, self.key = screen, "programming"
+        self.window.show_screen(screen)
+        if self.programming_session is not None:
+            screen.set_runtime(self.programming_session.runtime_info())
+            if self.programming_notebook is not None and self.programming_session.server is not None:
+                screen.set_notebook_url(self.programming_session.notebook_url(self.programming_notebook),
+                                        notebook_path=str(self.programming_notebook))
+        screen.set_active_available(self.imported is not None)
+        if self.programming_return is not None:
+            screen.set_return_preview(self.programming_return[2])
+        self.window.set_status("")
+        self._refresh_shell()
+
+    def programming_action(self, action, payload):
+        if self._closing or self.key != "programming":
+            return
+        screen = self.screen
+        session = self.programming_session
+        if action == "kernel_died":
+            if self._programming_stopping or self._kernel_failure_reported or session is None or session.manager is None:
+                return
+            self._kernel_failure_reported = True
+            self._programming_executing = False
+            identifier = self._programming_activity or self.activity.begin("Python kernel stopped", input_name="Programming kernel")
+            self.activity.finish(identifier, outcome="Failed", error="The Python kernel exited. Restart Python to continue.")
+            self._programming_activity = None
+            self._refresh_activity()
+            screen.set_status("The Python kernel exited. Restart Python to continue; saved files and active data are retained.")
+            self._refresh_shell()
+            return
+        if action == "execution_started":
+            self._programming_executing = True
+            self._programming_activity = self.activity.begin("Python execution", input_name="Programming kernel")
+            self._refresh_activity()
+            self._refresh_shell()
+            return
+        if action == "execution_finished":
+            self._programming_executing = False
+            if self._programming_activity is not None:
+                failed = payload.get("status") == "error"
+                self.activity.finish(self._programming_activity, outcome="Failed" if failed else "Completed",
+                                     error=(payload.get("ename", "") + ": " + payload.get("evalue", "")).strip(": ") if failed else "",
+                                     details="\n".join(payload.get("traceback", [])))
+                self._programming_activity = None
+                self._refresh_activity()
+            self._refresh_shell()
+            return
+        if action == "interrupt":
+            if session is not None:
+                session.interrupt_kernel()
+                screen.set_status("Interrupt requested for the console kernel. Restart Python if the operation remains blocked.")
+            return
+        if self.job is not None:
+            return
+        if action in ("save_script", "open_script"):
+            try:
+                path = Path(payload["path"])
+                if action == "save_script":
+                    import os
+                    import tempfile
+
+                    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                                      prefix=".script-", suffix=".tmp", delete=False) as stream:
+                        temporary = Path(stream.name)
+                        stream.write(payload["text"])
+                    try:
+                        os.replace(temporary, path)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+                    screen.mark_saved(str(path))
+                    screen.set_status("Saved " + path.name)
+                else:
+                    screen.set_script(path.read_text(encoding="utf-8-sig"), str(path))
+                    screen.set_status("Opened " + path.name + ". Run explicitly to execute it.")
+            except (OSError, UnicodeError) as exc:
+                screen.set_status(str(exc))
+            return
+        if action == "execute":
+            if self._programming_executing:
+                return
+            code = payload["code"]
+            if not payload.get("selection") and payload.get("path"):
+                # Execute the editor contents, including unrun unsaved edits,
+                # with normal script provenance rather than rereading the file.
+                code = f"__file__ = {payload['path']!r}\n" + code
+            screen.execute_code(code)
+            return
+        if action == "start":
+            if session is not None and not screen.can_leave():
+                return
+            from mlcookbook.programming import ProgrammingSession
+
+            try:
+                candidate = ProgrammingSession(payload["python"], payload["workspace"])
+            except (ValueError, OSError) as exc:
+                screen.set_status(str(exc))
+                return
+            self.programming_candidate = candidate
+            def start():
+                try:
+                    return candidate.start_kernel()
+                except BaseException:
+                    candidate.close()
+                    raise
+            def started(info):
+                if self.programming_session is not None:
+                    screen.clear_notebook()
+                    self.programming_session.close()
+                self.programming_session = candidate
+                self.programming_candidate = None
+                self.programming_notebook = None
+                self._kernel_failure_reported = False
+                self._programming_stopping = False
+                screen.set_runtime(info)
+                screen.set_status("Python ready. Send the active dataset explicitly to work on a copy.")
+            self._start_job(start, started, "Starting Python environment…")
+            return
+        if session is None:
+            screen.set_status("Start Python first.")
+            return
+        if action in ("restart", "stop"):
+            self._programming_stopping = True
+            screen.detach_runtime()
+            self._programming_executing = False
+            if self._programming_activity is not None:
+                self.activity.finish(self._programming_activity, outcome="Interrupted", error="Console kernel " + action + " requested.")
+                self._programming_activity = None
+                self._refresh_activity()
+            operation = session.restart_kernel if action == "restart" else session.stop_kernel
+            def stopped(info):
+                self._programming_stopping = False
+                self._kernel_failure_reported = False
+                screen.set_runtime(info or session.runtime_info())
+                screen.set_status("Python restarted; variables were cleared." if action == "restart" else "Console kernel stopped.")
+            self._start_job(operation, stopped, "Restarting Python…" if action == "restart" else "Stopping Python…")
+        elif action == "send_data":
+            if self.imported is None or self._programming_executing:
+                return
+            dataset, name, view = self.imported
+            def sent(info):
+                self.programming_return = None
+                screen.set_return_preview(None)
+                screen.set_status(f"Copied {info['rows']} rows to df and data. Notebook input cells load this explicit snapshot.")
+            self._start_job(lambda: session.send_dataset(dataset, source=deepcopy(view.get("source", {}))), sent,
+                            "Sending ordinary dataset copy to Python…")
+        elif action in ("publish", "preview_return"):
+            if self._programming_executing:
+                return
+            notebook_path = self.programming_notebook if action == "preview_return" and payload.get("context") == "notebook" else None
+            if action == "preview_return" and payload.get("context") == "notebook" and notebook_path is None:
+                screen.set_status("Open a notebook with this app before previewing its published table.")
+                return
+            def read_return():
+                if action == "publish":
+                    session.publish_variable(payload.get("variable", "df"))
+                dataset, source = (session.read_notebook_published_dataset(notebook_path) if notebook_path is not None
+                                   else session.read_published_dataset())
+                name = "Python result"
+                view = _dataset_view(dataset, name, with_workflows=True)
+                view["source"] = source
+                return dataset, name, view
+            def previewed(loaded):
+                self.programming_return = loaded
+                screen.set_return_preview(loaded[2])
+                origin = "Notebook " + notebook_path.name if notebook_path is not None else "Console"
+                screen.set_status(origin + " table preview ready. Use dataset explicitly to replace ordinary active data.")
+            message = "Validating notebook " + notebook_path.name + " published table…" if notebook_path is not None else "Validating published console table…"
+            self._start_job(read_return, previewed, message)
+        elif action == "accept_return":
+            if self.programming_return is None:
+                return
+            self._use_import(self.programming_return)
+            screen.set_status("Accepted the previewed Python snapshot. Open Data to select an analysis.")
+        elif action in ("new_notebook", "open_notebook"):
+            path = Path(payload["path"]).resolve()
+            def notebook():
+                if action == "new_notebook":
+                    if path.parent != session.workspace:
+                        raise ValueError("Create the notebook in the selected programming folder, or start Python with that folder.")
+                    session.create_notebook(path.name)
+                if not path.is_file() or path.suffix.lower() != ".ipynb":
+                    raise ValueError("Choose an existing .ipynb notebook.")
+                if not path.is_relative_to(session.workspace):
+                    raise ValueError("Open a notebook inside the selected programming folder, or start Python with its folder.")
+                session.start_notebook_server()
+                return session.notebook_url(path)
+            def opened(url):
+                self.programming_notebook = path
+                screen.set_notebook_url(url, notebook_path=str(path))
+                screen.set_status("Notebook opened without running cells. Its kernel is independent of the console.")
+            self._start_job(notebook, opened, "Opening local Jupyter notebook…")
+
+    def show_python(self):
+        if self.job is not None or self.key != "linear-regression" or not self.screen._report_request:
+            return
+        dataset = self.screen.dataset
+        request = deepcopy(self.screen._report_request)
+        versions = deepcopy(self.screen._report.get("provenance", {}).get("versions", {}))
+
+        def prepare():
+            import hashlib
+
+            from mlcookbook.reproduction import regression_source
+
+            snapshot = dataset.df.to_parquet(index=True, engine="pyarrow")
+            return regression_source(request, roles={col.name: col.var_type.value for col in dataset.schema().columns},
+                                     snapshot_sha256=hashlib.sha256(snapshot).hexdigest(), versions=versions)
+
+        def show(source):
+            from gui.python_dialog import PythonDialog
+
+            self.python_context = {"dataset": dataset, "request": request, "versions": versions}
+            dialog = PythonDialog(source, self.window)
+            self.python_dialog = dialog
+            dialog.export_requested.connect(self.export_python)
+            dialog.destroyed.connect(self._python_closed)
+            dialog.show()
+
+        self._start_job(prepare, show, "Preparing Python for the completed run…")
+
+    def _python_closed(self):
+        self.python_dialog = None
+        self.python_context = None
+
+    def export_python(self, parent=None):
+        if self.job is not None or self.python_context is None:
+            return
+        parent = parent or QFileDialog.getExistingDirectory(self.window, "Choose a parent folder for the Python reproduction")
+        if not parent:
+            return
+        context = self.python_context.copy()
+        path = Path(parent) / ("linear-regression-" + datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f"))
+
+        def write():
+            from mlcookbook.reproduction import export_regression
+
+            return export_regression(path, **context)
+
+        self._start_job(write, lambda result: self._set_status("Python and its data snapshot exported to " + str(result)),
+                        "Exporting completed-run Python and data…")
+
+    def update_workflows(self, context):
+        if self.imported is None or not isinstance(self.screen, DataScreen):
+            return
+        if self.workflow_discovery.get("context") == context:
+            self.screen.set_workflows(self.workflow_discovery)
+            return
+        self._workflow_pending_context = deepcopy(context)
+        self._start_workflow_discovery()
+
+    def _start_workflow_discovery(self):
+        if self._closing or self.job is not None or self.imported is None or not isinstance(self.screen, DataScreen) or self._workflow_pending_context is None:
+            return
+        dataset = self.imported[0]
+        context = self._workflow_pending_context
+        self._workflow_pending_context = None
+        screen = self.screen
+
+        def discover():
+            from mlcookbook.workflows import discover_workflows
+
+            return discover_workflows(dataset, **context).to_dict()
+
+        def available(result):
+            self.workflow_discovery = result
+            if self.screen is not screen:
+                return
+            screen.set_workflows(result)
+            self._set_status("")
+            if self._workflow_restore_pending:
+                self._workflow_restore_pending = False
+                screen.restore_workflow_state(self.data_workflow_state)
+        self._start_job(discover, available, "Checking dataset workflow requirements…")
+
+    def open_dataset_workflow(self, key, context):
+        if self.job is not None or self.imported is None:
+            return
+        expected_context = {name: context.get(name) for name in ("target", "features", "group_column", "time_column")}
+        if self.workflow_discovery.get("context") != expected_context:
+            self.update_workflows(expected_context)
+            self._set_status("Inputs changed. Check the updated workflow requirements, then open the workflow.")
+            return
+        options = self.workflow_discovery["workflows"]
+        choice = next((option for option in options if option["key"] == key and option["task"] == context["task"]), None)
+        if choice is None or not choice["available"]:
+            self._set_status(choice["reason"] if choice else "This workflow is unavailable for these inputs.")
+            return
+        # An explicit Data handoff always uses ordinary data, even if the last
+        # visit to this recipe showed its independently preserved example.
+        self._remember_screen()
+        self.sessions.pop(key, None)
+
+        def configure():
+            screen = self.screen
+            screen.set_dataset(self.imported[2], target=context.get("target"))
+            if screen._tasks:
+                screen.task.setCurrentIndex(screen.task.findData(context["task"]))
+            screen._roles_changed()
+            for row, column in enumerate(screen._columns):
+                screen.columns.item(row, 0).setCheckState(Qt.CheckState.Checked if column["name"] in context["features"]
+                                                        else Qt.CheckState.Unchecked)
+            screen._configuration_changed()
+            self._update_input_context()
+
+        self.open_recipe(next(recipe for recipe in RECIPES if recipe.key == key), remember=False, on_ready=configure)
+
+    def open_sqlite(self):
+        if self.job is not None:
+            return
+        from gui.sqlite_dialog import SQLiteDialog
+
+        dialog = SQLiteDialog(self.window)
+        self.sqlite_dialog = dialog
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.catalog_requested.connect(self.sqlite_catalog)
+        dialog.preview_requested.connect(self.sqlite_preview)
+        dialog.import_requested.connect(self.sqlite_import)
+        dialog.cancel_requested.connect(self._cancel_sqlite)
+        dialog.destroyed.connect(self._sqlite_closed)
+        dialog.setModal(True)
+        if self.imported is not None:
+            source = self.imported[2].get("source", {})
+            if source.get("kind") == "sqlite":
+                dialog.path.setText(source.get("path", ""))
+                dialog.query.setPlainText(source.get("query", ""))
+                dialog.max_rows.setValue(source.get("max_rows", 100_000))
+        dialog.show()
+
+    def _sqlite_closed(self):
+        self.sqlite_dialog = None
+
+    def _cancel_sqlite(self):
+        if self.job is not None:
+            self.job.requestInterruption()
+
+    def sqlite_catalog(self, path):
+        dialog = self.sqlite_dialog
+        if dialog is None or self.job is not None:
+            return
+        def read():
+            from mlcookbook.sqlite_io import sqlite_catalog
+
+            return sqlite_catalog(path, cancelled=QThread.currentThread().isInterruptionRequested).to_dict()
+        self._start_job(read, dialog.set_catalog, "Reading SQLite tables and views…", cancellable=True,
+                        on_error=dialog.set_status)
+
+    def _sqlite_read(self, path, query, max_rows, *, preview):
+        dialog = self.sqlite_dialog
+        if dialog is None or self.job is not None:
+            return
+        def read():
+            _prepare_runtime()
+            from mlcookbook.sqlite_io import load_sqlite_dataset
+
+            dataset, report, source = load_sqlite_dataset(path, query, preview=preview, max_rows=max_rows,
+                cancelled=QThread.currentThread().isInterruptionRequested)
+            name = Path(path).name + " · query"
+            view = _dataset_view(dataset, name, report, with_workflows=not preview)
+            view["source"] = source
+            return dataset, name, view
+
+        def accept(loaded):
+            if self.job is not None and self.job.isInterruptionRequested():
+                dialog.set_status("SQLite operation cancelled; the active dataset is unchanged.")
+                return
+            if preview:
+                dialog.set_preview(loaded[2], path=path, query=query, max_rows=max_rows)
+            else:
+                self._use_import(loaded)
+                dialog.accept()
+        self._start_job(read, accept, "Previewing SQLite query…" if preview else "Importing SQLite query snapshot…",
+                        cancellable=True, on_error=dialog.set_status)
+
+    def sqlite_preview(self, path, query, max_rows):
+        self._sqlite_read(path, query, max_rows, preview=True)
+
+    def sqlite_import(self, path, query, max_rows):
+        self._sqlite_read(path, query, max_rows, preview=False)
 
     def show_research(self):
         if self.job is not None:
@@ -1689,7 +2190,7 @@ class MLCookbookApp:
                 raise ValueError("Fetch cancelled; previous preview kept.")
             metadata = gathered.result.to_dict()
             name = metadata["title"]
-            view = _dataset_view(gathered.dataset, name)
+            view = _dataset_view(gathered.dataset, name, with_workflows=True)
             view["source"] = {"kind": "api", "gathering": metadata,
                               "dataset_fingerprint": dataset_fingerprint(gathered.dataset)}
             view["notes"] = list(metadata["warnings"])
@@ -2062,7 +2563,7 @@ class MLCookbookApp:
 
             dataset = Dataset(artifact.dataset.df, overrides={c.name: c.var_type for c in artifact.dataset.schema().columns})
             name = f"Kitchen · {node_id}"
-            view = _dataset_view(dataset, name)
+            view = _dataset_view(dataset, name, with_workflows=True)
             view["source"] = {"kind": "kitchen_output", "node_id": node_id, "port": port, "artifact_id": artifact.id,
                               "completed_utc": record.completed_utc, "configuration_fingerprint": record.fingerprint,
                               "settings": deepcopy(record.settings), "source_snapshot_ids": record.payload.get("source_snapshot_ids", [])}
@@ -2324,6 +2825,8 @@ class MLCookbookApp:
         screen.configuration_changed.connect(self._update_input_context)
         screen.example_requested.connect(self.run_example)
         screen.workspace_requested.connect(self.use_workspace_data)
+        screen.python_requested.connect(self.show_python)
+        screen.python_button.setVisible(self.key == "linear-regression")
         if isinstance(screen, WearableScreen):
             screen.study_requested.connect(self.load_wearable_study)
             screen.evaluation_export_requested.connect(self.export_wearable_evaluation)
@@ -2359,6 +2862,10 @@ class MLCookbookApp:
     def _remember_screen(self):
         if isinstance(self.screen, DataScreen):
             self.data_options = self.screen.import_options()
+            self.data_workflow_state = self.screen.workflow_state()
+        elif self.key == "programming" and hasattr(self.screen, "session_state"):
+            self.programming_state = self.screen.session_state()
+            self.screen.detach_runtime()
         elif isinstance(self.screen, DataPlaygroundScreen):
             self.playground_state = self.screen.session_state()
             self.playground_status = self.screen._status_message
@@ -2384,8 +2891,12 @@ class MLCookbookApp:
         self.sessions.clear()
         self.workspace_sessions.clear()
         self.example_sessions.clear()
+        self.data_workflow_state = {}
+        self.workflow_discovery = {}
+        self._workflow_pending_context = None
+        self._workflow_restore_pending = False
 
-    def _start_job(self, operation, accept, message, *, cancellable=False, on_progress=None, continuation=None):
+    def _start_job(self, operation, accept, message, *, cancellable=False, on_progress=None, continuation=None, on_error=None):
         if self.job is not None:
             return
         screen = self.screen
@@ -2398,17 +2909,55 @@ class MLCookbookApp:
         self._set_status(message)
         self.window.set_experiment_actions(can_save=isinstance(screen, ReportScreen), busy=True)
         self.window.set_navigation(self.key, busy=True)
+        if self.sqlite_dialog is not None:
+            self.sqlite_dialog.set_busy(True)
+        input_name = getattr(screen, "dataset_name", "")
+        view = getattr(screen, "view", {}) or {}
+        operation_name = message.rstrip(". …")
+        if isinstance(screen, ReportScreen):
+            operation_name += " · " + self.key
+        identifier = self.activity.begin(operation_name, input_name=input_name or view.get("name", ""),
+                                         input_identity=view.get("dataset_identity", view.get("snapshot_fingerprint", "")))
+        self._refresh_activity()
 
         def accepted(value):
+            if self._closing:
+                self.activity.finish(identifier, outcome="Finished during shutdown")
+                return
             try:
                 accept(value)
+                warnings = value.get("warnings", []) if isinstance(value, dict) else []
+                if (isinstance(value, tuple) and len(value) == 3 and isinstance(value[1], str)
+                        and isinstance(value[2], dict) and "rows" in value[2]):
+                    record = next(item for item in self.activity.records if item["id"] == identifier)
+                    record["input"] = str(value[1])
+                    record["input_identity"] = value[2].get("dataset_identity", "")
+                    warnings = value[2].get("notes", [])
+                if isinstance(value, dict) and value.get("provenance", {}).get("dataset_identity"):
+                    record = next(item for item in self.activity.records if item["id"] == identifier)
+                    record["input_identity"] = value["provenance"]["dataset_identity"]
+                self.activity.finish(identifier, warnings=warnings,
+                                     outcome="Cancelled" if self.job is not None and self.job.isInterruptionRequested() else "Completed")
             except Exception as exc:
                 self._set_status("Unable to complete: " + (str(exc) or type(exc).__name__))
+                self.activity.finish(identifier, outcome="Failed", error=str(exc), details=traceback.format_exc())
+                if on_error is not None:
+                    on_error(str(exc))
+            self._refresh_activity()
+
+        def failed_details(error, details):
+            self.activity.finish(identifier, outcome="Cancelled" if self.job is not None and self.job.isInterruptionRequested() else "Failed",
+                                 error=error, details=details)
+            if not self._closing:
+                self._refresh_activity()
 
         self.job = _Job(operation)
         self._job_continuation = continuation
         self.job.succeeded.connect(accepted)
         self.job.failed.connect(lambda error: self._set_status("Unable to complete: " + error))
+        self.job.failed_details.connect(failed_details)
+        if on_error is not None:
+            self.job.failed.connect(on_error)
         if on_progress is not None:
             self.job.progress.connect(on_progress)
         self.job.finished.connect(self._job_finished)
@@ -2417,6 +2966,11 @@ class MLCookbookApp:
     def _job_finished(self):
         self.job.deleteLater()
         self.job = None
+        if self.sqlite_dialog is not None:
+            self.sqlite_dialog.set_busy(False)
+        if self._closing:
+            self._job_continuation = None
+            return
         continuation, self._job_continuation = self._job_continuation, None
         if continuation is not None:
             try:
@@ -2429,8 +2983,14 @@ class MLCookbookApp:
         self.window._screen.setEnabled(True)
         self._update_input_context()
         self._refresh_shell()
+        self._start_workflow_discovery()
+
+    def _refresh_activity(self):
+        self.window.set_activity(self.activity.view(), str(self.activity.log_path or ""))
 
     def _set_status(self, message):
+        if self._closing:
+            return
         if self.screen is not None:
             self.screen.set_status(message)
             if isinstance(self.screen, DataScreen):
@@ -2462,6 +3022,8 @@ class MLCookbookApp:
                         "Saving experiment…")
 
     def open_experiment(self, path):
+        if not self._can_leave_programming():
+            return
         previous_status = (self.screen._status_message if isinstance(self.screen, ReportScreen) else
                            self.data_status if isinstance(self.screen, DataScreen) else
                            self.window.statusBar().currentMessage())
@@ -2471,7 +3033,7 @@ class MLCookbookApp:
             from mlcookbook.experiments import load_experiment
 
             loaded = load_experiment(path)
-            view = _dataset_view(loaded.dataset, loaded.name)
+            view = _dataset_view(loaded.dataset, loaded.name, with_workflows=loaded.recipe != "wearable-study")
             view["source"] = deepcopy(loaded.source)
             view["notes"] = list(loaded.source.get("import_notes", []))
             view["notes"] += loaded.warnings
@@ -2531,6 +3093,7 @@ class MLCookbookApp:
         else:
             self._clear_sessions()
             self.imported = loaded.dataset, loaded.name, view
+            self.workflow_discovery = deepcopy(view.get("workflows", {}))
             self.data_status = f"Opened {loaded.name} from its saved dataset snapshot."
         self.screen, self.key = screen, loaded.recipe
         if loaded.recipe == "llm":
@@ -2608,7 +3171,7 @@ class MLCookbookApp:
 
             dataset, report = load_dataset_with_report(path, delimiter=delimiter, encoding=encoding,
                                                        missing_markers=missing_markers)
-            view = _dataset_view(dataset, Path(path).name, report)
+            view = _dataset_view(dataset, Path(path).name, report, with_workflows=True)
             view["source"] = {"kind": "file", "path": str(Path(path).resolve()), "delimiter": delimiter,
                               "encoding": encoding, "missing_markers": missing_markers,
                               "parse_dates": True, "keep_leading_zeros": True}
@@ -2618,9 +3181,11 @@ class MLCookbookApp:
     def _use_import(self, loaded):
         self._runtime_initialized = True
         self.imported = loaded
-        self.data_status = "Dataset loaded. Review the preview and column roles, then choose a recipe."
+        self.data_workflow_state = {}
+        self.data_status = "Dataset loaded. Choose an analysis below the preview."
         # A successful replacement invalidates every recipe's results, even for the same path.
         self._clear_sessions()
+        self.workflow_discovery = deepcopy(loaded[2].get("workflows", {}))
         if isinstance(self.screen, DataScreen):
             self.screen.set_dataset(self._workspace_view())
             self._set_status(self.data_status)
@@ -2890,7 +3455,7 @@ class MLCookbookApp:
             def derive():
                 derived, lineage = derive_dataset(dataset, run)
                 name = screen.dataset_name + " · generated fields"
-                view = _dataset_view(derived, name)
+                view = _dataset_view(derived, name, with_workflows=True)
                 view["source"] = {**lineage, "original_source": deepcopy(screen.source)}
                 view["notes"].append("Accepted LLM-derived columns. Invalid/skipped/unprocessed rows remain missing. Run " + run["run_id"])
                 return derived, name, view
@@ -2928,6 +3493,9 @@ def _open_startup(controller, options):
 
 def main(argv=None) -> int:
     options, qt_arguments = _startup_options(sys.argv[1:] if argv is None else argv)
+    # WebEngine is imported lazily, but its shared graphics context must be
+    # requested before QApplication creates the first native window.
+    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication([sys.argv[0], *qt_arguments])
     app.setApplicationName("MLcookbook")
     app.setFont(QFont("Segoe UI", theme.BODY_POINT_SIZE))
@@ -2946,7 +3514,7 @@ def main(argv=None) -> int:
         # Retire widgets and workers on the GUI thread while QApplication is
         # still alive, rather than leaving their destruction to interpreter exit.
         controller.wait_for_job()
-        app.aboutToQuit.disconnect(controller.wait_for_job)
+        controller._disconnect_quit_handlers()
         if controller.job is not None:
             controller.job.deleteLater()
         # Also include hidden candidate screens/dialogs that have not yet been

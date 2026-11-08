@@ -49,7 +49,7 @@ def test_package_import_and_discovery_do_not_initialize_analyses_or_optional_run
         import sys
         import mlcookbook
 
-        assert mlcookbook.__version__ == '1.0.0'
+        assert mlcookbook.__version__ == '1.1.0'
         assert set(mlcookbook.__all__) <= set(dir(mlcookbook))
         assert not any(name in vars(mlcookbook) for name in mlcookbook.__all__)
         assert not hasattr(mlcookbook, 'unknown_recipe')

@@ -1,13 +1,15 @@
 # Research timeline
 
-Open **Research** in the sidebar to trace selected foundations and milestones in artificial intelligence. The chronology connects formal reasoning, computation, statistical learning, neural networks and language models to the recipes and Local LLM research tools in this workbench.
+Open **Research** in the sidebar to explore literature across statistics, computing, artificial intelligence, machine learning, data science and deep learning. The chronology spans ancient formal-logic precursors, probability and statistical inference, data systems and exploratory analysis, classical learning, neural networks and modern language models. It is a broad curated reading history through 2025, rather than an exhaustive bibliography or a live publication feed.
 
 The timeline is curated history, with earlier precursors distinguished from AI as an organized research field. Approximate ancient dates remain approximate. The Dartmouth proposal was written in 1955 for the summer 1956 research project. A paper's original publication year identifies its milestone; a later PDF revision or print-export timestamp does not move that milestone forward.
 
 ## Browsing
 
-- Search across ideas, people, readings and connections. Search terms combine with the era selector.
-- Select a dated milestone, or use the arrow keys, to read its context, significance and sources.
+- **Timeline** places paper cards on six colored literature lanes. Drag the canvas to pan; use **+**, **−** or Ctrl+mouse-wheel to zoom. **Overview** fits the chronology, and clicking the small overview strip jumps to a period with readable cards. Card spacing follows publication order, not elapsed calendar time; colors identify fields rather than proving influence between papers.
+- Select a card to read its authors, context, significance and sources. Its **↗** action opens the original reading: a matching available catalog PDF takes precedence, otherwise the cited publication opens in the browser. Later related readings never replace a milestone's original source.
+- **Reading list** retains a chronological rail and native keyboard navigation. On the graphic, arrows select adjacent milestones, Home/End select the first/last visible milestone, and Enter opens the selected reading. Tab moves between native controls.
+- Search across ideas, people, readings and connections. Search terms combine with the era and field selectors, and the graphic and reading list show the same matching milestones.
 - **Linked readings** narrows the chronology to entries connected to the six readings in the initial catalog. It includes a reading even when its local PDF is unavailable.
 - **Open source** opens a cited reference in the default browser. **Open PDF** opens the selected catalog file in the default PDF application.
 - **Papers folder…** changes the local reading directory. File availability is checked again when Research opens. A missing PDF leaves the timeline and online references available.
@@ -29,8 +31,8 @@ The Illustrated Transformer is an explanatory article, presented separately from
 
 Browsing works offline. Opening Research reads the bundled catalog and checks only its known PDF filenames in the selected directory. It does not parse or copy the PDFs, fetch references, load inference weights, or run an analysis. Reading actions happen explicitly. The six source PDFs remain in the user's library and are excluded from packaging.
 
-Search, era, selected milestone and timeline scroll survive navigation in memory. Research has independent state; active data, recipe reports/examples, Kitchen documents and Movement Study holdouts retain their existing behavior and save formats.
+Search, era, field, selected milestone, active view, list scroll and graphic zoom/position survive navigation in memory. Research has independent state; active data, recipe reports/examples, Kitchen documents and Movement Study holdouts retain their existing behavior and save formats.
 
-The submodule-only catalog and local-file resolver live in `src/mlcookbook/research.py`. `gui/screens/research.py` renders plain entries/library descriptors and emits actions. `app.py` owns navigation, the selected directory, catalog-checked source links and explicit file opening. The page adds no dependencies and can open before the scientific or inference runtime is initialized.
+The submodule-only catalog and local-file resolver live in `src/mlcookbook/research.py`. `gui/screens/research.py` renders plain entries/library descriptors; `gui/research_timeline.py` draws the native QPainter/QGraphics timeline and emits explicit selection/reading actions. `app.py` owns navigation, the selected directory, catalog-checked source links and explicit file opening. The page adds no dependencies and can open before the scientific or inference runtime is initialized.
 
 Tests in `test_research.py`, `test_research_screen.py` and `test_research_app.py` cover chronology/catalog integrity, fixed-file resolution, filtering, source actions, unavailable readings, navigation restoration, analytical-state boundaries, viewport containment and offline import behavior.
