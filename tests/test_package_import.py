@@ -33,8 +33,6 @@ PUBLIC_MODULES = {
     "mlcookbook.dimensionality.pca": ("PCAResult", "pca"),
     "mlcookbook.comparison": ("RegressionComparisonResult", "compare_regressors"),
     "mlcookbook.llm": ("TextGenerationResult", "generate_text"),
-    "mlcookbook.wearable": ("WearableEvaluationResult", "WearableImportReport", "evaluate_wearable",
-                            "load_wearable_study"),
 }
 PUBLIC_NAMES = {name for names in PUBLIC_MODULES.values() for name in names}
 
@@ -77,7 +75,7 @@ def test_dataset_import_loads_its_existing_core_without_other_recipe_or_runtime_
         assert mlcookbook.Dataset is Dataset
         assert 'pandas' in sys.modules
         blocked = ('scipy', 'sklearn', 'torch', 'transformers', 'PySide6', 'mlcookbook.classification',
-                   'mlcookbook.regression', 'mlcookbook.wearable', 'mlcookbook.llm')
+                   'mlcookbook.regression', 'mlcookbook.llm')
         assert not any(name == prefix or name.startswith(prefix + '.')
                        for name in sys.modules for prefix in blocked)
     """)
@@ -86,7 +84,7 @@ def test_dataset_import_loads_its_existing_core_without_other_recipe_or_runtime_
 def test_every_public_export_and_wildcard_import_keep_the_original_objects():
     import mlcookbook
 
-    assert len(PUBLIC_NAMES) == 44
+    assert len(PUBLIC_NAMES) == 40
     assert len(mlcookbook.__all__) == len(PUBLIC_NAMES)
     assert set(mlcookbook.__all__) == PUBLIC_NAMES
     namespace = {}

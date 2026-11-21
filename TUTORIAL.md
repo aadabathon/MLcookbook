@@ -14,7 +14,7 @@ The existing Windows shortcut opens the restored black/violet UI at `dist/MLcook
 4. Adjust roles within that recipe if needed. Returning through **Data** or another recipe preserves its unrun choices and previous results; the Data page continues to show the original source roles.
 5. Use **Save experiment…** from a recipe to retain its data snapshot, controls and last result. Data alone is not a saved workspace/project. A successful file replacement clears previous recipe sessions; a failed import keeps them.
 
-The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** row on each recipe identifies what that screen will use: a file/snapshot and its dimensions, a built-in example, a typed LLM prompt or a Movement Study. Use the adjacent **Open dataset…** to replace a file; CSV options stay in the form. Column-role guidance is available on the column table and in **Recipe reference**. Study imports and reserved groups stay separate; opening a saved study preserves an existing active tabular dataset. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
+The sidebar's **Active dataset** identifies your ordinary tabular input. The **Input:** row on each recipe identifies what that screen will use: a file/snapshot and its dimensions, a built-in example or a typed LLM prompt. Use the adjacent **Open dataset…** to replace a file; CSV options stay in the form. Column-role guidance is available on the column table and in **Recipe reference**. Accepting generated LLM fields updates the active dataset while Local LLMs retains its source run.
 
 On first use, **Preparing analysis runtime…** may appear while scientific libraries initialize in the background. The current page stays visible and navigation locks until preparation finishes. This does not train a model or load LLM weights. A failed preparation leaves the page available for retry. File and experiment imports show their own loading status while performing initialization and reading data.
 
@@ -436,40 +436,6 @@ For your TensorFlow background, [TensorBoard's Graphs dashboard](https://www.ten
 
 For LLM research, a useful order is: make prompt runs reproducible, measure extraction quality against references, connect the resulting data to recipes, then add a PyTorch model inspector. That gives each visual node an output and evaluation you can actually inspect.
 
+## Movement Study
 
-## Movement Study: fixed participant/session holdouts
-
-Open **Movement Study**, then select the wearable pipeline's `export.json`.
-The manifest and split/index CSVs are one study; opening `train.csv` in an
-ordinary recipe is useful for exploration but does not preserve grouped model
-evaluation. Review Data checks, keep the final test sealed, and run grouped
-baselines. The report compares two candidates on validation groups and records
-the complete fold/group assignments. Save an experiment to retain an offline
-snapshot, or export evaluation JSON with probabilities and clock lineage.
-
-When ready for a final test, freeze your decisions first, choose **Evaluate
-frozen final test**, run once, and retain that experiment. Its score was not
-used to select the candidate. Window classification is separate from continuous
-fall-event evaluation and DEEPCRAFT CNN training. A synthetic study is only a
-software demonstration.
-
-
-The same desktop entry point accepts direct offline handoffs:
-
-```powershell
-python -m mlcookbook --movement-study
-python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
-python -m mlcookbook --experiment C:/path/to/study.mlcb
-# The portable EXE accepts the same arguments.
-```
-
-Opening verifies/imports the study or restores the saved snapshot without fitting
-a model. The empty Movement Study card and new imports default to sealed test
-groups; saved experiments retain their explicit unrun choices without running
-them. Qt command-line options are forwarded separately. Failed imports leave
-the app usable with the error in its status area. The PSoC companion now provides
-`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
-native grouped baselines in one new folder, plus `verify-study` and a PowerShell
-launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
-separate evidence. Synthetic provenance propagates from sessions automatically,
-and mixed real/synthetic preparation is rejected.
+Movement Study runs as a standalone app in the [PSoC6 analysis repository](https://github.com/aadabathon/PSoC6-logging-ML). Use it to open verified wearable exports and legacy Movement Study `.mlcb` files.

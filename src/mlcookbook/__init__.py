@@ -53,17 +53,10 @@ if _TYPE_CHECKING:
     from mlcookbook.statistics.categorical import ChiSquareResult, chi_square
     from mlcookbook.statistics.groups import AnovaResult, anova
     from mlcookbook.statistics.scan import AssociationScanResult, association_scan
-    from mlcookbook.wearable import (
-        WearableEvaluationResult,
-        WearableImportReport,
-        evaluate_wearable,
-        load_wearable_study,
-    )
 
 __version__ = "1.1.0"
 
 __all__ = [
-    "WearableEvaluationResult", "WearableImportReport", "evaluate_wearable", "load_wearable_study",
     "AnovaResult",
     "AssociationScanResult",
     "ChiSquareResult",
@@ -147,10 +140,6 @@ _EXPORTS = {
     "compare_regressors": "mlcookbook.comparison",
     "TextGenerationResult": "mlcookbook.llm",
     "generate_text": "mlcookbook.llm",
-    "WearableEvaluationResult": "mlcookbook.wearable",
-    "WearableImportReport": "mlcookbook.wearable",
-    "evaluate_wearable": "mlcookbook.wearable",
-    "load_wearable_study": "mlcookbook.wearable",
 }
 
 

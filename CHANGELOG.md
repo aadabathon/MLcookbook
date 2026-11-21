@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Movement Study moved to the standalone app in the [PSoC6 analysis repository](https://github.com/aadabathon/PSoC6-logging-ML). Open its saved Movement Study `.mlcb` files there.
+
 ## 1.1.0 - 2026-11-08
 
 This release brings the implemented desktop, data, local-inference and research

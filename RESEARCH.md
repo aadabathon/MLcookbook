@@ -31,7 +31,7 @@ The Illustrated Transformer is an explanatory article, presented separately from
 
 Browsing works offline. Opening Research reads the bundled catalog and checks only its known PDF filenames in the selected directory. It does not parse or copy the PDFs, fetch references, load inference weights, or run an analysis. Reading actions happen explicitly. The six source PDFs remain in the user's library and are excluded from packaging.
 
-Search, era, field, selected milestone, active view, list scroll and graphic zoom/position survive navigation in memory. Research has independent state; active data, recipe reports/examples, Kitchen documents and Movement Study holdouts retain their existing behavior and save formats.
+Search, era, field, selected milestone, active view, list scroll and graphic zoom/position survive navigation in memory. Research has independent state; active data, recipe reports/examples, and Kitchen documents retain their existing behavior and save formats.
 
 The submodule-only catalog and local-file resolver live in `src/mlcookbook/research.py`. `gui/screens/research.py` renders plain entries/library descriptors; `gui/research_timeline.py` draws the native QPainter/QGraphics timeline and emits explicit selection/reading actions. `app.py` owns navigation, the selected directory, catalog-checked source links and explicit file opening. The page adds no dependencies and can open before the scientific or inference runtime is initialized.
 

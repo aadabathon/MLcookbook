@@ -131,8 +131,7 @@ class MainWindow(QMainWindow):
         self.navigation_buttons = {}
         self._navigation_group = QButtonGroup(self)
         for key, title in (("data", "Data"), ("playground", "Data playground"), ("recipes", "Recipes"), ("kitchen", "Kitchen"),
-                           ("programming", "Programming"), ("llm", "Local LLMs"),
-                           ("wearable-study", "Movement Study"), ("research", "Research")):
+                           ("programming", "Programming"), ("llm", "Local LLMs"), ("research", "Research")):
             button = QPushButton(title)
             button.setObjectName("SidebarButton")
             button.setCheckable(True)

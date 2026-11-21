@@ -123,7 +123,6 @@ pytest
 | `classification` | `logistic_regression`, `decision_tree`, `random_forest`, `svm`, `neural_network` — binary or multiclass; shared validation in `_problem.py` |
 | `clustering` | `kmeans` |
 | `dimensionality` | `pca` |
-| `wearable` | Verified movement-study import, whole-group baseline comparison, optional fixed test, probabilities and source-window lineage |
 | `llm` | `generate_text`, optional PyTorch/Transformers inference from local GPT-2/Llama/Qwen2/Qwen3 checkpoints, frozen text-generation results |
 | `ollama` | `ollama_models`, `describe_ollama_model`, `generate_ollama`: installed local model discovery and streamed generation via standard-library HTTP; no PyTorch required |
 | `llamacpp` | `llamacpp_models`, `generate_llamacpp`: direct local llama-server discovery and chat generation over SSE, optional explicitly selected GGUF file hashing; no PyTorch required |
@@ -171,13 +170,13 @@ Copy the shape of an existing one:
 
 The completed [UI roadmap](UI_ROADMAP.md) provides a persistent sidebar with
 **Data** first, alongside **Data playground**, **Recipes**, **Kitchen**,
-**Local LLMs**, **Research**, **Programming** and **Movement Study**. The app opens
+**Local LLMs**, **Research** and **Programming**. The app opens
 on Data: import CSV/Parquet or query SQLite, inspect the preview, source roles,
 missing values and data checks, then choose a workflow. The sidebar identifies
 the active dataset; each recipe also identifies its own input. Typed prompts and
 fixed-group movement studies retain their separate input context.
 
-Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening an ordinary saved experiment makes its embedded snapshot active, while opening a Movement Study snapshot retains any existing ordinary dataset. Data's CSV options persist separately from recipe controls.
+Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening a saved experiment with ordinary data makes its embedded snapshot active. Data's CSV options persist separately from recipe controls.
 
 **[Data playground](DATA_PLAYGROUND.md)** fetches USGS earthquakes, Open Food Facts products, NASA exoplanets, Census ACS areas and Open-Meteo daily historical weather. Choose a source, filters, columns and maximum rows, then **Fetch preview**. Review the returned values, warnings and source details before **Use dataset** makes a copy active for recipes. Opening the page, changing sources and restoring its in-memory controls never contact an API. Fetch failures/cancellation retain the last completed preview and active data. Query edits mark a preview stale until the settings match again or a new fetch succeeds. Kitchen still captures active data explicitly.
 
@@ -191,7 +190,7 @@ The shared visual system uses ink-black/violet surfaces, selective serif heading
 
 Recipe forms separate data/columns, model settings and preprocessing/evaluation. Preprocessing, the training-CV setting and the split/seed context stay accessible when model settings are collapsed. Model Comparison's editable split and seed sit beside evaluation controls. The result banner identifies stale results; the footer reports readiness, progress or an actionable error. **Run details** expands the displayed report's data/settings and any recorded timestamp/runtime information. This disclosure is temporary and does not change saved experiment settings.
 
-**Recipe reference** explains applicability, data assumptions, controls, interpretation and limitations for every ready recipe. Its Python API section starts collapsed. Local LLM settings are grouped by task, runtime, inputs, generation and limits; Movement Study opens its grouped evaluation controls with the final test sealed. These presentation changes retain the existing `.mlcb` format and analytical results.
+**Recipe reference** explains applicability, data assumptions, controls, interpretation and limitations for every ready recipe. Its Python API section starts collapsed. Local LLM settings are grouped by task, runtime, inputs, generation and limits. These presentation changes retain the existing `.mlcb` format and analytical results.
 
 The Data shell opens before scientific libraries load. First use of an analysis prepares the existing runtime in a background job, with a visible status and navigation locks; it does not run a model. File/snapshot imports also initialize their core work in a worker. A failed initialization retains the current view and can be retried. The Python package keeps the same public names and real functions/classes, resolving each export when requested; `import mlcookbook` alone does not import the scientific stack or optional model runtimes.
 
@@ -212,11 +211,10 @@ Three layers, one seam:
 - `src/mlcookbook/` — the analytical core, UI-free as ever (`mlcookbook/__main__.py` is only a trampoline to the app).
 - `app.py` (repo root) — **the only module that knows both sides.** Owns the window, navigation, background jobs, the built-in demo datasets (`DEMOS`), and the report builders (`REPORT_BUILDERS`) that turn core results into plain report dicts.
 
-Twelve recipes are ready. Ten classical recipes accept CSV/Parquet files and offer explicit bundled examples. Local LLMs waits for a chosen local model. Movement Study waits for a verified wearable export and preserves its fixed group splits:
+Eleven recipes are ready. Ten classical recipes accept CSV/Parquet files and offer explicit bundled examples. Local LLMs waits for a chosen local model.
 
 | Recipe | Demo data | Report |
 |---|---|---|
-| Movement Study | explicitly selected wearable export.json | fixed-group baseline comparison, sealed-test choice, offline snapshots and prediction/source-window lineage |
 | Local LLMs | typed prompt or text rows; PyTorch model folder, Ollama or llama.cpp server | free text or validated nullable fields, derived datasets, saved-run comparisons, usage/timings, model provenance and export |
 | Model Comparison | diabetes | ridge vs random forest regression on identical training folds, selected model's final test metrics, exact row/fold membership saved with the report |
 | Linear Regression | diabetes | actual vs predicted, residual plot, test/train/CV metrics, residual checks, coefficients (OLS, ridge, or lasso) |
@@ -233,7 +231,7 @@ Reports include a short explanation of the result, followed by the recipe's visu
 
 ### Analyze your own data
 
-The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples, typed prompts and fixed Movement Study holdouts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
+The interface uses ink-black surfaces, violet accents and serif headings, with plain Segoe controls and plots. Each recipe has one **Input** row identifying its effective source and dimensions, beside **Open dataset…**. Examples and typed prompts remain distinguishable from the sidebar's active ordinary dataset. Column-role guidance is available on the column table and in **Recipe reference**.
 
 Start on **Data** to import CSV, Parquet or a read-only SQLite query, inspect the
 schema and choose **Analyze this dataset**. Task, target and predictor choices
@@ -503,59 +501,6 @@ def analyze(...):
 
 Then `ROADMAP.md` for what is still open.
 
+## Movement Study
 
-## Wearable movement studies
-
-**Movement Study → Open movement study…** opens the `export.json` made by the
-PSoC wearable analysis pipeline (`wearable.py export-mlcookbook`). Keep its six
-split/index CSV files beside the manifest. Import verifies hashes, feature/label
-alignment, physical units, whole-person/session assignments and class coverage.
-IDs and clock fields are retained as provenance and cannot become predictors.
-
-**Run grouped baselines** compares standard-scaled logistic regression and a
-bounded random forest on the fixed validation groups. CV keeps training groups
-together and fits preprocessing inside each fold; missing group/class coverage
-produces a warning, never a row-wise fallback. **Reserved test groups** defaults
-to **Keep sealed**. Evaluate that holdout only after freezing study decisions.
-
-Save/Open experiment retains the complete typed feature/lineage snapshot,
-settings and last report; reopen/rerun needs no original CSVs or PSoC repository.
-**Export evaluation…** writes JSON containing metrics, probabilities and exact
-source-window/session/time lineage. Loading this study does not expose reserved
-holdouts to other recipes. The companion CLI calls the same native evaluator.
-
-```python
-from mlcookbook import load_wearable_study, evaluate_wearable
-
-dataset, imported = load_wearable_study("study/export.json")
-result = evaluate_wearable(dataset, cv_folds=5, final_test=False, random_state=42)
-result.to_dict()  # JSON-safe metrics, groups, folds and predictions
-```
-
-These are classical window baselines. DEEPCRAFT still trains/exports the temporal
-CNN; window scores do not establish fall-event recall, false alerts per hour or
-on-device performance. Ordinary recipe row-wise scores remain exploratory for
-overlapping movement windows. Synthetic studies are explicitly marked and warn
-that their scores only check software integration. No new MLcookbook dependency
-or separate app entry point was added.
-
-
-The same desktop entry point accepts direct offline handoffs:
-
-```powershell
-python -m mlcookbook --movement-study
-python -m mlcookbook --study C:/path/to/study/mlcookbook/export.json
-python -m mlcookbook --experiment C:/path/to/study.mlcb
-# The portable EXE accepts the same arguments.
-```
-
-Opening verifies/imports the study or restores the saved snapshot without fitting
-a model. The empty Movement Study card and new imports default to sealed test
-groups; saved experiments retain their explicit unrun choices without running
-them. Qt command-line options are forwarded separately. Failed imports leave
-the app usable with the error in its status area. The PSoC companion now provides
-`wearable.py study` to assemble prepared windows/CNN tracks, feature exports and
-native grouped baselines in one new folder, plus `verify-study` and a PowerShell
-launcher. Its `study.json` hashes link all derived outputs; raw sessions remain
-separate evidence. Synthetic provenance propagates from sessions automatically,
-and mixed real/synthetic preparation is rejected.
+Movement Study runs as a standalone app in the [PSoC6 analysis repository](https://github.com/aadabathon/PSoC6-logging-ML). Use it to open verified wearable exports and legacy Movement Study `.mlcb` files.

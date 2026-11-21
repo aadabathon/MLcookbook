@@ -393,54 +393,6 @@ def test_failed_runtime_initialization_preserves_work_and_can_be_retried(control
     assert not controller.screen._report
 
 
-@pytest.mark.parametrize("fail", [False, True], ids=["ready", "initialization-failed"])
-def test_study_startup_waits_for_recipe_initialization_without_running_analysis(controller, qt, monkeypatch,
-                                                                              tmp_path, fail):
-    from PySide6.QtCore import QThread
-
-    import app
-
-    entered, release = threading.Event(), threading.Event()
-    loaded = []
-    manifest = tmp_path / "study with spaces" / "export.json"
-
-    def prepare():
-        entered.set()
-        if not release.wait(10):
-            raise TimeoutError("The test did not release initialization")
-        if fail:
-            raise RuntimeError("Cannot initialize study runtime")
-
-    def load(path):
-        loaded.append((path, controller.key, QThread.currentThread()))
-
-    def unexpected(*args, **kwargs):
-        pytest.fail("Startup handoffs must not train or unseal the test")
-
-    monkeypatch.setattr(app, "_prepare_runtime", prepare)
-    monkeypatch.setattr(controller, "load_wearable_study", load)
-    monkeypatch.setattr(app, "_run_report", unexpected)
-    options, qt_arguments = app._startup_options(["--study", str(manifest), "-platform", "windows"])
-    assert qt_arguments == ["-platform", "windows"]
-    try:
-        app._open_startup(controller, options)
-        assert entered.wait(2)
-        qt.processEvents()
-        assert not loaded and controller.key == "data"
-    finally:
-        release.set()
-        _finish(controller, qt)
-    if fail:
-        assert loaded == [] and controller.key == "data"
-        assert not controller._runtime_initialized
-        assert "Cannot initialize study runtime" in controller.screen.status.text()
-    else:
-        assert loaded == [(str(manifest.resolve()), "wearable-study", qt.thread())]
-        assert controller.screen.request()["params"]["final_test"] is False
-        assert controller.screen._report == {}
-        assert controller.imported is None
-
-
 @pytest.mark.parametrize("action,module", [("csv", "mlcookbook.io"), ("experiment", "mlcookbook.experiments")])
 def test_first_file_action_imports_its_core_in_the_worker(controller, qt, monkeypatch, tmp_path, action, module):
     import builtins

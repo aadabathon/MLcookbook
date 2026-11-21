@@ -36,7 +36,6 @@ CALLABLE_RECIPES = {
     "mlcookbook.statistics.scan.association_scan": "association-scan",
     "mlcookbook.comparison.compare_regressors": "model-comparison",
     "mlcookbook.llm.generate_text": "llm",
-    "mlcookbook.wearable.evaluate_wearable": "wearable-study",
 }
 
 REFERENCE_CONTENT = {
@@ -229,22 +228,6 @@ REFERENCE_CONTENT = {
         "weights the server loaded. Seeds do not guarantee cross-engine reproducibility. Saved results reopen "
         "offline; reruns still need the external model or server. Captured graphs describe the helper execution, "
         "not a live server trace. Stored tensor bytes are not peak RAM/VRAM. Research archives use Save lab.",
-    ),
-    "wearable-study": (
-        "Compare logistic regression and random forest baselines on a verified wearable movement study. "
-        "This workflow preserves the study's fixed train, validation and reserved test groups.",
-        "Open the wearable pipeline's export.json or a saved study experiment. Only the known physical-unit "
-        "summary features are predictors; identifiers, timestamps and window lineage remain metadata. "
-        "Whole-group training CV refits preprocessing per fold rather than splitting related windows at random.",
-        "Training group folds controls within-training evaluation. Validation-group macro F1 selects the model. "
-        "Reserved test groups remain sealed by default; evaluate them explicitly after freezing modeling "
-        "decisions. The seed controls randomized fitting, not the fixed study splits.",
-        "Read validation metrics separately from grouped training CV and any explicit final-test report. "
-        "Macro F1 gives equal weight to each class. Per-window predictions, probabilities and retained group, "
-        "session and window lineage support error inspection and evaluation export.",
-        "Many overlapping windows do not create the same number of independent subjects. Performance depends "
-        "on the study's held-out groups and labeling protocol. Synthetic fixtures verify integration rather "
-        "than real-world accuracy. Repeated final-test inspection compromises its role as a reserved evaluation.",
     ),
 }
 

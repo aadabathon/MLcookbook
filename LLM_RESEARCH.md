@@ -64,7 +64,7 @@ Warmups alone do not establish uncached, cold-storage or exclusive-server condit
 
 **Save lab…** atomically writes a bounded, checksummed `.mlcl` archive containing settings and completed research artifacts. **Open lab…** restores those artifacts offline with the original model files and server absent. Opening a lab performs no capture or generation. Invalid files preserve the current lab.
 
-**Export JSON…** publishes the recorded document as inspectable JSON. Model weights, runtime DLLs and executables stay external. The lab archive is declarative data and does not execute recorded paths. Research state remains independent of ordinary active data, examples, Movement Study holdouts and Kitchen source snapshots.
+**Export JSON…** publishes the recorded document as inspectable JSON. Model weights, runtime DLLs and executables stay external. The lab archive is declarative data and does not execute recorded paths. Research state remains independent of ordinary active data, examples and Kitchen source snapshots.
 
 The main **Save experiment** action applies to Generate and is disabled while Research lab is selected. Use the lab's own save controls for research. Switching away and back retains research controls and artifacts in memory.
 

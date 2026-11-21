@@ -67,7 +67,7 @@ Select a completed output port and use **Export…** for its full data or record
 
 **Save Kitchen…** writes a version-2 `.mlck` document containing the current graph/settings/layout/selection, source snapshots and full completed data artifacts. Vectors, derived datasets and positional lineage use checksummed Parquet members; JSON holds reports, previews and references. Older artifacts needed by retained stale results remain available. **Open Kitchen…** restores this data without fitting, executing graph operations or rereading original source paths.
 
-Version-1 Kitchen files still open. Their data outputs contain only the earlier previews; rerun the desired paths to materialize full exportable artifacts. Existing single-recipe `.mlcb` experiments keep their format and header actions. Opening a Kitchen replaces that Kitchen document; ordinary data, examples and Movement Study sessions remain independent.
+Version-1 Kitchen files still open. Their data outputs contain only the earlier previews; rerun the desired paths to materialize full exportable artifacts. Existing single-recipe `.mlcb` experiments keep their format and header actions. Opening a Kitchen replaces that Kitchen document; ordinary data and examples remain independent.
 
 Changed nodes and their descendants show **Stale** while retaining their last completed output. Reverting a change can make that output current again. A failed or cancelled attempt keeps the previous output and its original settings/input provenance. Cancellation is cooperative between operations; an operation already in progress, including a classical model fit, finishes before the next one is prevented. File save/open/capture jobs do not offer cancellation.
 

@@ -4,6 +4,10 @@ Personal notes for the author. The scaffold is done — from here on, this proje
 
 For hands-on use of every recipe, start with the [recipe tutorial](TUTORIAL.md), including its practice dataset and local LLM research walkthrough.
 
+## Movement Study extraction — 2026-11-21
+
+Movement Study runs as a standalone app in the [PSoC6 analysis repository](https://github.com/aadabathon/PSoC6-logging-ML). Use it to open verified wearable exports and legacy Movement Study `.mlcb` files.
+
 ## v1.1 candidate verification — 2026-11-08
 
 The v1.1 scope is the work already implemented since v1.0: the Data-first UI,
