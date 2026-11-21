@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
 import app  # noqa: E402 -- app.py is the intended desktop/core seam.
 from gui.recipes import RECIPES  # noqa: E402
 
-CLASSICAL = [key for key in app.DEMOS if key not in ("llm", "wearable-study")]
+CLASSICAL = [key for key in app.DEMOS if key != "llm"]
 
 
 @pytest.fixture(scope="module")
@@ -278,13 +278,12 @@ def test_saved_example_reopens_offline_without_becoming_active_ordinary_data(con
         assert controller.screen.view is None
 
 
-@pytest.mark.parametrize("key", ["llm", "wearable-study"])
-def test_specialized_recipes_have_no_classical_example_action(controller, qt, monkeypatch, key):
+def test_llm_has_no_classical_example_action(controller, qt, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Opening a specialized setup must not run a workflow")
 
-    monkeypatch.setitem(app.REPORT_BUILDERS, key, forbidden)
-    open_recipe(controller, key)
+    monkeypatch.setitem(app.REPORT_BUILDERS, "llm", forbidden)
+    open_recipe(controller, "llm")
     assert controller.job is None and not controller.screen._report
     buttons = [button for button in controller.screen.findChildren(QPushButton)
                if "example" in button.text().lower() and button.isVisibleTo(controller.screen)]
@@ -294,54 +293,6 @@ def test_specialized_recipes_have_no_classical_example_action(controller, qt, mo
     finish(controller, qt)
     assert controller.screen is screen and not screen._report and not screen.is_example
     assert controller.imported is None
-
-
-def test_saved_example_in_a_fresh_controller_preserves_independent_study_session(controller, qt, tmp_path, monkeypatch):
-    from mlcookbook.core.results import to_jsonable
-    from tests.test_wearable import make_export
-
-    open_recipe(controller, "linear-regression")
-    controller.run_example()
-    finish(controller, qt)
-    expected = to_jsonable(comparable_state(controller.screen))
-    saved = tmp_path / "saved-example.mlcb"
-    controller.save_experiment(str(saved))
-    finish(controller, qt)
-    assert saved.is_file()
-    study = make_export(tmp_path / "independent-study")
-    fresh = app.MLCookbookApp()
-    try:
-        open_recipe(fresh, "wearable-study")
-        fresh.load_wearable_study(str(study / "export.json"))
-        finish(fresh, qt)
-        fresh.screen.param_widgets["final_test"].setCurrentIndex(1)
-        fresh.screen.param_widgets["random_state"].setValue(99)
-        study_state = comparable_state(fresh.screen)
-        study_dataset = fresh.screen.dataset
-
-        def forbidden(*args, **kwargs):
-            pytest.fail("Opening a saved example or returning to a study must not construct or train")
-
-        _, name, target, positive = app.DEMOS["linear-regression"]
-        monkeypatch.setitem(app.DEMOS, "linear-regression", (forbidden, name, target, positive))
-        monkeypatch.setitem(app.REPORT_BUILDERS, "linear-regression", forbidden)
-        monkeypatch.setitem(app.REPORT_BUILDERS, "wearable-study", forbidden)
-        fresh.open_experiment(str(saved))
-        finish(fresh, qt)
-        assert to_jsonable(comparable_state(fresh.screen)) == expected
-        assert fresh.screen.is_example and fresh.imported is None
-        fresh.show_data_page()
-        assert fresh.screen.view is None
-        open_recipe(fresh, "wearable-study")
-        assert fresh.screen.dataset is study_dataset and not fresh.screen._report
-        assert comparable_state(fresh.screen) == study_state
-        assert fresh.imported is None
-    finally:
-        fresh.wait_for_job()
-        qt.processEvents()
-        fresh.window.close()
-        fresh.window.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.mark.parametrize("source_kind", ["empty", "demo"])

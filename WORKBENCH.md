@@ -50,7 +50,6 @@ Ordinary row-wise prediction and association workflows are blocked for that
 context until an appropriate evaluator exists. Descriptive structure workflows
 remain available with context columns excluded. These declarations do not
 automatically detect dependence or implement general grouped/temporal evaluation.
-Movement Study retains its separate fixed-group evaluator and sealed holdouts.
 
 **Open workflow** carries your dataset, target and predictors into the selected
 recipe. Adjust technical settings and explicitly run. The recipe catalog and

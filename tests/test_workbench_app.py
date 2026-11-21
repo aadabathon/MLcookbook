@@ -221,7 +221,7 @@ def test_data_workflow_state_survives_navigation_but_new_import_clears_it(contro
     assert controller.screen.workflow_context()["features"] == ["x", "z", "y"]
 
 
-def test_data_handoff_uses_ordinary_snapshot_after_cached_example_and_study(controller, qt, tmp_path):
+def test_data_handoff_uses_ordinary_snapshot_after_cached_example(controller, qt, tmp_path):
     path, _ = sql_data(tmp_path)
     ordinary, _ = import_sql(controller, qt, path)
     recipe = open_regression_from_data(controller, qt)
@@ -236,22 +236,6 @@ def test_data_handoff_uses_ordinary_snapshot_after_cached_example_and_study(cont
     assert recipe.dataset is ordinary[0] and not recipe.is_example
     assert controller.example_sessions["linear-regression"]["dataset"] is example_dataset
     assert controller.example_sessions["linear-regression"]["state"]["report"] == example_report
-    from tests.test_wearable import make_export
-
-    study_path = make_export(tmp_path / "study")
-    open_recipe(controller, qt, "wearable-study")
-    controller.load_wearable_study(str(study_path / "export.json"))
-    finish(controller, qt)
-    study_dataset = controller.screen.dataset
-    assert controller.imported is ordinary
-    assert not controller.screen.request()["params"]["final_test"]
-    controller.navigate("data")
-    finish(controller, qt)
-    assert controller.screen.view["rows"] == 80
-    assert controller.imported[0] is not study_dataset
-    recipe = open_regression_from_data(controller, qt)
-    assert recipe.dataset is ordinary[0]
-    assert "subject_id" not in recipe.dataset.df.columns
 
 
 def test_sqlite_failure_and_declared_dependence_preserve_ordinary_work(controller, qt, tmp_path):

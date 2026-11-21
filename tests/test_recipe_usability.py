@@ -363,30 +363,6 @@ def test_llm_controls_fit_horizontally_at_the_minimum_window_size(qt, backend, i
         qt.setFont(original_font)
 
 
-def test_movement_settings_keep_final_test_sealed_and_grouping_explicit(qt):
-    import app
-
-    screen = app.SCREEN_FACTORIES["wearable-study"](demo=False, setup=True)
-    try:
-        screen.show()
-        screen.sections["settings"].setChecked(True)
-        qt.processEvents()
-        assert screen.request()["params"]["final_test"] is False
-        assert screen.preprocessing is None and screen.cv_folds is None
-        assert not screen.run_button.isEnabled()
-        assert "sealed" in screen.param_widgets["final_test"].currentText().lower()
-        assert "group" in screen.sections["settings"].text().lower()
-        assert screen.param_widgets["cv_folds"].isVisibleTo(screen)
-        assert screen.param_widgets["final_test"].isVisibleTo(screen)
-        original = screen.session_state()
-        screen.param_widgets["random_state"].setValue(73)
-        assert screen.request()["params"]["final_test"] is False
-        assert screen.session_state()["sections"] == original["sections"]
-        assert screen.session_state()["report"] == original["report"]
-    finally:
-        _dispose(screen)
-
-
 @pytest.mark.parametrize("key", ["linear-regression", "logistic-regression", "decision-tree", "random-forest",
                                 "svm", "neural-network"])
 def test_supervised_setup_exposes_the_actual_fixed_evaluation_defaults(qt, key):

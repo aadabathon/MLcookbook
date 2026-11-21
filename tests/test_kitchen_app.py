@@ -306,31 +306,6 @@ def test_open_rejects_unrepresentable_api_settings_instead_of_clamping_them(cont
     assert "cannot be restored exactly" in screen.status.text()
 
 
-def test_kitchen_open_preserves_study_sessions_and_ordinary_data(controller, qt, tmp_path, monkeypatch):
-    from tests.test_wearable import make_export
-
-    _, keys = setup_graph(controller, qt, tmp_path)
-    graph_file = tmp_path / "graph.mlck"
-    controller.save_kitchen(str(graph_file))
-    finish(controller, qt)
-    ordinary = controller.imported
-    controller.navigate("wearable-study")
-    study = make_export(tmp_path / "study")
-    controller.load_wearable_study(str(study / "export.json"))
-    finish(controller, qt)
-    assert controller.imported is ordinary and not controller.screen.request()["params"]["final_test"]
-    controller.screen.param_widgets["random_state"].setValue(17)
-    monkeypatch.setattr(app, "_run_report", lambda *a, **kw: pytest.fail("Navigation/open must not evaluate a study"))
-    controller.open_kitchen(str(graph_file))
-    finish(controller, qt)
-    assert controller.imported is ordinary and controller.kitchen.selected == keys[3]
-    assert all("__wearable_split" not in data.df.columns for data in controller.kitchen.snapshots.values())
-    controller.navigate("wearable-study")
-    assert controller.screen.source["kind"] == "wearable_study"
-    assert controller.screen.request()["params"]["random_state"] == 17
-    assert not controller.screen.request()["params"]["final_test"]
-
-
 def test_large_canvas_positions_remain_reachable_and_fit_can_be_zoomed(controller, qt):
     from PySide6.QtCore import QPointF
     from PySide6.QtGui import QWheelEvent

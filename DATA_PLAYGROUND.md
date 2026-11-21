@@ -35,7 +35,7 @@ uses a `data/` folder beside its executable instead.
 Fetching preserves active data and recipe work. Explicitly using a new dataset
 replaces ordinary active data and invalidates its recipe/example sessions, just
 like a successful file import. Existing Kitchen source snapshots and independent
-Movement Study data remain independent. Capture active data explicitly inside
+Capture active data explicitly inside
 Kitchen to use it in a graph.
 
 Changing filters or columns marks the preview stale and disables Use and Download. Restore

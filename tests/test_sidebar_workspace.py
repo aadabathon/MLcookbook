@@ -329,56 +329,6 @@ def test_saved_regular_experiment_updates_active_data_and_keeps_role_overrides_s
     assert any("Saved dataset snapshot" in note for note in controller.screen.view["notes"])
 
 
-@pytest.mark.parametrize("opening_from", ["data", "recipe"])
-def test_study_import_and_saved_reopen_preserve_active_ordinary_dataset(controller, qt, linear_df, tmp_path, monkeypatch, opening_from):
-    from tests.test_wearable import make_export
-
-    import_frame(controller, qt, linear_df, tmp_path)
-    ordinary = controller.imported
-    open_recipe(controller, "linear-regression", qt)
-    controller.screen.set_status("Review the ordinary recipe's selected columns before running.")
-    recipe_status = controller.screen._status_message
-    controller.navigate("wearable-study")
-    assert not controller.screen.run_button.isEnabled()
-    study = make_export(tmp_path / "study")
-    controller.load_wearable_study(str(study / "export.json"))
-    finish(controller, qt)
-    assert controller.imported is ordinary
-    assert controller.screen.source["kind"] == "wearable_study"
-    assert not controller.screen.request()["params"]["final_test"]
-    assert "Movement Study" in controller.screen.input_context.text()
-    assert controller.window.dataset_name_label.toolTip() == ordinary[1]
-    saved = tmp_path / "study.mlcb"
-    controller.save_experiment(str(saved))
-    finish(controller, qt)
-    controller.show_data_page()
-    assert controller.screen.view["name"] == ordinary[1]
-    assert controller.screen.view["rows"] == len(linear_df)
-    controller._set_status("Review the active dataset's source roles before choosing an analysis.")
-    data_status = controller.data_status
-    if opening_from == "recipe":
-        open_recipe(controller, "linear-regression", qt)
-        assert controller.screen._status_message == recipe_status
-
-    def forbidden(*args, **kwargs):
-        pytest.fail("Reopening a saved study must not evaluate a holdout")
-
-    monkeypatch.setattr(app, "_run_report", forbidden)
-    controller.open_experiment(str(saved))
-    finish(controller, qt)
-    assert controller.imported is ordinary
-    assert controller.key == "wearable-study"
-    assert controller.window.navigation_buttons["wearable-study"].isChecked()
-    assert controller.screen.source["kind"] == "wearable_study"
-    assert not controller.screen._report and not controller.screen.request()["params"]["final_test"]
-    assert controller.window.dataset_name_label.toolTip() == ordinary[1]
-    controller.show_data_page()
-    assert controller.screen.status.text() == data_status
-    open_recipe(controller, "linear-regression", qt)
-    assert controller.screen._status_message == recipe_status
-    assert controller.imported is ordinary
-
-
 def test_typed_prompt_and_dataset_rows_have_distinct_effective_input(controller, qt, linear_df, tmp_path):
     path = import_frame(controller, qt, linear_df, tmp_path)
     ordinary = controller.imported
