@@ -43,6 +43,7 @@ def test_single_entry_point_paints_and_handles_events_without_scientific_imports
                 controller = state['controller']
                 assert controller.key == 'data' and controller.window.isVisible()
                 assert controller.screen.view is None and controller.job is None
+                assert len(controller.screen.sample_button.menu().actions()) == 3
                 controller.show_front_page()
                 assert controller.key == 'recipes'
                 controller.show_data_page()

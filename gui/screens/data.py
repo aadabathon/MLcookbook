@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -59,10 +60,11 @@ class DataScreen(QWidget):
 
     load_requested = Signal(str, str, str, str)
     sqlite_requested = Signal()
+    sample_requested = Signal(str)
     workflow_context_changed = Signal(dict)
     workflow_requested = Signal(str, dict)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *, samples: tuple[tuple[str, str], ...] = ()) -> None:
         super().__init__(parent)
         self.view: dict | None = None
         self._discovery: dict = {}
@@ -84,6 +86,16 @@ class DataScreen(QWidget):
         self.sqlite_button = QPushButton("Open SQLite…")
         self.sqlite_button.clicked.connect(self.sqlite_requested.emit)
         heading.addWidget(self.sqlite_button)
+        self.sample_button = QPushButton("Sample datasets")
+        self.sample_button.setToolTip("Open a bundled dataset as the active input.")
+        sample_menu = QMenu(self.sample_button)
+        sample_menu.setObjectName("SampleDatasetsMenu")
+        for key, name in samples:
+            sample_menu.addAction(name).setData(key)
+        sample_menu.triggered.connect(self._choose_sample)
+        self.sample_button.setMenu(sample_menu)
+        self.sample_button.setVisible(bool(samples))
+        heading.addWidget(self.sample_button)
         outer.addLayout(heading)
 
         self.import_panel = QWidget()
@@ -445,6 +457,10 @@ class DataScreen(QWidget):
         if path:
             self.load_requested.emit(path, self.delimiter.currentData(), self.encoding.currentData(), self.markers.text())
 
+    def _choose_sample(self, action) -> None:
+        if not self._busy:
+            self.sample_requested.emit(action.data())
+
     def import_options(self) -> dict:
         return {"delimiter": self.delimiter.currentData(), "encoding": self.encoding.currentData(),
                 "markers": self.markers.text(), "expanded": self.import_toggle.isChecked()}
@@ -513,6 +529,7 @@ class DataScreen(QWidget):
         self._busy = busy
         self.load_button.setEnabled(not busy)
         self.sqlite_button.setEnabled(not busy)
+        self.sample_button.setEnabled(not busy)
         self.import_panel.setEnabled(not busy)
         self.workflow_panel.setEnabled(not busy)
         self._workflow_method_changed()

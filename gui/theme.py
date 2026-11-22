@@ -127,6 +127,8 @@ def stylesheet() -> str:
     QPushButton:focus {{ border-color: {BORDER_ACCENT}; }}
     QPushButton:disabled {{ color: {TEXT_FAINT}; background-color: {SURFACE}; }}
     QPushButton#ConnectToolButton:checked {{ background-color: {UI_SELECTION}; color: {UI_ACCENT}; border-color: {UI_BORDER}; }}
+    QPushButton#PlaygroundPreset:checked {{ background-color: {UI_SELECTION}; color: {UI_ACCENT}; border-color: {UI_BORDER}; }}
+    QPushButton#PlaygroundPreset:focus {{ border-color: {BORDER_ACCENT}; }}
     QPushButton#SectionToggle, QPushButton#RunDetailsToggle {{ text-align: left; color: {TEXT}; }}
     QPushButton#WarningSummary {{
         background-color: {WARNING_BG}; color: {WARNING}; border-color: {WARNING_BORDER}; text-align: left;
@@ -138,6 +140,10 @@ def stylesheet() -> str:
     QPushButton#PrimaryButton:hover {{ background-color: {UI_PRIMARY_HOVER}; border-color: {UI_PRIMARY_HOVER}; }}
     QPushButton#PrimaryButton:focus {{ border-color: {TEXT}; }}
     QPushButton#PrimaryButton:disabled {{ background-color: {SURFACE}; border-color: {BORDER}; color: {TEXT_FAINT}; }}
+
+    QMenu#SampleDatasetsMenu {{ background-color: {CARD}; border: 1px solid {BORDER}; padding: 4px; }}
+    QMenu#SampleDatasetsMenu::item {{ padding: 6px 12px; }}
+    QMenu#SampleDatasetsMenu::item:selected {{ background-color: {UI_SELECTION}; color: {UI_ACCENT}; }}
 
     QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {{
         background-color: {CARD}; color: {TEXT}; border: 1px solid {BORDER};

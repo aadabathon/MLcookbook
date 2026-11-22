@@ -39,20 +39,115 @@ def product(code, **nutrients):
             "ingredients_text": "Oats, sugar", "nutriments": nutrients}
 
 
-def test_catalog_has_five_independent_specs_without_network(monkeypatch):
+def test_catalog_and_presets_are_independent_and_available_offline(monkeypatch):
     monkeypatch.setattr(gathering, "fetch_json", lambda *a, **kw: pytest.fail("Catalog must be offline"))
     specs = gathering.source_specs()
-    assert [source["key"] for source in specs] == ["usgs", "food", "exoplanets", "census", "weather"]
+    assert [source["key"] for source in specs] == [
+        "usgs", "food", "exoplanets", "census", "weather", "world_bank", "nyc_trees",
+    ]
+    assert [source["key"] for source in specs if "preset" in source] == ["usgs", "exoplanets", "world_bank", "nyc_trees"]
     for spec in specs:
         keys = [column["key"] for column in spec["columns"]]
         assert len(keys) == len(set(keys))
         assert set(spec["default_columns"]) <= set(keys)
         assert 0 < spec["default_limit"] <= spec["max_limit"] <= 5000
         assert spec["url"].startswith("https://")
+        if "preset" in spec:
+            _, query = gathering._validate(spec["key"], spec["preset"]["query"])
+            assert "api_key" not in query
     census_key = next(field for field in specs[3]["fields"] if field["key"] == "api_key")
     assert census_key["secret"] and census_key["required"]
     specs[0]["fields"][0]["default"] = "invalid"
     assert gathering.source_specs()[0]["fields"][0]["default"] != "invalid"
+
+
+def _bank_page(rows):
+    return [{"page": 1, "pages": 1, "total": len(rows)}, rows]
+
+
+def _bank_economies():
+    return [{"id": code, "iso2Code": short, "name": name, "region": {"id": region}}
+            for code, short, name, region in [("USA", "US", "United States", "NAC"),
+                                              ("WLD", "1W", "World", "NA"),
+                                              ("CAN", "CA", "Canada", "NAC"),
+                                              ("BRA", "BR", "Brazil", "LCN")]]
+
+
+def _observation(code, indicator, value, *, year="2022", short=""):
+    return {"countryiso3code": code, "country": {"id": short}, "indicator": {"id": indicator},
+            "date": year, "value": value}
+
+
+def test_world_bank_joins_by_economy_and_excludes_aggregates_before_capping(monkeypatch):
+    observations = [
+        _observation("USA", "SP.DYN.LE00.IN", 77),
+        _observation("", "SP.DYN.LE00.IN", 72, short="1W"),
+        _observation("CAN", "NY.GDP.PCAP.CD", None),
+        _observation("BRA", "NY.GDP.PCAP.CD", 9500),
+        _observation("CAN", "SP.DYN.LE00.IN", 82),
+    ]
+    calls = fake_source(monkeypatch, lambda url: _bank_page(observations if "/indicator/" in url else _bank_economies()))
+    columns = ["gdp_per_capita", "economy_code", "year", "life_expectancy"]
+    result = gathering.fetch_dataset("world_bank", {"limit": 2, "columns": columns})
+    frame = result.dataset.df
+    assert list(frame) == columns
+    assert frame.economy_code.tolist() == ["BRA", "CAN"]
+    assert frame.year.tolist() == [2022, 2022]
+    assert frame.gdp_per_capita.iloc[0] == 9500 and pd.isna(frame.gdp_per_capita.iloc[1])
+    assert pd.isna(frame.life_expectancy.iloc[0]) and frame.life_expectancy.iloc[1] == 82
+    assert result.result.roles["economy_code"] == "unsupported"
+    assert result.result.units["gdp_per_capita"] == "current USD"
+    assert result.result.truncated and any("not a random sample" in warning for warning in result.result.warnings)
+    assert len(calls) == 2 and all(urlsplit(url).hostname == "api.worldbank.org" for url, _ in calls)
+    indicator_url = urlsplit(calls[1][0])
+    assert indicator_url.path.endswith("/NY.GDP.PCAP.CD;SP.DYN.LE00.IN")
+    assert parse_qs(indicator_url.query) == {"date": ["2022"], "source": ["2"], "format": ["json"], "per_page": ["1000"]}
+    assert json.loads(json.dumps(result.result.to_dict()))["query"]["columns"] == columns
+
+
+@pytest.mark.parametrize(("items", "pages", "error"), [
+    ([_observation("CAN", "SP.DYN.LE00.IN", 82)] * 2, 1, "duplicate"),
+    ([_observation("CAN", "SP.DYN.LE00.IN", 82, year="2021")], 1, "outside"),
+    ([_observation("CAN", "SP.DYN.LE00.IN", 82)], 2, "incomplete"),
+])
+def test_world_bank_rejects_inconsistent_observations(monkeypatch, items, pages, error):
+    response = _bank_page(items)
+    response[0]["pages"] = pages
+    fake_source(monkeypatch, lambda url: response if "/indicator/" in url else _bank_page(_bank_economies()))
+    with pytest.raises(ValueError, match=error):
+        gathering.fetch_dataset("world_bank", {})
+
+
+def test_nyc_trees_uses_bounded_living_tree_query_and_retains_roles(monkeypatch):
+    call = fake_source(monkeypatch, [
+        {"tree_id": "0001", "block_id": "00006", "boroname": "Queens", "status": "Alive",
+         "spc_common": "red maple", "tree_dbh": "12", "health": "Good"},
+        {"tree_id": 2, "boroname": "Queens", "status": "Alive", "tree_dbh": "broken"},
+        {"tree_id": "10", "boroname": "Queens", "status": "Alive"},
+    ])
+    result = gathering.fetch_dataset("nyc_trees", {"limit": 2})
+    frame = result.dataset.df
+    assert frame.tree_id.tolist() == ["0001", "2"] and frame.block_id.iloc[0] == "00006"
+    assert frame.diameter_in.iloc[0] == 12 and pd.isna(frame.diameter_in.iloc[1])
+    assert frame.health.iloc[0] == "Good" and pd.isna(frame.health.iloc[1])
+    assert result.result.roles["species"] == "categorical" and result.result.roles["block_id"] == "unsupported"
+    assert result.result.units["diameter_in"] == "in" and result.result.truncated
+    assert any("malformed/non-finite" in warning for warning in result.result.warnings)
+    request = urlsplit(call[0][0])
+    assert request.hostname == "data.cityofnewyork.us" and request.path == "/resource/uvpi-gqnh.json"
+    assert parse_qs(request.query) == {
+        "$select": ["tree_id,boroname,status,block_id,spc_common,tree_dbh,health"],
+        "$where": ["status = 'Alive' AND boroname = 'Queens'"], "$order": ["tree_id ASC"], "$limit": ["3"],
+    }
+
+
+@pytest.mark.parametrize("change", [{"boroname": "Bronx"}, {"status": "Dead"}, {"tree_id": "01"}])
+def test_nyc_trees_rejects_duplicates_and_out_of_filter_rows(monkeypatch, change):
+    rows = [{"tree_id": "1", "boroname": "Queens", "status": "Alive"},
+            {"tree_id": "2", "boroname": "Queens", "status": "Alive", **change}]
+    fake_source(monkeypatch, rows)
+    with pytest.raises(ValueError, match="out-of-filter"):
+        gathering.fetch_dataset("nyc_trees", {})
 
 
 def test_usgs_preserves_ids_units_dates_roles_and_truncation(monkeypatch):

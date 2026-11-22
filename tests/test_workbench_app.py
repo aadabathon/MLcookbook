@@ -112,6 +112,86 @@ def open_recipe(controller, qt, key):
     return controller.screen
 
 
+@pytest.mark.parametrize(("key", "rows", "target", "role"), [
+    ("diabetes", 442, "progression", "numeric"),
+    ("breast-cancer", 569, "diagnosis", "categorical"),
+    ("wine", 178, "cultivar", "categorical"),
+])
+def test_sample_menu_loads_ordinary_data_without_running_a_recipe(controller, qt, monkeypatch, key, rows, target, role):
+    def forbid_analysis(*_args, **_kwargs):
+        pytest.fail("Loading sample data must not run a recipe")
+
+    monkeypatch.setattr(app, "_run_report", forbid_analysis)
+    page = controller.screen
+    assert page.view is None and controller.imported is None and controller.job is None
+    actions = page.sample_button.menu().actions()
+    assert [action.data() for action in actions] == ["diabetes", "breast-cancer", "wine"]
+    next(action for action in actions if action.data() == key).trigger()
+    assert not page.sample_button.isEnabled()
+    finish(controller, qt)
+
+    assert controller.screen is page and page.sample_button.isEnabled()
+    assert page.view["rows"] == rows and page.preview_table.rowCount() == 20
+    assert page.view["source"]["sample"] == key
+    assert controller.imported[0].schema().var_type(target).value == role
+    assert "Bundled sample" in page.source.text()
+    recipe = open_recipe(controller, qt, "pca")
+    assert recipe.dataset is controller.imported[0] and not recipe.is_example
+    assert not recipe._report
+
+
+def test_sample_workflow_saves_and_reopens_its_snapshot(controller, qt, tmp_path, monkeypatch):
+    page = controller.screen
+    next(action for action in page.sample_button.menu().actions() if action.data() == "wine").trigger()
+    finish(controller, qt)
+    page.workflow_intent.setCurrentIndex(page.workflow_intent.findData("classification"))
+    finish(controller, qt)
+    page.workflow_target.setCurrentIndex(page.workflow_target.findData("cultivar"))
+    finish(controller, qt)
+    assert page.workflow_open.isEnabled()
+    page.workflow_open.click()
+    finish(controller, qt)
+
+    recipe = controller.screen
+    assert controller.key == "logistic-regression"
+    assert recipe.request()["target"] == "cultivar"
+    assert "cultivar" not in recipe.request()["features"]
+    recipe.run_button.click()
+    finish(controller, qt)
+    assert recipe._report
+    report = deepcopy(recipe._report)
+    expected = controller.imported[0].df.copy()
+    saved = tmp_path / "wine.mlcb"
+    controller.save_experiment(str(saved))
+    finish(controller, qt)
+    assert saved.is_file()
+    controller.navigate("data")
+    current = controller.imported
+
+    def broken_sample():
+        raise ValueError("Sample data unavailable")
+
+    monkeypatch.setitem(app.SAMPLE_DATASETS, "wine", (broken_sample, "Wine cultivars"))
+    page = controller.screen
+    next(action for action in page.sample_button.menu().actions() if action.data() == "wine").trigger()
+    finish(controller, qt)
+    assert controller.imported is current
+    assert "Sample data unavailable" in page.status.text()
+    assert open_recipe(controller, qt, "logistic-regression")._report == report
+
+    def forbid_analysis(*_args, **_kwargs):
+        pytest.fail("Opening a saved sample experiment must not run a recipe")
+
+    monkeypatch.setattr(app, "_run_report", forbid_analysis)
+    controller.open_experiment(str(saved))
+    finish(controller, qt)
+    assert controller.screen._report == json.loads(json.dumps(report))
+    assert not controller.screen.is_example
+    assert controller.screen.source["kind"] == "sample"
+    assert controller.screen.source["sample"] == "wine"
+    pd.testing.assert_frame_equal(controller.imported[0].df, expected)
+
+
 def test_sqlite_preview_handoff_run_save_and_offline_reopen(controller, qt, tmp_path, monkeypatch):
     path, expected = sql_data(tmp_path)
     assert controller.imported is None and controller.key == "data"

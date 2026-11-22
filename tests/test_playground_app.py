@@ -205,6 +205,7 @@ def test_navigation_restores_playground_scroll_after_layout(controller, qt, monk
     install_fake(monkeypatch)
     screen = open_playground(controller, qt)
     fetch_preview(controller, qt)
+    screen.customize_toggle.click()
     screen._column_toggles["usgs"].click()
     qt.processEvents()
     screen.scroll.verticalScrollBar().setValue(100)
@@ -213,6 +214,7 @@ def test_navigation_restores_playground_scroll_after_layout(controller, qt, monk
     controller.navigate("data")
     screen = open_playground(controller, qt)
     qt.processEvents()
+    assert screen.customize_panel.isVisible()
     assert screen.scroll.verticalScrollBar().value() == position
 
 
@@ -284,9 +286,12 @@ def test_cancellable_fetch_locks_routes_and_keeps_last_complete_preview(controll
         finish(controller, qt)
 
 
-def test_api_snapshot_reopens_offline_with_query_units_and_warning_provenance(controller, qt, monkeypatch, tmp_path):
+@pytest.mark.parametrize("preset", ["usgs", "world_bank", "nyc_trees"])
+def test_api_snapshot_reopens_offline_with_query_units_and_warning_provenance(controller, qt, monkeypatch, tmp_path, preset):
     calls = install_fake(monkeypatch)
     screen = open_playground(controller, qt)
+    screen._presets[preset][1].click()
+    assert not calls and controller.imported is None
     fetch_preview(controller, qt)
     screen.use_button.click()
     finish(controller, qt)
@@ -302,7 +307,7 @@ def test_api_snapshot_reopens_offline_with_query_units_and_warning_provenance(co
     finish(controller, qt)
     controller.open_experiment(str(saved))
     finish(controller, qt)
-    assert len(calls) == 1
+    assert len(calls) == 1 and calls[0][0] == preset
     pd.testing.assert_frame_equal(controller.screen.dataset.df, expected)
     assert controller.screen.source["kind"] == "api"
     assert controller.screen.source["gathering"] == source["gathering"]
@@ -342,8 +347,9 @@ def test_census_secret_is_transient_across_navigation_and_saved_experiment(contr
 
 
 @pytest.mark.parametrize("file_format", ["csv", "parquet"])
+@pytest.mark.parametrize("preset", ["usgs", "world_bank", "nyc_trees"])
 def test_download_saves_full_preview_without_refetch_or_replacing_active_data(
-        controller, qt, monkeypatch, tmp_path, file_format):
+        controller, qt, monkeypatch, tmp_path, file_format, preset):
     ordinary = seed_ordinary(controller, qt, tmp_path)
     recipe = open_recipe(controller, "linear-regression", qt)
     recipe.param_widgets["alpha"].setValue(2.5)
@@ -351,6 +357,7 @@ def test_download_saves_full_preview_without_refetch_or_replacing_active_data(
     directory = tmp_path / "data"
     monkeypatch.setattr(app, "_playground_data_dir", lambda: directory)
     screen = open_playground(controller, qt)
+    screen._presets[preset][1].click()
     preview = fetch_preview(controller, qt)
     sessions = dict(controller.sessions)
     screen.download_format.setCurrentIndex(screen.download_format.findData(file_format))
@@ -358,6 +365,7 @@ def test_download_saves_full_preview_without_refetch_or_replacing_active_data(
     finish(controller, qt)
     files = list(directory.glob(f"*/dataset.{file_format}"))
     assert len(files) == 1, screen._status_message
+    assert files[0].parent.name.startswith(f"{preset}-")
     loaded = pd.read_csv(files[0]) if file_format == "csv" else pd.read_parquet(files[0])
     assert len(loaded) == preview[2]["rows"] == 60
     assert len(calls) == 1 and controller.imported is ordinary

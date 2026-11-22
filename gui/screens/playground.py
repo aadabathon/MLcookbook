@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -85,28 +86,12 @@ class DataPlaygroundScreen(QWidget):
         self._limits: dict[str, QSpinBox] = {}
         self._columns: dict[str, QTableWidget] = {}
         self._column_toggles: dict[str, QPushButton] = {}
+        self._presets: dict[str, tuple[dict, QPushButton]] = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_LG, theme.SPACE_LG, theme.SPACE_MD)
         outer.setSpacing(theme.SPACE_SM)
         outer.addWidget(_label("Data playground", "PageTitle"))
-
-        source_row = QHBoxLayout()
-        source_label = QLabel("Source")
-        source_label.setObjectName("FieldLabel")
-        source_row.addWidget(source_label)
-        self.source_combo = QComboBox()
-        self.source_combo.setAccessibleName("Data source")
-        self.source_combo.setMinimumWidth(0)
-        self.source_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        for spec in self.specs:
-            self.source_combo.addItem(spec["title"], spec["key"])
-        source_label.setBuddy(self.source_combo)
-        source_row.addWidget(self.source_combo, stretch=1)
-        self.docs_button = QPushButton("Source documentation")
-        self.docs_button.clicked.connect(self._open_documentation)
-        source_row.addWidget(self.docs_button)
-        outer.addLayout(source_row)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -116,15 +101,54 @@ class DataPlaygroundScreen(QWidget):
         body = QVBoxLayout(self.content)
         body.setContentsMargins(0, theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_MD)
         body.setSpacing(theme.SPACE_SM)
+        self.preset_panel = self._make_presets()
+        body.addWidget(self.preset_panel)
+
+        customize_row = QHBoxLayout()
+        self.customize_toggle = QPushButton()
+        self.customize_toggle.setObjectName("SectionToggle")
+        self.customize_toggle.setCheckable(True)
+        self.customize_toggle.toggled.connect(self._toggle_customization)
+        customize_row.addWidget(self.customize_toggle)
+        self.selection = _label("", "HelpText")
+        customize_row.addWidget(self.selection, stretch=1)
+        body.addLayout(customize_row)
+
+        self.customize_panel = QWidget()
+        options = QVBoxLayout(self.customize_panel)
+        options.setContentsMargins(0, 0, 0, 0)
+        options.setSpacing(theme.SPACE_SM)
+        source_row = QHBoxLayout()
+        source_label = QLabel("Source")
+        source_label.setObjectName("FieldLabel")
+        source_row.addWidget(source_label)
+        self.source_combo = QComboBox()
+        self.source_combo.setAccessibleName("Data source")
+        self.source_combo.setMinimumWidth(0)
+        self.source_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        for spec in self.specs:
+            requires_key = any(field.get("secret") and field.get("required") for field in spec.get("fields", []))
+            title = spec["title"] + " (key required)" if requires_key else spec["title"]
+            self.source_combo.addItem(title, spec["key"])
+        source_label.setBuddy(self.source_combo)
+        source_row.addWidget(self.source_combo, stretch=1)
+        self.docs_button = QPushButton("Source documentation")
+        self.docs_button.clicked.connect(self._open_documentation)
+        source_row.addWidget(self.docs_button)
+        options.addLayout(source_row)
+
         self.description = _label("", "HelpText")
-        body.addWidget(self.description)
+        options.addWidget(self.description)
 
         self.query_panel = QStackedWidget()
         self.query_panel.setMinimumWidth(0)
         self.query_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for spec in self.specs:
             self.query_panel.addWidget(self._make_source_page(spec))
-        body.addWidget(self.query_panel)
+        options.addWidget(self.query_panel)
+        body.addWidget(self.customize_panel)
+        self.customize_toggle.setVisible(bool(self._presets))
+        self._toggle_customization(False)
 
         self.result_state = _label("Fetch a preview to inspect data from this source.", "ResultState")
         body.addWidget(self.result_state)
@@ -154,6 +178,7 @@ class DataPlaygroundScreen(QWidget):
         self.preview_table = _table()
         self.preview_table.setMinimumHeight(180)
         self.preview_table.setMaximumHeight(330)
+        self.preview_table.horizontalHeader().setDefaultSectionSize(125)
         self.preview_table.horizontalHeader().setStretchLastSection(True)
         preview.addWidget(self.preview_table)
         body.addWidget(self.preview_panel)
@@ -211,8 +236,12 @@ class DataPlaygroundScreen(QWidget):
         outer.addWidget(footer)
 
         self.source_combo.currentIndexChanged.connect(self._source_changed)
+        if self._presets:
+            key = next(iter(self._presets))
+            self._apply_query(key, self._presets[key][0])
+            self.source_combo.setCurrentIndex(self.source_combo.findData(key))
         self._restoring = False
-        self._source_changed(0)
+        self._source_changed(self.source_combo.currentIndex())
         self.set_preview(None)
 
     @property
@@ -236,6 +265,55 @@ class DataPlaygroundScreen(QWidget):
         if self.view is None:
             return False
         return self._forced_stale or self._safe_request() != self._preview_request
+
+    def _make_presets(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.SPACE_SM)
+        layout.addWidget(_label("Dataset presets", "SectionTitle"))
+        grid = QGridLayout()
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        for spec in self.specs:
+            preset = spec.get("preset")
+            if preset is None:
+                continue
+            query = {field["key"]: field["default"] for field in spec["fields"] if not field.get("secret")}
+            query.update(limit=spec["default_limit"], columns=spec["default_columns"])
+            query.update(preset["query"])
+            selected = set(query["columns"])
+            query["columns"] = [column["key"] for column in spec["columns"] if column["key"] in selected]
+            button = QPushButton(preset["title"])
+            button.setObjectName("PlaygroundPreset")
+            button.setCheckable(True)
+            button.setProperty("source_key", spec["key"])
+            button.clicked.connect(self._select_preset)
+            index = len(self._presets)
+            grid.addWidget(button, index // 2, index % 2)
+            self._presets[spec["key"]] = query, button
+        layout.addLayout(grid)
+        panel.setVisible(bool(self._presets))
+        return panel
+
+    @Slot()
+    def _select_preset(self) -> None:
+        if self._busy:
+            return
+        key = self.sender().property("source_key")
+        self._restoring = True
+        try:
+            self._apply_query(key, self._presets[key][0])
+            self.source_combo.setCurrentIndex(self.source_combo.findData(key))
+        finally:
+            self._restoring = False
+        self._source_changed(self.source_combo.currentIndex())
+
+    @Slot(bool)
+    def _toggle_customization(self, opened: bool) -> None:
+        self.customize_toggle.setText(("▾" if opened else "▸") + "  Customize query")
+        self.customize_panel.setVisible(opened or not self._presets)
+        self.selection.setVisible(bool(self._presets) and not opened)
 
     def _make_source_page(self, spec: dict) -> QWidget:
         page = QWidget()
@@ -479,6 +557,11 @@ class DataPlaygroundScreen(QWidget):
             self.set_status("Cancelling fetch…")
 
     def _update_preview_state(self) -> None:
+        if self._presets:
+            key, query = self._safe_request()
+            self.selection.setText(f"{self._specs[key]['title']} · up to {query['limit']:,} rows")
+            for source, (settings, button) in self._presets.items():
+                button.setChecked(source == key and settings == query)
         if self.view is None:
             self.result_state.setText("Fetch a preview to inspect data from this source.")
             self.result_state.show()
@@ -553,8 +636,9 @@ class DataPlaygroundScreen(QWidget):
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
-        self.source_combo.setEnabled(not busy)
-        self.query_panel.setEnabled(not busy)
+        self.preset_panel.setEnabled(not busy)
+        self.customize_toggle.setEnabled(not busy)
+        self.customize_panel.setEnabled(not busy)
         self.cancel_button.setVisible(busy and self._cancellable)
         self.cancel_button.setEnabled(busy and self._cancellable)
         self.progress.setVisible(busy)
@@ -577,8 +661,40 @@ class DataPlaygroundScreen(QWidget):
         return {"source": self.source_key,
                 "queries": {key: self._source_query(key, secrets=False) for key in self._specs},
                 "columns_expanded": {key: toggle.isChecked() for key, toggle in self._column_toggles.items()},
+                "customize_expanded": self.customize_toggle.isChecked(),
                 "scroll": self.scroll.verticalScrollBar().value(),
                 "preview_request": deepcopy(self._preview_request), "preview_stale": self.preview_stale}
+
+    def _apply_query(self, key: str, query: dict) -> None:
+        for field in self._specs[key].get("fields", []):
+            if field.get("secret") or field["key"] not in query:
+                continue
+            widget = self._fields[key][field["key"]]
+            value = query[field["key"]]
+            if isinstance(widget, QComboBox):
+                index = widget.findData(value)
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                widget.setValue(value)
+            elif isinstance(widget, QDateEdit):
+                parsed = QDate.fromString(value, Qt.DateFormat.ISODate)
+                if parsed.isValid():
+                    widget.setDate(parsed)
+            elif isinstance(widget, QCheckBox):
+                widget.setChecked(value)
+            else:
+                widget.setText(value)
+        if "limit" in query:
+            self._limits[key].setValue(query["limit"])
+        if "columns" in query:
+            selected = set(query["columns"])
+            table = self._columns[key]
+            for row in range(table.rowCount()):
+                item = table.item(row, 0)
+                item.setCheckState(Qt.CheckState.Checked if item.data(Qt.ItemDataRole.UserRole) in selected
+                                   else Qt.CheckState.Unchecked)
+        self._update_column_caption(key)
 
     def restore_session(self, state: dict) -> None:
         self._restoring = True
@@ -586,34 +702,7 @@ class DataPlaygroundScreen(QWidget):
             for key, query in state.get("queries", {}).items():
                 if key not in self._specs or not isinstance(query, dict):
                     continue
-                for field in self._specs[key].get("fields", []):
-                    if field.get("secret") or field["key"] not in query:
-                        continue
-                    widget = self._fields[key][field["key"]]
-                    value = query[field["key"]]
-                    if isinstance(widget, QComboBox):
-                        index = widget.findData(value)
-                        if index >= 0:
-                            widget.setCurrentIndex(index)
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(value)
-                    elif isinstance(widget, QDateEdit):
-                        date = QDate.fromString(value, Qt.DateFormat.ISODate)
-                        if date.isValid():
-                            widget.setDate(date)
-                    elif isinstance(widget, QCheckBox):
-                        widget.setChecked(value)
-                    else:
-                        widget.setText(value)
-                if "limit" in query:
-                    self._limits[key].setValue(query["limit"])
-                if "columns" in query:
-                    selected = set(query["columns"])
-                    table = self._columns[key]
-                    for row in range(table.rowCount()):
-                        item = table.item(row, 0)
-                        item.setCheckState(Qt.CheckState.Checked if item.data(Qt.ItemDataRole.UserRole) in selected
-                                           else Qt.CheckState.Unchecked)
+                self._apply_query(key, query)
                 opened = state.get("columns_expanded", {}).get(key, False)
                 self._column_toggles[key].setChecked(opened)
                 self._columns[key].setVisible(opened)
@@ -621,8 +710,8 @@ class DataPlaygroundScreen(QWidget):
             index = self.source_combo.findData(state.get("source"))
             if index >= 0:
                 self.source_combo.setCurrentIndex(index)
-            self.query_panel.setCurrentIndex(self.source_combo.currentIndex())
-            self.description.setText(self._specs[self.source_key].get("description", ""))
+            self._source_changed(self.source_combo.currentIndex())
+            self.customize_toggle.setChecked(state.get("customize_expanded", False))
             completed = state.get("preview_request")
             self._preview_request = (completed[0], deepcopy(completed[1])) if completed else None
             self._forced_stale = state.get("preview_stale", False)

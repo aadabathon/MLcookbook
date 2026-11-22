@@ -14,7 +14,7 @@ from mlcookbook._data_http import safe_url
 from mlcookbook.core.dataset import Dataset
 from mlcookbook.core.fingerprint import dataset_fingerprint
 
-_SOURCES = frozenset({"usgs", "food", "exoplanets", "census", "weather"})
+_SOURCES = frozenset({"usgs", "food", "exoplanets", "census", "weather", "world_bank", "nyc_trees"})
 _CREDENTIALS = frozenset({"key", "api_key", "token", "access_token"})
 
 

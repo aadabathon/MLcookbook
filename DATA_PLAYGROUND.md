@@ -1,18 +1,27 @@
 # Data playground
 
-Open **Data playground** in the sidebar to gather a small real dataset. Nothing
-is downloaded merely by opening the page or changing sources.
+Open **Data playground** in the sidebar. Pick a **Dataset preset**, then click
+**Fetch preview**. Selecting a preset fills in the source, filters, columns,
+and row limit. Fetching is an explicit action.
 
 The normal Windows build and existing shortcut use
 `dist/MLcookbook/MLcookbook.exe`. The initial review build is also retained at
 `dist/data-playground-preview/MLcookbook/MLcookbook.exe`. Rebuilding the normal
 bundle updates the shortcut's app; a source edit alone does not.
 
-1. Choose a source and set its query filters.
-2. Expand **Columns** to choose measurements, identifiers or text. Units and
-   source roles are shown beside the choices.
-3. Set **Maximum rows**, then **Fetch preview**. Work happens in a cancellable
-   background job; the rest of the app locks while the request runs.
+1. Choose one of the visible presets:
+   - **California earthquakes** loads events of magnitude 2.5 or higher in the
+     app's California bounding region from October through December 2024.
+   - **Exoplanet mass and radius** loads radial-velocity planets with both
+     measurements available, plus host star and orbital period.
+   - **Life expectancy and income** loads 2022 life expectancy, GDP per capita
+     and internet use by economy.
+   - **Street trees in Queens** loads up to 500 living trees with species,
+     trunk diameter and reported health.
+2. Expand **Customize query** to choose another source or change filters,
+   columns or **Maximum rows**. The **Columns** control lists units and source
+   roles. Census ACS is marked **key required** in the source picker.
+3. Click **Fetch preview**. The job runs in the background and can be cancelled.
 4. Inspect the first 20 rows, **Warnings** and **Source details**.
 5. Choose **Use dataset** to copy the complete fetched table into active data.
    Open **Data** to inspect its roles and quality checks, or choose a recipe.
@@ -53,11 +62,14 @@ a workspace file format.
 | [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/docs/TAP/usingTAP.html) | Discovery method, optional requirement for mass and radius | One confirmed planet per `pscomppars` row, with selected planetary and stellar measurements | Discovery selection, inferred/composite values and shared host stars affect interpretation. |
 | [Census ACS](https://www.census.gov/data/developers/guidance/api-user-guide.html) | 2019–2024 ACS five-year vintage, state, counties or tracts | Geographic identifiers, population, median age/income/home value/rent, housing and poverty counts | Areas are the observations. Margins of error are outside this curated import; overlapping vintages share years. |
 | [Open-Meteo](https://open-meteo.com/en/docs/historical-weather-api) | Latitude/longitude, start/end dates | Daily ERA5 temperature, precipitation, wind and optional other measurements; UTC boundaries | These are gridded historical estimates. Forecast claims require chronological evaluation beyond ordinary random-split recipes. |
+| [World Bank Indicators](https://datahelpdesk.worldbank.org/knowledgebase/articles/898581-api-basic-call-structures) | One year, selected World Development Indicators | One row per reported economy with life expectancy, GDP per capita, internet use or population | Regional and income-group aggregates are excluded. Missing estimates stay missing. |
+| [NYC Street Trees](https://data.cityofnewyork.us/Environment/2015-Street-Tree-Census-Tree-Data/uvpi-gqnh) | One borough or all boroughs, living trees | Tree and blockface IDs, species, trunk diameter in inches, borough and reported health | Health reflects observers' assessments during the 2015 census. Nearby trees may be related observations. |
 
-The maximum is 5,000 rows for most sources and 500 products for Food Facts.
+The maximum is 5,000 rows for most sources and 500 for Food Facts and World Bank.
 Truncation is explicit and preserves a documented order, rather than taking a
 random sample: event time, planet name, geographic ID, provider product popularity
-ranking or date. Product popularity favors frequently scanned products.
+ranking, date, economy code or tree record ID. Product popularity favors
+frequently scanned products.
 Food search pages are rate-spaced and can take longer than the other sources.
 Live source availability can change; source errors remain recoverable.
 
@@ -81,7 +93,7 @@ Census currently requires a [free API key](https://api.census.gov/data/key_signu
 for every query. Enter it into the password field before Fetch. Navigation
 clears it; it is excluded from saved controls, query identity, provenance and
 request URLs. A completed Census preview can still be used after the key has
-been cleared. The other four sources need no key for these queries; Open-Meteo's
+been cleared. The other six sources need no key for these queries; Open-Meteo's
 public service is for non-commercial use under its published limits.
 
 ## Reproducible snapshots
@@ -115,6 +127,6 @@ provenance = fetched.result.to_dict()
 
 `fetch_dataset` accepts optional `cancelled` and `progress` callbacks. It returns
 complete data and a frozen JSON-safe result separately. Standard-library HTTPS
-permits only the five source hosts, bounds response sizes/deadlines, and does not
+permits only the registered source hosts, bounds response sizes/deadlines, and does not
 follow redirects. No arbitrary URLs, new dependencies, scheduling or automatic
 analysis are added.

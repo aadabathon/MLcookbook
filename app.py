@@ -80,7 +80,7 @@ def _playground_data_dir() -> Path:
 
 
 # --- Default datasets ---------------------------------------------------------
-# Built-in datasets are loaded only after an explicit example action.
+# Built-in datasets are loaded only after choosing a sample or running an example.
 
 def _diabetes_frame():
     from sklearn.datasets import load_diabetes
@@ -120,19 +120,25 @@ def _prompt_frame():
     ]})
 
 
+SAMPLE_DATASETS = {
+    "diabetes": (_diabetes_frame, "Diabetes"),
+    "breast-cancer": (_breast_cancer_frame, "Breast cancer (Wisconsin)"),
+    "wine": (_wine_labeled_frame, "Wine cultivars"),
+}
+
 # key -> (frame factory, display name, target, positive class)
 DEMOS = {
     "llm": (_prompt_frame, "Example prompts", None, None),
-    "model-comparison": (_diabetes_frame, "Diabetes", "progression", None),
-    "linear-regression": (_diabetes_frame, "Diabetes", "progression", None),
-    "logistic-regression": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
-    "decision-tree": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
-    "random-forest": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
-    "svm": (_breast_cancer_frame, "Breast cancer (Wisconsin)", "diagnosis", "malignant"),
-    "neural-network": (_wine_labeled_frame, "Wine cultivars", "cultivar", None),
+    "model-comparison": (*SAMPLE_DATASETS["diabetes"], "progression", None),
+    "linear-regression": (*SAMPLE_DATASETS["diabetes"], "progression", None),
+    "logistic-regression": (*SAMPLE_DATASETS["breast-cancer"], "diagnosis", "malignant"),
+    "decision-tree": (*SAMPLE_DATASETS["breast-cancer"], "diagnosis", "malignant"),
+    "random-forest": (*SAMPLE_DATASETS["breast-cancer"], "diagnosis", "malignant"),
+    "svm": (*SAMPLE_DATASETS["breast-cancer"], "diagnosis", "malignant"),
+    "neural-network": (*SAMPLE_DATASETS["wine"], "cultivar", None),
     "kmeans": (_wine_frame, "Wine measurements", None, None),
     "pca": (_wine_frame, "Wine measurements", None, None),
-    "association-scan": (_breast_cancer_frame, "Breast cancer (Wisconsin)", None, None),
+    "association-scan": (*SAMPLE_DATASETS["breast-cancer"], None, None),
 }
 
 
@@ -1537,6 +1543,8 @@ class MLCookbookApp:
                             "Changes in Python do not replace this snapshot."])
         elif source.get("kind") == "api":
             details.extend(_gathering_source_lines(source))
+        elif source.get("kind") == "sample":
+            details.append("Bundled sample · scikit-learn")
         elif source.get("kind") == "kitchen_output":
             details.append(f"Kitchen output: {source['node_id']} · {source['port']}")
             details.append("Completed (UTC): " + source["completed_utc"])
@@ -1558,12 +1566,13 @@ class MLCookbookApp:
         if self.job is not None:
             return
         self._remember_screen()
-        page = DataScreen()
+        page = DataScreen(samples=tuple((key, name) for key, (_, name) in SAMPLE_DATASETS.items()))
         page.restore_import_options(self.data_options)
         page.set_dataset(self._workspace_view())
         page.set_status(self.data_status)
         page.load_requested.connect(self.load_file)
         page.sqlite_requested.connect(self.open_sqlite)
+        page.sample_requested.connect(self.load_sample_dataset)
         page.workflow_context_changed.connect(self.update_workflows)
         page.workflow_requested.connect(self.open_dataset_workflow)
         self.screen, self.key = page, "data"
@@ -3065,11 +3074,27 @@ class MLCookbookApp:
             return dataset, Path(path).name, view
         self._start_job(read, self._use_import, "Loading file...")
 
+    def load_sample_dataset(self, key):
+        if self.job is not None or not isinstance(self.screen, DataScreen) or key not in SAMPLE_DATASETS:
+            return
+        make_frame, name = SAMPLE_DATASETS[key]
+
+        def read():
+            _prepare_runtime()
+            from mlcookbook import Dataset
+
+            dataset = Dataset(make_frame())
+            view = _dataset_view(dataset, name, with_workflows=True)
+            view["source"] = {"kind": "sample", "sample": key, "provider": "scikit-learn"}
+            return dataset, name, view
+
+        self._start_job(read, self._use_import, f"Loading {name}…")
+
     def _use_import(self, loaded):
         self._runtime_initialized = True
         self.imported = loaded
         self.data_workflow_state = {}
-        self.data_status = "Dataset loaded. Choose an analysis below the preview."
+        self.data_status = "Dataset loaded. Choose an analysis."
         # A successful replacement invalidates every recipe's results, even for the same path.
         self._clear_sessions()
         self.workflow_discovery = deepcopy(loaded[2].get("workflows", {}))

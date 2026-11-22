@@ -1,6 +1,6 @@
 """Explicit, bounded public-data queries for the desktop Data playground.
 
-The five connectors produce typed Dataset snapshots and a separate JSON-safe
+The connectors produce typed Dataset snapshots and a separate JSON-safe
 provenance record. Importing this submodule performs no network work. No source
 is queried until fetch_dataset is explicitly called.
 """
@@ -52,6 +52,15 @@ _FOOD_NUTRIENTS = {
     "carbohydrates_100g": "carbohydrates_100g", "sugars_100g": "sugars_100g", "fiber_100g": "fiber_100g",
     "proteins_100g": "proteins_100g", "salt_100g": "salt_100g",
 }
+_WORLD_BANK_INDICATORS = {
+    "life_expectancy": "SP.DYN.LE00.IN", "gdp_per_capita": "NY.GDP.PCAP.CD",
+    "internet_use": "IT.NET.USER.ZS", "population": "SP.POP.TOTL",
+}
+_NYC_BOROUGHS = ("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
+_NYC_TREE_FIELDS = {
+    "tree_id": "tree_id", "block_id": "block_id", "borough": "boroname",
+    "species": "spc_common", "diameter_in": "tree_dbh", "health": "health",
+}
 _FOOD_LOCK = threading.Lock()
 _FOOD_NEXT_REQUEST = 0.0
 _FOOD_INTERVAL = 6.1  # Official search budget: ten requests per minute per IP.
@@ -91,6 +100,10 @@ def source_specs() -> list[dict]:
                 _column("status", "Review status", role="categorical"),
             ],
             "default_columns": ["event_id", "time", "latitude", "longitude", "depth_km", "magnitude", "magnitude_type", "place"],
+            "preset": {"title": "California earthquakes",
+                       "query": {"region": "california", "start_date": "2024-10-01", "end_date": "2024-12-31",
+                                 "min_magnitude": 2.5,
+                                 "columns": ["event_id", "time", "latitude", "longitude", "depth_km", "magnitude"]}},
         },
         {
             "key": "food", "title": "Open Food Facts",
@@ -136,6 +149,9 @@ def source_specs() -> list[dict]:
                 _column("st_rad", "Stellar radius", "solar radii"), _column("sy_dist", "Distance", "pc"),
             ],
             "default_columns": ["pl_name", "hostname", "discoverymethod", "pl_bmasse", "pl_rade", "pl_orbper", "st_teff", "st_mass"],
+            "preset": {"title": "Exoplanet mass and radius",
+                       "query": {"discovery_method": "Radial Velocity", "complete_only": True, "limit": 200,
+                                 "columns": ["pl_name", "hostname", "pl_bmasse", "pl_rade", "pl_orbper"]}},
         },
         {
             "key": "census", "title": "Census ACS",
@@ -186,6 +202,41 @@ def source_specs() -> list[dict]:
             "default_columns": ["date", "temperature_2m_mean", "temperature_2m_max", "temperature_2m_min",
                                 "precipitation_sum", "wind_speed_10m_max"],
         },
+        {
+            "key": "world_bank", "title": "World Bank Indicators",
+            "description": "Annual World Development Indicators by economy.",
+            "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/898581-api-basic-call-structures",
+            "fields": [{"key": "year", "label": "Year", "kind": "int", "default": 2022,
+                        "min": 1960, "max": date.today().year - 1}],
+            "columns": [
+                _column("economy_code", "Economy code", role="unsupported"),
+                _column("economy", "Economy", role="text"), _column("year", "Year"),
+                _column("life_expectancy", "Life expectancy at birth", "years"),
+                _column("gdp_per_capita", "GDP per capita", "current USD"),
+                _column("internet_use", "Individuals using the internet", "% of population"),
+                _column("population", "Population", "people"),
+            ],
+            "default_columns": ["economy_code", "economy", "year", "life_expectancy", "gdp_per_capita", "internet_use"],
+            "max_limit": 500,
+            "preset": {"title": "Life expectancy and income", "query": {}},
+        },
+        {
+            "key": "nyc_trees", "title": "NYC Street Trees",
+            "description": "Living street trees recorded in NYC's 2015 census.",
+            "url": "https://data.cityofnewyork.us/Environment/2015-Street-Tree-Census-Tree-Data/uvpi-gqnh",
+            "fields": [{"key": "borough", "label": "Borough", "kind": "choice", "default": "Queens",
+                        "options": [("All boroughs", "all"), *((name, name) for name in _NYC_BOROUGHS)]}],
+            "columns": [
+                _column("tree_id", "Tree record ID", role="unsupported"),
+                _column("block_id", "Blockface ID", role="unsupported"),
+                _column("borough", "Borough", role="categorical"),
+                _column("species", "Species (common name)", role="categorical"),
+                _column("diameter_in", "Trunk diameter", "in"),
+                _column("health", "Reported health", role="categorical"),
+            ],
+            "default_columns": ["tree_id", "block_id", "borough", "species", "diameter_in", "health"],
+            "preset": {"title": "Street trees in Queens", "query": {}},
+        },
     ]
     for spec in sources:
         spec.setdefault("max_limit", 5000)
@@ -218,7 +269,7 @@ class GatheredDataset:
 def _validate(source, query):
     specs = {spec["key"]: spec for spec in source_specs()}
     if source not in specs:
-        raise ValueError("Choose one of the five supported data sources.")
+        raise ValueError("Choose a supported data source.")
     if not isinstance(query, dict):
         raise TypeError("A data query must be a dictionary.")
     spec = specs[source]
@@ -235,7 +286,10 @@ def _validate(source, query):
         elif kind == "bool":
             if not isinstance(value, bool):
                 raise ValueError(f"{field_spec['label']} must be true or false.")
-        elif kind in ("int", "float"):
+        elif kind == "int":
+            if type(value) is not int or not field_spec["min"] <= value <= field_spec["max"]:
+                raise ValueError(f"Choose an integer {field_spec['label'].lower()} in the supported range.")
+        elif kind == "float":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{field_spec['label']} must be a finite number.")
             if not field_spec["min"] <= value <= field_spec["max"]:
@@ -496,7 +550,8 @@ def _weather(query, urls, warnings, cancelled, progress, deadline):
     stamps = daily.get("time")
     if not isinstance(stamps, list) or len(stamps) > query["limit"] + 1:
         raise ValueError("Open-Meteo returned an invalid daily date list.")
-    expected_units = {column["key"]: column["unit"] for column in source_specs()[-1]["columns"]}
+    weather_columns = next(spec["columns"] for spec in source_specs() if spec["key"] == "weather")
+    expected_units = {column["key"]: column["unit"] for column in weather_columns}
     for column in measurements:
         if not isinstance(daily.get(column), list) or len(daily[column]) != len(stamps):
             raise ValueError("Open-Meteo returned weather arrays with inconsistent lengths.")
@@ -512,6 +567,106 @@ def _weather(query, urls, warnings, cancelled, progress, deadline):
     warnings.append("ERA5 reanalysis supplies gridded historical estimates, not direct observations at the exact coordinate. Daily boundaries use UTC; time-series forecasting needs chronological evaluation.")
     warnings.append("Weather data attribution: Open-Meteo and ECMWF ERA5 (CC BY 4.0).")
     return rows[:query["limit"]], (end - start).days + 1 > query["limit"]
+
+
+def _world_bank_table(raw, capacity):
+    if not isinstance(raw, list) or len(raw) != 2 or not isinstance(raw[0], dict):
+        raise ValueError("World Bank returned an invalid response; try another year or fetch again.")
+    page, items = raw
+    rows = [] if items is None else _objects(items, "World Bank")
+    if (str(page.get("page")) != "1" or str(page.get("pages")) not in ({"1"} if rows else {"0", "1"})
+            or str(page.get("total")) != str(len(rows)) or len(rows) > capacity):
+        raise ValueError("World Bank returned an incomplete or oversized table; the previous preview is preserved.")
+    return rows
+
+
+def _world_bank(query, urls, warnings, cancelled, progress, deadline):
+    base = "https://api.worldbank.org/v2/country"
+    catalog = _world_bank_table(_get(_url(base, {"format": "json", "per_page": 500}), urls, cancelled, deadline), 500)
+    economies, short_codes = {}, {}
+    for entry in catalog:
+        check_cancelled(cancelled, deadline)
+        code, short, name, region = (entry.get(key) for key in ("id", "iso2Code", "name", "region"))
+        if (not all(isinstance(value, str) and value for value in (code, short, name))
+                or not isinstance(region, dict) or not isinstance(region.get("id"), str)
+                or code in economies or short in short_codes):
+            raise ValueError("World Bank returned invalid or duplicate economy metadata.")
+        is_aggregate = region["id"] == "NA" or region.get("value") == "Aggregates"
+        economies[code] = (name, is_aggregate)
+        short_codes[short] = code
+    if not economies:
+        raise ValueError("World Bank returned an empty economy catalog.")
+
+    names = [key for key in query["columns"] if key in _WORLD_BANK_INDICATORS] or ["life_expectancy"]
+    indicators = {_WORLD_BANK_INDICATORS[key]: key for key in names}
+    year = str(query["year"])
+    capacity = 500 * len(indicators)
+    endpoint = base + "/all/indicator/" + ";".join(indicators)
+    parameters = {"date": year, "source": 2, "format": "json", "per_page": capacity}
+    observations = _world_bank_table(_get(_url(endpoint, parameters), urls, cancelled, deadline), capacity)
+    rows = {}
+    for item in observations:
+        check_cancelled(cancelled, deadline)
+        indicator, country = item.get("indicator"), item.get("country")
+        measure = indicators.get(indicator["id"]) if isinstance(indicator, dict) and isinstance(indicator.get("id"), str) else None
+        code = item.get("countryiso3code")
+        if code == "" and isinstance(country, dict) and isinstance(country.get("id"), str):
+            code = short_codes.get(country["id"])
+        if not isinstance(code, str) or code not in economies or measure is None or item.get("date") != year or "value" not in item:
+            raise ValueError("World Bank returned an observation outside the requested economies, year, or indicators.")
+        name, is_aggregate = economies[code]
+        if is_aggregate:
+            continue
+        row = rows.setdefault(code, {"economy_code": code, "economy": name, "year": query["year"]})
+        if measure in row:
+            raise ValueError("World Bank returned duplicate observations for one economy and indicator.")
+        row[measure] = item["value"]
+
+    warnings.append("World Development Indicators (World Bank). Regional and income-group aggregates are excluded. "
+                    "Missing measurements stay missing; cross-economy associations do not establish causation.")
+    warnings.append("Retrieval order: economy code ascending.")
+    return [rows[code] for code in sorted(rows)[:query["limit"]]], len(rows) > query["limit"]
+
+
+def _nyc_tree_identifier(value):
+    if isinstance(value, (str, int)) and re.fullmatch(r"[0-9]{1,12}", str(value)):
+        return str(value)
+    raise ValueError("NYC Open Data returned an invalid tree or blockface identifier.")
+
+
+def _nyc_trees(query, urls, warnings, cancelled, progress, deadline):
+    columns = {key: _NYC_TREE_FIELDS[key] for key in query["columns"]}
+    fields = dict.fromkeys(["tree_id", "boroname", "status", *columns.values()])
+    borough = query["borough"]
+    where = "status = 'Alive'"
+    if borough != "all":
+        # The borough is validated against the fixed choices in source_specs.
+        where += f" AND boroname = '{borough}'"
+    limit = query["limit"]
+    params = {"$select": ",".join(fields), "$where": where, "$order": "tree_id ASC", "$limit": limit + 1}
+    endpoint = "https://data.cityofnewyork.us/resource/uvpi-gqnh.json"
+    items = _objects(_get(_url(endpoint, params), urls, cancelled, deadline), "NYC Open Data")
+    if len(items) > limit + 1:
+        raise ValueError("NYC Open Data returned more trees than requested.")
+
+    rows, previous = [], -1
+    for item in items:
+        check_cancelled(cancelled, deadline)
+        code = _nyc_tree_identifier(item.get("tree_id"))
+        if (int(code) <= previous or item.get("status") != "Alive" or item.get("boroname") not in _NYC_BOROUGHS
+                or (borough != "all" and item["boroname"] != borough)):
+            raise ValueError("NYC Open Data returned unordered, duplicate, or out-of-filter tree records.")
+        previous = int(code)
+        row = {key: item.get(field) for key, field in columns.items()}
+        if "tree_id" in row:
+            row["tree_id"] = code
+        if row.get("block_id") is not None:
+            row["block_id"] = _nyc_tree_identifier(row["block_id"])
+        rows.append(row)
+    warnings.append("TreesCount! 2015 Street Tree Census (NYC Parks). Health was assessed by observers. "
+                    "Nearby trees can be related observations, and the snapshot describes the survey period.")
+    warnings.append("Retrieval order: tree record ID ascending.")
+    return rows[:limit], len(rows) > limit
 
 
 def _typed_frame(rows, spec, columns, warnings):
@@ -567,7 +722,8 @@ def fetch_dataset(source: str, query: dict, *, cancelled=None, progress=None) ->
     urls, warnings = [], []
     if progress is not None:
         progress(f"Fetching {spec['title']}…")
-    functions = {"usgs": _usgs, "food": _food, "exoplanets": _exoplanets, "census": _census, "weather": _weather}
+    functions = {"usgs": _usgs, "food": _food, "exoplanets": _exoplanets, "census": _census, "weather": _weather,
+                 "world_bank": _world_bank, "nyc_trees": _nyc_trees}
     rows, truncated = functions[source](values, urls, warnings, cancelled, progress, monotonic() + 120.0)
     check_cancelled(cancelled)
     if not rows:

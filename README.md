@@ -170,19 +170,23 @@ Copy the shape of an existing one:
 
 The completed [UI roadmap](UI_ROADMAP.md) provides a persistent sidebar with
 **Data** first, alongside **Data playground**, **Recipes**, **Kitchen**,
-**Local LLMs**, **Research** and **Programming**. The app opens
-on Data: import CSV/Parquet or query SQLite, inspect the preview, source roles,
-missing values and data checks, then choose a workflow. The sidebar identifies
-the active dataset; each recipe also identifies its own input. Typed prompts and
-fixed-group movement studies retain their separate input context.
+**Local LLMs**, **Research** and **Programming**. The app opens on **Data**, where
+you can import CSV/Parquet, query SQLite, or pick an offline sample dataset.
+Inspect the preview, source roles, missing values and data checks, then choose
+a workflow. The sidebar identifies the active dataset. Each recipe shows the
+input it will use, including typed prompts in Local LLMs.
+
+**Sample datasets** loads Diabetes, Wisconsin Breast Cancer, or Wine Cultivars
+as the active dataset. Choose a workflow and run it with your own settings.
+Saving an experiment embeds the sample rows for offline reopening.
 
 Data shows source roles read-only. Adjust role overrides inside each recipe; those edits remain scoped to that analysis and its saved experiment. Navigation restores unrun edits and completed reports without retraining. A failed import preserves the active data and recipe sessions; a successful replacement invalidates prior recipe results. Opening a saved experiment with ordinary data makes its embedded snapshot active. Data's CSV options persist separately from recipe controls.
 
-**[Data playground](DATA_PLAYGROUND.md)** fetches USGS earthquakes, Open Food Facts products, NASA exoplanets, Census ACS areas and Open-Meteo daily historical weather. Choose a source, filters, columns and maximum rows, then **Fetch preview**. Review the returned values, warnings and source details before **Use dataset** makes a copy active for recipes. Opening the page, changing sources and restoring its in-memory controls never contact an API. Fetch failures/cancellation retain the last completed preview and active data. Query edits mark a preview stale until the settings match again or a new fetch succeeds. Kitchen still captures active data explicitly.
+**[Data playground](DATA_PLAYGROUND.md)** opens with presets for California earthquakes, exoplanet mass and radius, World Bank life expectancy and income, and street trees in Queens. Pick a preset and **Fetch preview**. **Customize query** also gives access to Open Food Facts, Census ACS and Open-Meteo. Review the values, warnings and source details before **Use dataset** makes a copy active for recipes. Browsing presets or changing filters never contacts an API. Failed or cancelled fetches keep the last preview and active data. Query edits mark the preview stale until the settings match or a new fetch succeeds.
 
 **Download dataset** saves the full fetched table as CSV or typed Parquet into the repository's ignored `data/` folder, with a `source.json` provenance sidecar. Each explicit download gets a separate capture folder; it never fetches again or changes active data. Downloads require a completed preview matching the current query.
 
-Source/query, retrieval time, units, roles, warnings and the fetched-data fingerprint follow accepted data into recipe experiments and explicit Kitchen snapshots. Saved experiments reopen their complete typed data offline, without repeating API calls. Census requires a free API key, entered transiently and excluded from navigation state, saved metadata and displayed request URLs. All sources use bounded standard-library HTTPS; no dependency was added. Most sources allow up to 5,000 rows; Food Facts is limited to 500 products and its search requests are spaced to respect the provider's rate limit. Weather data are daily ERA5 estimates in UTC; chronological/grouped evaluation remains a separate choice beyond ordinary recipe row splits.
+Source/query, retrieval time, units, roles, warnings and the fetched-data fingerprint follow accepted data into recipe experiments and explicit Kitchen snapshots. Saved experiments reopen their complete typed data offline, without repeating API calls. Census requires a free API key, entered transiently and excluded from navigation state, saved metadata and displayed request URLs. All sources use bounded standard-library HTTPS. Most sources allow up to 5,000 rows; Food Facts and World Bank are limited to 500. Food Facts requests are spaced to respect the provider's rate limit. Weather data are daily ERA5 estimates in UTC; chronological/grouped evaluation remains a separate choice beyond ordinary recipe row splits.
 
 Opening a recipe never constructs a preset or runs an analysis. It restores your last view or waits for data and settings. **Run example** explicitly loads and runs a bundled dataset in the background. Afterward, **View example** restores that example's settings/results without rerunning, so even invalid unrun edits can be reopened and repaired. **Use my data** restores the recipe's own-data results and unrun edits. Examples stay separate from the active dataset; saved examples reopen offline without becoming ordinary input. Typed LLM prompts work without imported rows; row and structured workflows require a dataset.
 

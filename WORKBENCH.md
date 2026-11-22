@@ -1,8 +1,11 @@
 # Dataset-first workbench
 
-Start on **Data** with your own table. CSV, Parquet and read-only SQLite query
-results become independent in-memory snapshots. The schema and selected inputs
-determine the existing analyses available in **Analyze this dataset**.
+Start on **Data** with your own table or choose **Sample datasets** to load
+Diabetes, Wisconsin Breast Cancer, or Wine Cultivars offline. Both imported
+tables and bundled samples become active snapshots. The schema and selected
+inputs determine the analyses available in **Analyze this dataset**. Choose a
+recipe and run it explicitly. Use **Save experiment…** to keep the rows and
+recipe settings together.
 
 ## Open a SQLite dataset
 

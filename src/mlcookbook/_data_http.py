@@ -1,4 +1,4 @@
-"""Bounded HTTPS reads for the five explicit Data playground sources.
+"""Bounded HTTPS reads for the explicit Data playground sources.
 
 This is intentionally independent of the local-inference loopback transport.
 There are no arbitrary hosts, redirects, proxies or credential-bearing errors.
@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 ALLOWED_HOSTS = frozenset({
     "earthquake.usgs.gov", "world.openfoodfacts.org", "exoplanetarchive.ipac.caltech.edu",
     "api.census.gov", "archive-api.open-meteo.com",
+    "api.worldbank.org", "data.cityofnewyork.us",
 })
 MAX_BYTES = 12 * 1024 * 1024
 

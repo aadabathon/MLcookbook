@@ -91,6 +91,52 @@ def _view(screen):
             "playground_request": {"source": source, "query": query}}
 
 
+def test_presets_are_visible_and_change_settings_without_fetching(qt):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    from gui.screens.playground import DataPlaygroundScreen
+    from mlcookbook.gathering import source_specs
+
+    screen = DataPlaygroundScreen(source_specs())
+    screen.resize(550, 620)
+    screen.show()
+    qt.processEvents()
+    fetched, changes = [], []
+    screen.fetch_requested.connect(lambda *args: fetched.append(args))
+    screen.configuration_changed.connect(lambda: changes.append(screen.request()))
+    try:
+        assert screen._presets["usgs"][1].isChecked() and not screen.customize_panel.isVisible()
+        assert all(button.isVisible() for _, button in screen._presets.values())
+        assert all(button.geometry().right() < screen.preset_panel.width() for _, button in screen._presets.values())
+        assert screen.request()[1]["region"] == "california"
+        screen.set_preview(_view(screen))
+        screen._presets["world_bank"][1].click()
+        assert screen.preview_stale and not screen.use_button.isEnabled()
+        assert screen.request()[1]["year"] == 2022
+        assert screen._presets["world_bank"][1].isChecked()
+        assert len(changes) == 1 and not fetched
+
+        screen.customize_toggle.click()
+        assert screen.customize_panel.isVisible()
+        screen.field_widgets["year"].setValue(2021)
+        assert not screen._presets["world_bank"][1].isChecked()
+        assert screen.source_combo.itemText(screen.source_combo.findData("census")).endswith("(key required)")
+        screen._presets["usgs"][1].click()
+        assert screen.use_button.isEnabled() and not screen.preview_stale
+        screen._presets["nyc_trees"][1].click()
+        assert screen.request()[1]["borough"] == "Queens"
+        screen.set_busy(True)
+        assert all(not button.isEnabled() for _, button in screen._presets.values())
+        assert not screen.customize_toggle.isEnabled()
+        screen.set_busy(False)
+        screen.fetch_button.click()
+        assert fetched == [screen.request()]
+    finally:
+        screen.close()
+        screen.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def test_only_explicit_fetch_and_use_emit_requests(screen):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QAbstractItemView

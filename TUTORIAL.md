@@ -8,7 +8,7 @@ The existing Windows shortcut opens the restored black/violet UI at `dist/MLcook
 
 ## Start with your data
 
-1. Launch the sidebar preview or source app. **Data** opens first. Click **Open CSV / Parquet…**; expand **CSV import options** first if you need another delimiter, encoding or extra missing markers.
+1. Launch the sidebar preview or source app. **Data** opens first. Choose **Sample datasets** to load Diabetes, Wisconsin Breast Cancer, or Wine Cultivars offline. For your own file, choose **Open CSV / Parquet…** and expand **CSV import options** if you need another delimiter, encoding or extra missing markers.
 2. Review the preview, **Data checks**, source path/snapshot identity and **Columns and source roles**. Roles here are read-only; they describe statistical meaning and do not convert values.
 3. Click **Recipes**, then choose an analysis. It receives the active dataset and waits for your target/features and **Run Analysis**. No example is constructed for this visit.
 4. Adjust roles within that recipe if needed. Returning through **Data** or another recipe preserves its unrun choices and previous results; the Data page continues to show the original source roles.
